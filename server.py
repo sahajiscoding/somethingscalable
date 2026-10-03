@@ -71,6 +71,11 @@ APP_SECRET = os.environ.get("APP_SECRET", "").strip()
 _INDEX_HTML = _BASE_DIR / "index.html"
 _SECRET_TOKEN = "__VERCEL_APP_SECRET__"
 
+# React + Tailwind frontend (frontend/dist). When the Vite build exists it is
+# served as the whole website; otherwise the legacy static index.html is used.
+_DIST_DIR = _BASE_DIR / "frontend" / "dist"
+_DIST_INDEX = _DIST_DIR / "index.html"
+
 
 @app.before_request
 def _guard_api():
@@ -137,10 +142,27 @@ def index():
     # The page carries APP_SECRET (when set) so the same-origin frontend can
     # attach it to /api calls — direct API abuse without loading the page
     # stays locked out while the app keeps working for real users.
-    html = _INDEX_HTML.read_text(encoding="utf-8")
+    page = _DIST_INDEX if _DIST_INDEX.exists() else _INDEX_HTML
+    html = page.read_text(encoding="utf-8")
     if _SECRET_TOKEN in html:
         html = html.replace(_SECRET_TOKEN, _js_escape(APP_SECRET))
     return Response(html, mimetype="text/html")
+
+
+@app.get("/assets/<path:filename>")
+def frontend_assets(filename: str):
+    # Hashed Vite bundles for the React frontend (long-cacheable).
+    safe = Path(filename).name and filename.replace("\\", "/")
+    path = _DIST_DIR / "assets" / Path(*safe.split("/"))
+    try:
+        resolved = path.resolve()
+        if _DIST_DIR.resolve() not in resolved.parents or not resolved.is_file():
+            return jsonify({"error": "Not found."}), 404
+    except (OSError, ValueError):
+        return jsonify({"error": "Not found."}), 404
+    mimetype = "text/javascript" if resolved.suffix == ".js" else "text/css" if resolved.suffix == ".css" else "application/octet-stream"
+    return Response(resolved.read_bytes(), mimetype=mimetype,
+                    headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +217,17 @@ def favicon_svg():
 def favicon_ico():
     # No .ico asset — browsers accept the SVG here.
     return _site_file(*_SITE_FILES["favicon.svg"])
+
+
+@app.get("/patternwaves-bg.js")
+def patternwaves_js():
+    # Vanilla-JS port of the React Bits PatternWaves component (ES module,
+    # imports ogl from CDN). Served here so local dev and Vercel behave the same.
+    path = _BASE_DIR / "patternwaves-bg.js"
+    if not path.exists():
+        return jsonify({"error": "Not found."}), 404
+    return Response(path.read_bytes(), mimetype="text/javascript",
+                    headers={"Cache-Control": "public, max-age=3600"})
 
 
 @app.get("/robots.txt")

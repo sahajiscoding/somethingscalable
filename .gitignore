@@ -28,3 +28,8 @@ sample_test_data/*/output/
 .idea/
 .DS_Store
 Thumbs.db
+
+# React frontend workspace (Vite + Tailwind)
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/

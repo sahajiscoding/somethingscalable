@@ -12,3 +12,4 @@ gcm-diagnose.log
 .env.*
 .vscode/
 .idea/
+frontend/node_modules/
