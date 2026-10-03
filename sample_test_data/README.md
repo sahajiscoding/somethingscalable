@@ -1,6 +1,6 @@
 # sample_test_data
 
-Drop-in directory for **real-world end-to-end tests** of the Exam Checker
+Drop-in directory for **real-world end-to-end tests** of the WeHelpTeachers
 pipeline. Each *sub-folder* is one grading session (one student).
 
 ```

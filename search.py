@@ -1,4 +1,4 @@
-"""Web answer-key retrieval for Exam Checker.
+"""Web answer-key retrieval for WeHelpTeachers.
 
 When no answer key is uploaded, the pipeline can instead fetch expected
 answers from the web.  For each question it:
@@ -159,7 +159,7 @@ class DuckDuckGoBackend(SearchBackend):
         url = f"{self._endpoint}?{params}"
         req = urllib.request.Request(
             url,
-            headers={"User-Agent": "exam-checker/1.0"},
+            headers={"User-Agent": "wehelpteachers/1.0"},
         )
         try:
             with urllib.request.urlopen(req, timeout=SEARCH_TIMEOUT) as resp:

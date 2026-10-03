@@ -1,12 +1,12 @@
 {
-  "name": "Exam Checker — AI Answer Sheet Grading",
-  "short_name": "Exam Checker",
+  "name": "WeHelpTeachers — AI Answer Sheet Grading",
+  "short_name": "WeHelpTeachers",
   "description": "Upload a question paper, answer key and student answer sheet, then run an AI evaluation with strict mode and penalty criteria.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#363737",
-  "theme_color": "#363737",
+  "background_color": "#000000",
+  "theme_color": "#000000",
   "icons": [
     {
       "src": "/favicon.svg",

@@ -1,7 +1,7 @@
 [project]
 name = "somethingscalable"
 version = "1.0.0"
-description = "Exam Checker - AI answer sheet grading (Flask server + serverless API)"
+description = "WeHelpTeachers - AI answer sheet grading (Flask server + serverless API)"
 requires-python = ">=3.12"
 # Runtime deps for the Flask server (server.py) and the Vercel function.
 # Keys are NEVER listed here — they come from the environment only.

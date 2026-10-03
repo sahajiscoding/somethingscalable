@@ -121,15 +121,15 @@ export default function App() {
             type="button"
             onClick={() => navigate('home')}
             className="flex flex-none cursor-pointer items-center gap-2.5 border-none bg-transparent py-1 pr-2 pl-1 text-left text-white"
-            aria-label="Exam Checker home"
+            aria-label="WeHelpTeachers home"
           >
             <span
               aria-hidden="true"
               className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-pine to-[#3b7a53] text-sm font-extrabold text-[#0f1a13]"
             >
-              EC
+              WH
             </span>
-            <span className="hidden text-[15px] font-bold tracking-tight whitespace-nowrap lg:block">Exam Checker</span>
+            <span className="hidden text-[15px] font-bold tracking-tight whitespace-nowrap lg:block">WeHelpTeachers</span>
           </button>
           <span aria-hidden="true" className="h-6 w-px flex-none bg-white/10" />
           <div role="tablist" className="flex items-center gap-1">
@@ -206,7 +206,7 @@ export default function App() {
         </main>
 
         <footer className="mt-8 border-t border-white/10 pt-4 text-center text-xs text-white/45">
-          Exam Checker — offline demo runs fully in your browser. With <b>live AI grading</b> on, documents are sent
+          WeHelpTeachers — offline demo runs fully in your browser. With <b>live AI grading</b> on, documents are sent
           to your own deployment&apos;s <code>/api</code> (extract → grade) and on to NVIDIA&apos;s API. API keys stay
           on the server and are never hardcoded.
         </footer>

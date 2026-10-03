@@ -1,6 +1,6 @@
-# Exam Checker
+# WeHelpTeachers
 
-Exam Checker is an AI-powered grading app for student answer sheets. Upload a
+WeHelpTeachers is an AI-powered grading app for student answer sheets. Upload a
 question paper, the official answer key / rubric, and a student's answer sheet
 (scan or photo of handwriting), pick strict mode and penalty criteria, and get
 a scoreboard plus a question-by-question report (target vs student answer,

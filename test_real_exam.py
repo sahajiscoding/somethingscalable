@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real-world end-to-end test runner for Exam Checker.
+"""Real-world end-to-end test runner for WeHelpTeachers.
 
 Discovers grading sessions (question paper + answer key + student sheet)
 under ``sample_test_data/``, runs the full pipeline on each one, writes
@@ -46,7 +46,7 @@ REQUIRED_QUESTION_FIELDS = (
     "marks_awarded", "feedback", "deductions",
 )
 MARKDOWN_SECTIONS = (
-    "# Exam Checker - Grading Report",
+    "# WeHelpTeachers - Grading Report",
     "## Summary",
     "## Question-by-question breakdown",
     "## Detailed feedback",
@@ -299,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
                   file=sys.stderr)
             return 2
 
-    print(f"Exam Checker - real exam test runner")
+    print(f"WeHelpTeachers - real exam test runner")
     print(f"  data dir : {data_dir}")
     print(f"  engine   : {'mock (offline)' if args.mock else 'gemini'}")
     print(f"  cases    : {len(cases)}\n")

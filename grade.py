@@ -1,4 +1,4 @@
-"""Grading logic for Exam Checker.
+"""Grading logic for WeHelpTeachers.
 
 Compares each aligned ``Student Answer`` against the ``Answer Key`` using
 the context and point values from the ``Question Paper``:

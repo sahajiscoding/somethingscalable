@@ -1,4 +1,4 @@
-"""Report writers for Exam Checker (JSON + Markdown).
+"""Report writers for WeHelpTeachers (JSON + Markdown).
 
 ``build_report`` assembles the canonical document; ``write_json`` /
 ``render_markdown`` / ``write_markdown`` serialise it.  Both formats carry
@@ -53,7 +53,7 @@ def render_markdown(report: dict) -> str:
     lines: list[str] = []
     add = lines.append
 
-    add("# Exam Checker - Grading Report")
+    add("# WeHelpTeachers - Grading Report")
     add("")
     add(f"- **Generated:** {report['generated_at']}")
     add(f"- **Engine:** {report['engine']} (`{report['model']}`)")

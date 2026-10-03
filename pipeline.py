@@ -1,4 +1,4 @@
-"""End-to-end grading session for Exam Checker.
+"""End-to-end grading session for WeHelpTeachers.
 
 One call runs the whole pipeline for a single student:
 

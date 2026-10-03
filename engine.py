@@ -1,4 +1,4 @@
-"""LLM engines for Exam Checker.
+"""LLM engines for WeHelpTeachers.
 
 Three interchangeable engines expose the same interface:
 

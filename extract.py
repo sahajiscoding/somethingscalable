@@ -1,4 +1,4 @@
-"""OCR / vision extraction for Exam Checker.
+"""OCR / vision extraction for WeHelpTeachers.
 
 Turns the three raw documents into structured, question-mapped data:
 

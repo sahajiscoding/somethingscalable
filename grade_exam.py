@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exam Checker CLI - grade one student against a question paper + answer key.
+"""WeHelpTeachers CLI - grade one student against a question paper + answer key.
 
 Examples:
     export GEMINI_API_KEY=...
@@ -84,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  • {message}", flush=True)
 
     if not args.quiet:
-        print("Exam Checker - grading session")
+        print("WeHelpTeachers - grading session")
 
     try:
         result = run_session(

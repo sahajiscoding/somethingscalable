@@ -1,4 +1,4 @@
-"""📝 Exam Checker - Streamlit UI
+"""📝 WeHelpTeachers - Streamlit UI
 
 Dark, three-input grading console:
 
@@ -58,7 +58,7 @@ CRITERIA_HELP = {
 # Page + theme (matches index.html: #363737 canvas, white text, dim borders)
 # ---------------------------------------------------------------------------
 
-st.set_page_config(page_title="Exam Checker", page_icon=PAGE_ICON,
+st.set_page_config(page_title="WeHelpTeachers", page_icon=PAGE_ICON,
                    layout="wide")
 
 st.markdown(
@@ -136,7 +136,7 @@ with st.sidebar:
 # Main: header, upload bay, control panel
 # ---------------------------------------------------------------------------
 
-st.title("Exam Checker")
+st.title("WeHelpTeachers")
 st.caption("Automated grading of real answer sheets — upload a question "
            "paper, the official rubric and the student's script, then let "
            "the vision model transcribe and mark it.")

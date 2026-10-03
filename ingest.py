@@ -1,4 +1,4 @@
-"""Ingestion & preprocessing for Exam Checker.
+"""Ingestion & preprocessing for WeHelpTeachers.
 
 Accepts the three grading inputs as file paths:
 

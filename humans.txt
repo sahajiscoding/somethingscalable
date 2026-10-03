@@ -1,4 +1,4 @@
-/* Exam Checker team */
+/* WeHelpTeachers team */
 
 /* Developer */
 Developer: sahajiscoding

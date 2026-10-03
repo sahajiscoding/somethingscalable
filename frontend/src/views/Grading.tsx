@@ -635,7 +635,7 @@ export default function Grading(props: GradingProps) {
         downloadJson: JSON.stringify(report, null, 2),
         downloadMd: markdown,
       });
-      setLiveBlobs({ json: JSON.stringify(report, null, 2), md: markdown || '# Exam Checker — Grading Report\n' });
+      setLiveBlobs({ json: JSON.stringify(report, null, 2), md: markdown || '# WeHelpTeachers — Grading Report\n' });
       onRecord(s.marks_awarded, s.total_marks, s.deductions_by_category || {});
       setRunning(false);
       setRunLabel('Re-run AI Evaluation');

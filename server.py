@@ -1,4 +1,4 @@
-"""Exam Checker web server (Flask) — the deployed backend.
+"""WeHelpTeachers web server (Flask) — the deployed backend.
 
 Same proven layout as the reference AI project: one Flask WSGI app,
 re-exported from ``api/index.py`` for Vercel. API keys live ONLY in the

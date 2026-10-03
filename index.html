@@ -3,16 +3,16 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Exam Checker — AI Answer Sheet Grading</title>
-<meta name="description" content="Exam Checker: upload a question paper, answer key and student answer sheet, pick penalty criteria and run an AI evaluation." />
+<title>WeHelpTeachers — AI Answer Sheet Grading</title>
+<meta name="description" content="WeHelpTeachers: upload a question paper, answer key and student answer sheet, pick penalty criteria and run an AI evaluation." />
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <link rel="manifest" href="/site.webmanifest" />
 <meta name="theme-color" content="#000000" />
-<meta property="og:title" content="Exam Checker — AI Answer Sheet Grading" />
+<meta property="og:title" content="WeHelpTeachers — AI Answer Sheet Grading" />
 <meta property="og:description" content="Upload a question paper, answer key and student answer sheet, pick penalty criteria and run an AI evaluation." />
 <meta property="og:type" content="website" />
 <meta name="twitter:card" content="summary" />
-<meta name="twitter:title" content="Exam Checker — AI Answer Sheet Grading" />
+<meta name="twitter:title" content="WeHelpTeachers — AI Answer Sheet Grading" />
 <meta name="twitter:description" content="AI-powered grading and correction of student answer sheets." />
 <script>window.__APP_SECRET__="__VERCEL_APP_SECRET__";</script>
 <style>
@@ -1124,9 +1124,9 @@
   <!-- ================= HEADER ================= -->
   <header class="app-header">
     <div class="brand" onclick="switchView('home')" style="cursor:pointer">
-      <div class="brand-mark" aria-hidden="true">EC</div>
+      <div class="brand-mark" aria-hidden="true">WH</div>
       <div>
-        <h1>Exam Checker</h1>
+        <h1>WeHelpTeachers</h1>
         <div class="tagline">AI-powered grading &amp; correction of student answer sheets</div>
       </div>
     </div>
@@ -1893,7 +1893,7 @@
   </div>
 
   <footer class="foot">
-    Exam Checker — offline demo runs fully in your browser. With <b>live AI grading</b> on,
+    WeHelpTeachers — offline demo runs fully in your browser. With <b>live AI grading</b> on,
     documents are sent to your own deployment's <code>/api</code> (extract → grade)
     and on to NVIDIA's API. API keys stay on the server and are never hardcoded.
   </footer>
@@ -2358,7 +2358,7 @@ function renderLiveReport(report, markdown) {
     $("#dlJson").onclick = () => downloadText(
       JSON.stringify(report, null, 2), "report.json", "application/json");
     $("#dlMd").onclick = () => downloadText(
-      state.liveReport.markdown || "# Exam Checker — Grading Report\n",
+      state.liveReport.markdown || "# WeHelpTeachers — Grading Report\n",
       "report.md", "text/markdown");
   }
 }

@@ -1,4 +1,4 @@
-# Exam Checker - Python dependencies (RUNTIME ONLY — Vercel installs exactly
+# WeHelpTeachers - Python dependencies (RUNTIME ONLY — Vercel installs exactly
 # this into the serverless function, which has a 500 MB bundle limit).
 # Local-only tools (Streamlit UI) live in requirements-dev.txt and are never
 # deployed. Install with: pip install -r requirements.txt
