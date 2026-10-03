@@ -22,7 +22,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from engine import DEFAULT_MODEL, PENALTY_CATEGORIES
+from engine import DEFAULT_MODEL, NVIDIA_DEFAULT_MODEL, PENALTY_CATEGORIES
 from grade import GradeParams
 from pipeline import SessionError, run_session, write_reports
 
@@ -48,9 +48,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="Comma-separated penalty criteria to enable: "
                              + ",".join(PENALTY_CATEGORIES))
     parser.add_argument("--api-key", default=None,
-                        help="Gemini API key (else GEMINI_API_KEY env var)")
+                        help="API key: Gemini key, or nvapi-... NVIDIA key "
+                             "(else GEMINI_API_KEY / NVIDIA_API_KEY env var)")
     parser.add_argument("--model", default=None,
-                        help=f"Gemini model id (default: {DEFAULT_MODEL})")
+                        help=f"Model id (Gemini default: {DEFAULT_MODEL}; "
+                             f"NVIDIA default: {NVIDIA_DEFAULT_MODEL})")
+    parser.add_argument("--backend", default=None,
+                        choices=["gemini", "nvidia"],
+                        help="Force a backend (default: auto-detect from the key)")
     parser.add_argument("--mock", action="store_true",
                         help="Use the offline mock engine (text files only)")
     parser.add_argument("--quiet", action="store_true",
@@ -85,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
         result = run_session(
             args.paper, args.key, args.student,
             api_key=args.api_key, model=args.model, mock=args.mock,
-            params=params, progress=progress,
+            backend=args.backend, params=params, progress=progress,
         )
     except SessionError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

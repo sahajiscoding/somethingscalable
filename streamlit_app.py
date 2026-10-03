@@ -39,6 +39,8 @@ MODEL_OPTIONS = [
     "gemini-3.7-flash",
     "gemini-3.6-flash",
     "gemini-3.1-flash-lite",
+    "meta/llama-3.2-11b-vision-instruct",  # NVIDIA NIM (needs nvapi- key)
+    "meta/llama-3.2-90b-vision-instruct",  # NVIDIA NIM, larger + slower
 ]
 
 UPLOAD_TYPES = ["pdf", "png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff",
@@ -108,16 +110,20 @@ st.markdown(
 with st.sidebar:
     st.header("⚙️ Settings")
     api_key = st.text_input(
-        "Gemini API Key",
+        "API Key",
         type="password",
-        help="Sent directly to Google's API on each run; never stored. "
-             "You can also set the GEMINI_API_KEY environment variable.",
+        help="Gemini key, or an nvapi-... NVIDIA key (auto-detected). "
+             "Sent to the chosen provider on each run; never stored. "
+             "You can also set GEMINI_API_KEY / NVIDIA_API_KEY as env vars.",
     )
     if not api_key:
-        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        api_key = (os.environ.get("GEMINI_API_KEY")
+                   or os.environ.get("GOOGLE_API_KEY")
+                   or os.environ.get("NVIDIA_API_KEY"))
 
     model = st.selectbox("Model", MODEL_OPTIONS, index=0,
-                         help="Override with the GEMINI_MODEL env var.")
+                         help="Override with the GEMINI_MODEL / NVIDIA_MODEL "
+                              "env var. NVIDIA models need an nvapi- key.")
     st.caption("No API key? Runs with `--mock` are available from the "
                "CLI (text documents only) via test_real_exam.py.")
     st.divider()

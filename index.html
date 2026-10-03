@@ -263,12 +263,12 @@
   }
   .backend .b-title{font-size:11px;letter-spacing:.16em;text-transform:uppercase;
     color:var(--ink-dim);font-weight:700;margin-bottom:10px}
-  .backend input[type="password"]{
+  .backend input[type="password"], .backend input[type="text"]{
     width:100%;margin-top:6px;padding:10px 12px;border-radius:9px;
     border:1px solid var(--line-strong);background:rgba(0,0,0,.28);
     color:var(--ink);font-family:var(--font);font-size:13px;
   }
-  .backend input[type="password"]:focus{outline:none;border-color:var(--green);
+  .backend input[type="password"]:focus, .backend input[type="text"]:focus{outline:none;border-color:var(--green);
     box-shadow:0 0 0 3px rgba(129,199,132,.25)}
   .backend .b-row{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:13px}
   .backend .b-status{font-size:12px;color:var(--ink-dim);margin-top:8px}
@@ -574,10 +574,14 @@
 
       <div class="backend" aria-label="Live backend settings">
         <div class="b-title">Live AI backend</div>
-        <label for="apiKey">Gemini API key
-          <span style="color:var(--ink-dim)">(skip if set as GEMINI_API_KEY on the server)</span></label>
-        <input type="password" id="apiKey" placeholder="AIza… — sent only to your deployment's /api/grade"
-               autocomplete="off" aria-label="Gemini API key" />
+        <label for="apiKey">API key
+          <span style="color:var(--ink-dim)">(skip if set on the server: GEMINI_API_KEY or NVIDIA_API_KEY)</span></label>
+        <input type="password" id="apiKey" placeholder="nvapi-… or AIza… — sent only to your deployment's /api/grade"
+               autocomplete="off" aria-label="API key" />
+        <label for="modelId" style="margin-top:10px;display:block">Model override
+          <span style="color:var(--ink-dim)">(optional — auto-picks per key type)</span></label>
+        <input type="text" id="modelId" placeholder="e.g. meta/llama-3.2-90b-vision-instruct"
+               autocomplete="off" aria-label="Model id override" />
         <div class="b-row">
           <label class="crit" style="flex:1">
             <input type="checkbox" id="liveToggle" checked />
@@ -1012,7 +1016,7 @@ async function checkBackend() {
     el.className = "b-status ok";
     el.textContent = health.hasApiKey
       ? "● Live backend connected — server API key set."
-      : "● Live backend connected — enter your Gemini API key above to grade.";
+      : "● Live backend connected — enter your API key above to grade.";
   } catch {
     state.backendOk = false;
     if (el) {
@@ -1152,6 +1156,7 @@ async function runLiveEvaluation() {
         strict: state.strict,
         penalties: Object.keys(state.criteria).filter(k => state.criteria[k]),
         apiKey: ($("#apiKey") || {}).value ? $("#apiKey").value.trim() : undefined,
+        model: ($("#modelId") || {}).value ? $("#modelId").value.trim() : undefined,
       }),
     });
     const data = await res.json().catch(() => ({}));

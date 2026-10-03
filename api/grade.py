@@ -17,8 +17,9 @@ POST /api/grade  -> JSON body:
       "student": {"filename": "sheet.pdf", "data": "<base64>"},
       "strict": false,
       "penalties": ["handwriting", "diagrams", ...],  # optional
-      "model": "gemini-3.8-flash",                    # optional
-      "apiKey": "<gemini key>",                       # optional if server env set
+      "model": "gemini-3.8-flash",                    # optional (backend default)
+      "apiKey": "<gemini key or nvapi-... NVIDIA key>",  # optional if server env set
+      "backend": "gemini" | "nvidia",                 # optional (auto-detect)
       "mock": false                                   # true = offline text-only grading
     }
   -> 200 {"report": {...}, "warnings": [...]}
@@ -113,14 +114,20 @@ class handler(BaseHTTPRequestHandler):
 
     # -- health -------------------------------------------------------
     def do_GET(self) -> None:
-        from engine import DEFAULT_MODEL
+        from engine import DEFAULT_MODEL, NVIDIA_DEFAULT_MODEL
 
-        has_key = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
-        self._send(200, {"ok": True, "hasApiKey": has_key, "model": DEFAULT_MODEL})
+        has_gemini = bool(os.environ.get("GEMINI_API_KEY")
+                          or os.environ.get("GOOGLE_API_KEY"))
+        has_nvidia = bool(os.environ.get("NVIDIA_API_KEY"))
+        self._send(200, {"ok": True,
+                         "hasApiKey": has_gemini or has_nvidia,
+                         "hasGeminiKey": has_gemini,
+                         "hasNvidiaKey": has_nvidia,
+                         "model": DEFAULT_MODEL,
+                         "nvidiaModel": NVIDIA_DEFAULT_MODEL})
 
     # -- grading ------------------------------------------------------
     def do_POST(self) -> None:
-        from engine import DEFAULT_MODEL
         from grade import GradeParams
         from pipeline import SessionError, run_session
 
@@ -147,12 +154,17 @@ class handler(BaseHTTPRequestHandler):
             or os.environ.get("GEMINI_API_KEY")
             or os.environ.get("GOOGLE_API_KEY")
         )
-        model = payload.get("model") or DEFAULT_MODEL
+        model = payload.get("model") or None  # backend default otherwise
+        backend = payload.get("backend") or None
+        if backend not in (None, "gemini", "nvidia"):
+            self._send(400, {"error": 'Unknown "backend"; use "gemini" or "nvidia".'})
+            return
 
         if not mock and not api_key:
             self._send(401, {
-                "error": "No Gemini API key. Send \"apiKey\" in the request or set "
-                         "GEMINI_API_KEY in Vercel Project Settings → Environment Variables."
+                "error": "No API key. Send \"apiKey\" in the request (Gemini key "
+                         "or nvapi-... NVIDIA key) or set GEMINI_API_KEY / "
+                         "NVIDIA_API_KEY in Vercel Project Settings → Environment Variables."
             })
             return
 
@@ -165,7 +177,8 @@ class handler(BaseHTTPRequestHandler):
                     paths[role] = target
                 session = run_session(
                     paths["paper"], paths["key"], paths["student"],
-                    api_key=api_key, model=model, mock=mock, params=params,
+                    api_key=api_key, model=model, mock=mock, backend=backend,
+                    params=params,
                 )
         except SessionError as exc:
             self._send(422, {"error": str(exc)})

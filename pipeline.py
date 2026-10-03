@@ -55,11 +55,12 @@ def run_session(paper: str | Path,
                 student: str | Path,
                 *,
                 engine=None,
-                api_key: str | None = None,
-                model: str | None = None,
-                mock: bool = False,
-                params: GradeParams | None = None,
-                progress: Progress | None = None) -> SessionResult:
+                 api_key: str | None = None,
+                 model: str | None = None,
+                 mock: bool = False,
+                 backend: str | None = None,
+                 params: GradeParams | None = None,
+                 progress: Progress | None = None) -> SessionResult:
     """Run one full grading session and return the structured result."""
 
     def step(message: str) -> None:
@@ -69,7 +70,8 @@ def run_session(paper: str | Path,
     params = params or GradeParams()
     if engine is None:
         try:
-            engine = make_engine(api_key=api_key, model=model, mock=mock)
+            engine = make_engine(api_key=api_key, model=model, mock=mock,
+                                 backend=backend)
         except Exception as exc:
             raise SessionError(str(exc)) from exc
 

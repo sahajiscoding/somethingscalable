@@ -268,17 +268,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--penalties", default="handwriting,formatting",
                         help="Comma-separated penalty criteria to enable "
                              "(empty for none)")
-    parser.add_argument("--api-key", default=None, help="Gemini API key")
-    parser.add_argument("--model", default=None, help="Gemini model id")
+    parser.add_argument("--api-key", default=None,
+                        help="API key: Gemini key, or nvapi-... NVIDIA key")
+    parser.add_argument("--model", default=None,
+                        help="Model id (backend default if omitted)")
     parser.add_argument("--verbose", action="store_true",
                         help="Print pipeline progress")
     args = parser.parse_args(argv)
 
     if not args.mock and not (args.api_key
                               or os.environ.get("GEMINI_API_KEY")
-                              or os.environ.get("GOOGLE_API_KEY")):
-        print("ERROR: no GEMINI_API_KEY set.\n"
-              "  • export GEMINI_API_KEY=...  to run real OCR + grading, or\n"
+                              or os.environ.get("GOOGLE_API_KEY")
+                              or os.environ.get("NVIDIA_API_KEY")):
+        print("ERROR: no API key set.\n"
+              "  • export GEMINI_API_KEY=... (or NVIDIA_API_KEY=...)  to run real OCR + grading, or\n"
               "  • re-run with --mock         for an offline text-only run.",
               file=sys.stderr)
         return 2
