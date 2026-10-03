@@ -346,6 +346,81 @@ def api_report():
     return jsonify({"report": report, "markdown": render_markdown(report)})
 
 
+@app.post("/api/generate-exam")
+def api_generate_exam():
+    """Generate a question paper and matching answer key using Kimi-K3."""
+    body = request.get_json(silent=True) or {}
+    topic = (body.get("topic") or "Mathematics & Physics").strip()
+    grade = (body.get("grade") or "High School").strip()
+    try:
+        count = int(body.get("count") or 5)
+    except (ValueError, TypeError):
+        count = 5
+    try:
+        marks = float(body.get("marks") or 25.0)
+    except (ValueError, TypeError):
+        marks = 25.0
+    difficulty = (body.get("difficulty") or "Medium").strip()
+
+    instruction = (
+        f"You are an expert exam author. Generate a high-quality exam and marking key on '{topic}' "
+        f"for grade/level: '{grade}'. Total questions: {count}. Total marks: {marks:g}. "
+        f"Difficulty: {difficulty}.\n"
+        "Return STRICT JSON only matching this schema:\n"
+        "{\n"
+        '  "title": "Exam Title",\n'
+        '  "topic": "Subject/Topic",\n'
+        '  "instructions": "General instructions for candidates",\n'
+        f'  "total_marks": {marks:g},\n'
+        '  "questions": [\n'
+        '    {\n'
+        '      "number": "Q1",\n'
+        '      "text": "Clear question text",\n'
+        '      "max_marks": 5.0,\n'
+        '      "expected_answer": "Complete target model answer",\n'
+        '      "marking_scheme": "Step-by-step marking breakdown (e.g. 2 marks for formula, 3 marks for solution)",\n'
+        '      "keywords": ["keyword1", "keyword2"]\n'
+        '    }\n'
+        '  ]\n'
+        "}\n"
+    )
+    try:
+        engine = make_engine(model=_model(body), backend=_backend(body))
+        generated = engine.generate_json("generate_exam", instruction=instruction)
+    except Exception as exc:  # noqa: BLE001
+        if not _has_key():
+            per_q = round(marks / count, 1)
+            generated = {
+                "title": f"{topic} Examination",
+                "topic": topic,
+                "instructions": "Answer all questions. Show complete working steps.",
+                "total_marks": marks,
+                "questions": [
+                    {
+                        "number": f"Q{i}",
+                        "text": f"Explain the core principles of {topic} for problem {i}, detailing all necessary equations and steps.",
+                        "max_marks": per_q,
+                        "expected_answer": f"Model theoretical formulation and calculation for {topic} problem {i}.",
+                        "marking_scheme": f"Formula & definitions: {round(per_q*0.4, 1)}m; Calculation: {round(per_q*0.4, 1)}m; Final: {round(per_q*0.2, 1)}m.",
+                        "keywords": [topic.split()[0].lower(), "derivation", "formula"]
+                    }
+                    for i in range(1, count + 1)
+                ]
+            }
+            return jsonify({
+                "ok": True,
+                "exam": generated,
+                "model": "offline-template",
+                "note": "Generated with offline template; set NVIDIA_API_KEY in Vercel for live Kimi-K3 generation."
+            })
+        return _api_error(exc)
+    return jsonify({
+        "ok": True,
+        "exam": generated,
+        "model": getattr(engine, "model", NVIDIA_DEFAULT_MODEL),
+    })
+
+
 @app.errorhandler(500)
 def internal_error(_exc):
     return jsonify({"error": "Internal server error."}), 500

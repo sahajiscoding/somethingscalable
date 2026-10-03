@@ -21,6 +21,8 @@ deductions, reasoning) downloadable as JSON and Markdown.
 - `POST /api/grade-one` (JSON: question, strict, penalties, model) → `{record}`
 - `POST /api/report` (JSON: records, documents, strict, penalties, warnings,
   engine, model) → `{report, markdown}`
+- `POST /api/generate-exam` (JSON: topic, grade, difficulty, count, marks,
+  model) → `{ok, exam, model}`
 
 If `APP_SECRET` is set on the server, every `/api` call must send it as the
 `X-App-Secret` header.

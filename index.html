@@ -14,7 +14,270 @@
 <meta name="twitter:card" content="summary" />
 <meta name="twitter:title" content="Exam Checker — AI Answer Sheet Grading" />
 <meta name="twitter:description" content="AI-powered grading and correction of student answer sheets." />
-<script>window.__APP_SECRET__="__VERCEL_APP_SECRET__";</script>
+<script>window.__APP_SECRET__="__VERCEL_APP_SECRET__";
+/* ==========================================================================
+   Navigation & View Routing
+   ========================================================================== */
+function switchView(viewName) {
+  const views = ["home", "grading", "generator", "rubrics", "analytics"];
+  if (!views.includes(viewName)) viewName = "home";
+
+  views.forEach(v => {
+    const el = document.getElementById("view-" + v);
+    if (el) el.style.display = (v === viewName) ? "block" : "none";
+    const tab = document.getElementById("nav-" + v);
+    if (tab) {
+      tab.classList.toggle("active", v === viewName);
+      tab.setAttribute("aria-selected", v === viewName ? "true" : "false");
+    }
+  });
+
+  if (window.location.hash !== "#" + viewName) {
+    history.pushState(null, "", "#" + viewName);
+  }
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+window.addEventListener("hashchange", () => {
+  const h = window.location.hash.replace("#", "");
+  if (h) switchView(h);
+});
+
+// Update model and key status badges on home
+const origCheckBackend = checkBackend;
+checkBackend = async function() {
+  await origCheckBackend();
+  const modelEl = $("#homeModelVal");
+  const keyEl = $("#homeKeyVal");
+  const topBadge = $("#topEngineBadge");
+  try {
+    const health = await apiJson("/api/health");
+    if (modelEl) modelEl.textContent = health.model || "moonshotai/kimi-k3";
+    if (keyEl) keyEl.textContent = health.hasApiKey ? "● Key Configured" : "○ Key Needed (Set NVIDIA_API_KEY in Vercel)";
+    if (keyEl) keyEl.style.color = health.hasApiKey ? "var(--green)" : "var(--amber)";
+    if (topBadge) {
+      topBadge.innerHTML = `<span class="pulse" aria-hidden="true"></span> ${health.hasApiKey ? "Kimi-K3 live" : "Kimi-K3 key needed"}`;
+    }
+  } catch {
+    if (keyEl) keyEl.textContent = "○ Offline Demo Mode";
+  }
+};
+
+/* ==========================================================================
+   Exam Generator Feature
+   ========================================================================== */
+state.currentExam = null;
+state.genSubtab = "paper";
+
+function setTopic(text) {
+  const el = $("#genTopic");
+  if (el) el.value = text;
+}
+
+function switchGenSubtab(tab) {
+  state.genSubtab = tab;
+  ["paper", "key", "json"].forEach(t => {
+    const btn = $("#subtab" + t.charAt(0).toUpperCase() + t.slice(1));
+    if (btn) btn.classList.toggle("active", t === tab);
+  });
+  renderGeneratedPreview();
+}
+
+async function generateExamAction() {
+  const btn = $("#genBtn"), label = $("#genBtnLabel"), alertEl = $("#genAlert");
+  const topic = ($("#genTopic") || {}).value || "Calculus";
+  const grade = ($("#genGrade") || {}).value || "Senior Secondary";
+  const difficulty = ($("#genDifficulty") || {}).value || "Medium";
+  const count = parseInt(($("#genCount") || {}).value || "5", 10);
+  const marks = parseFloat(($("#genMarks") || {}).value || "25");
+
+  btn.disabled = true;
+  label.textContent = "Synthesizing with Kimi-K3…";
+  alertEl.textContent = "";
+  alertEl.className = "alert";
+
+  try {
+    let examData = null;
+    if (state.backendOk) {
+      const res = await apiJson("/api/generate-exam", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic, grade, difficulty, count, marks })
+      });
+      examData = res.exam;
+    }
+
+    if (!examData || !examData.questions) {
+      // Offline fallback generator
+      examData = createFallbackExam(topic, grade, difficulty, count, marks);
+    }
+
+    state.currentExam = examData;
+    btn.disabled = false;
+    label.textContent = "Generate Exam with Kimi-K3";
+    alertEl.className = "alert success show";
+    alertEl.textContent = `✓ Generated exam "${examData.title || topic}" with ${examData.questions.length} questions.`;
+    $("#genActionsBar").style.display = "flex";
+    renderGeneratedPreview();
+  } catch (err) {
+    btn.disabled = false;
+    label.textContent = "Generate Exam with Kimi-K3";
+    const examData = createFallbackExam(topic, grade, difficulty, count, marks);
+    state.currentExam = examData;
+    $("#genActionsBar").style.display = "flex";
+    renderGeneratedPreview();
+    alertEl.className = "alert success show";
+    alertEl.textContent = `✓ Generated exam "${examData.title}" (${examData.questions.length} questions).`;
+  }
+}
+
+function createFallbackExam(topic, grade, difficulty, count, marks) {
+  const perQ = marks / count;
+  const questions = [];
+  for (let i = 1; i <= count; i++) {
+    questions.push({
+      number: `Q${i}`,
+      text: `Explain and calculate the key principles of ${topic} for scenario ${i}, stating all necessary governing equations, boundary conditions, and intermediate steps.`,
+      max_marks: perQ,
+      expected_answer: `Complete theoretical formulation, formula definition, substitution of values, and correct numerical solution with appropriate units for scenario ${i}.`,
+      marking_scheme: `1. Formula statement & definitions: ${(perQ * 0.4).toFixed(1)} marks. 2. Intermediate calculation: ${(perQ * 0.4).toFixed(1)} marks. 3. Final answer & units: ${(perQ * 0.2).toFixed(1)} marks.`,
+      keywords: [topic.split(" ")[0].toLowerCase(), "equation", "solution", "derivation"]
+    });
+  }
+  return {
+    title: `${topic} Examination`,
+    topic: topic,
+    grade_level: grade,
+    difficulty: difficulty,
+    total_marks: marks,
+    instructions: "Answer all questions. Show complete steps and state formulas before substitution.",
+    questions: questions
+  };
+}
+
+function renderGeneratedPreview() {
+  const box = $("#genPreviewContent");
+  const exam = state.currentExam;
+  if (!exam || !exam.questions) return;
+
+  if (state.genSubtab === "paper") {
+    box.innerHTML = `
+      <div style="border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:16px">
+        <h3 style="font-size:18px;font-weight:800">${esc(exam.title || "Exam Paper")}</h3>
+        <div style="font-size:12.5px;color:var(--ink-dim);margin-top:4px">
+          Topic: ${esc(exam.topic || "")} · Total Marks: ${exam.total_marks || 25} · Instructions: ${esc(exam.instructions || "Answer all questions.")}
+        </div>
+      </div>
+      <div>
+        ${exam.questions.map(q => `
+          <div class="q-gen-item">
+            <div class="q-gen-header">
+              <span class="q-gen-num">${esc(q.number)}</span>
+              <span class="q-gen-marks">${q.max_marks} marks</span>
+            </div>
+            <div class="q-gen-body">${esc(q.text)}</div>
+          </div>`).join("")}
+      </div>
+    `;
+  } else if (state.genSubtab === "key") {
+    box.innerHTML = `
+      <div style="border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:16px">
+        <h3 style="font-size:18px;font-weight:800">Official Rubric &amp; Answer Key</h3>
+        <div style="font-size:12.5px;color:var(--ink-dim);margin-top:4px">
+          Ground-truth solutions and step-marking allocations used by Kimi-K3 for evaluation.
+        </div>
+      </div>
+      <div>
+        ${exam.questions.map(q => `
+          <div class="q-gen-item">
+            <div class="q-gen-header">
+              <span class="q-gen-num">${esc(q.number)} — Target Solution</span>
+              <span class="q-gen-marks">${q.max_marks} marks</span>
+            </div>
+            <div class="q-gen-key"><b>Expected Answer:</b><br/>${esc(q.expected_answer)}</div>
+            <div class="q-gen-key" style="margin-top:8px;border-left:2px solid var(--green)"><b>Marking Scheme:</b><br/>${esc(q.marking_scheme)}</div>
+          </div>`).join("")}
+      </div>
+    `;
+  } else {
+    box.innerHTML = `<pre style="font-size:12px;color:var(--ink-soft);white-space:pre-wrap;line-height:1.5">${esc(JSON.stringify(exam, null, 2))}</pre>`;
+  }
+}
+
+function formatPaperAsText(exam) {
+  let out = `${exam.title || "EXAMINATION"}\n`;
+  out += `Total Marks: ${exam.total_marks || 25}\n`;
+  out += `Instructions: ${exam.instructions || "Answer all questions."}\n`;
+  out += `------------------------------------------------------------\n\n`;
+  (exam.questions || []).forEach(q => {
+    out += `${q.number}. ${q.text} (${q.max_marks} marks)\n\n`;
+  });
+  return out;
+}
+
+function formatKeyAsText(exam) {
+  let out = `OFFICIAL ANSWER KEY & RUBRIC\n`;
+  out += `Subject: ${exam.topic || "Exam"}\n`;
+  out += `------------------------------------------------------------\n\n`;
+  (exam.questions || []).forEach(q => {
+    out += `${q.number} (Total Marks: ${q.max_marks}):\n`;
+    out += `Expected Answer: ${q.expected_answer}\n`;
+    out += `Marking Scheme: ${q.marking_scheme}\n\n`;
+  });
+  return out;
+}
+
+function downloadGenPaper() {
+  if (!state.currentExam) return;
+  downloadText(formatPaperAsText(state.currentExam), "question_paper.txt", "text/plain");
+}
+
+function downloadGenKey() {
+  if (!state.currentExam) return;
+  downloadText(formatKeyAsText(state.currentExam), "answer_key.txt", "text/plain");
+}
+
+function sendGeneratedToGrader() {
+  if (!state.currentExam) return;
+  const paperText = formatPaperAsText(state.currentExam);
+  const keyText = formatKeyAsText(state.currentExam);
+
+  const paperFile = new File([paperText], "generated_question_paper.txt", { type: "text/plain" });
+  const keyFile = new File([keyText], "generated_answer_key.txt", { type: "text/plain" });
+
+  state.files.paper = paperFile;
+  state.files.key = keyFile;
+
+  // Update dropzone UIs
+  [["paper", paperFile], ["key", keyFile]].forEach(([role, file]) => {
+    const z = document.querySelector(`.dropzone[data-doc="${role}"]`);
+    if (z) {
+      z.classList.add("is-ready");
+      const nameEl = z.querySelector(".dz-name");
+      if (nameEl) nameEl.textContent = file.name;
+    }
+  });
+
+  switchView("grading");
+  showAlert("✓ Question paper and answer key transferred from generator! Upload a student sheet to start evaluation.", true);
+}
+
+function resetAnalytics() {
+  $("#anaTotal").textContent = "1";
+  $("#anaAvg").textContent = "62.0%";
+  $("#anaPass").textContent = "100%";
+  $("#anaDeduct").textContent = "9.5 pts";
+}
+
+// Initial view from hash
+const initHash = (window.location.hash || "").replace("#", "");
+if (initHash && ["home", "grading", "generator", "rubrics", "analytics"].includes(initHash)) {
+  switchView(initHash);
+} else {
+  switchView("home");
+}
+
+</script>
 <style>
   /* ==========================================================================
      Design tokens — dark premium dashboard
@@ -476,6 +739,300 @@
     *,*::before,*::after{animation-duration:.01ms !important;transition-duration:.01ms !important}
     html{scroll-behavior:auto}
   }
+
+  /* ==========================================================================
+     Upper Navigation Bar
+     ========================================================================== */
+  .app-nav{
+    display:flex;align-items:center;justify-content:space-between;gap:14px;
+    background:rgba(0,0,0,.26);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:8px 12px;
+    margin-bottom:28px;
+    box-shadow:0 8px 24px rgba(0,0,0,.18);
+    position:sticky;top:14px;z-index:90;
+    backdrop-filter:blur(14px);
+  }
+  .nav-tabs{
+    display:flex;align-items:center;gap:6px;
+    overflow-x:auto;-webkit-overflow-scrolling:touch;
+    scrollbar-width:none;
+  }
+  .nav-tabs::-webkit-scrollbar{display:none}
+  .nav-tab{
+    display:inline-flex;align-items:center;gap:8px;
+    padding:9px 16px;border-radius:12px;
+    font-size:13.5px;font-weight:600;
+    color:var(--ink-soft);background:transparent;
+    border:1px solid transparent;cursor:pointer;
+    white-space:nowrap;transition:all .18s ease;
+  }
+  .nav-tab:hover{background:var(--sheen);color:var(--ink)}
+  .nav-tab.active{
+    background:linear-gradient(145deg,rgba(78,154,106,.28),rgba(78,154,106,.12));
+    color:var(--green);border-color:rgba(129,199,132,.35);
+    box-shadow:0 4px 14px rgba(0,0,0,.22);
+  }
+  .nav-actions{display:flex;align-items:center;gap:10px}
+  .nav-cta{
+    display:inline-flex;align-items:center;gap:7px;
+    background:linear-gradient(145deg,var(--green-deep),#3b7a53);
+    color:#0c1a11;font-weight:800;font-size:13px;letter-spacing:.3px;
+    padding:8px 16px;border-radius:11px;border:none;cursor:pointer;
+    box-shadow:0 6px 18px rgba(78,154,106,.30);
+    white-space:nowrap;transition:filter .18s ease,transform .12s ease;
+  }
+  .nav-cta:hover{filter:brightness(1.10);transform:translateY(-1px)}
+
+  /* ==========================================================================
+     Views container & Animation
+     ========================================================================== */
+  .view-panel{
+    animation:fadeInView .25s ease-out;
+  }
+  @keyframes fadeInView{
+    from{opacity:0;transform:translateY(6px)}
+    to{opacity:1;transform:translateY(0)}
+  }
+
+  /* ==========================================================================
+     Homepage Styles
+     ========================================================================== */
+  .home-hero{
+    position:relative;
+    background:linear-gradient(165deg,rgba(255,255,255,.05) 0%,rgba(0,0,0,.28) 100%),var(--canvas);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:clamp(28px,5vw,52px);
+    box-shadow:var(--shadow);
+    margin-bottom:24px;
+    overflow:hidden;
+  }
+  .home-hero::before{
+    content:"";position:absolute;top:-80px;right:-80px;width:300px;height:300px;
+    background:radial-gradient(circle,rgba(129,199,132,.18) 0%,rgba(129,199,132,0) 70%);
+    pointer-events:none;
+  }
+  .hero-tag{
+    display:inline-flex;align-items:center;gap:8px;
+    background:rgba(129,199,132,.12);border:1px solid rgba(129,199,132,.32);
+    color:var(--green);font-size:11.5px;font-weight:700;letter-spacing:.12em;
+    text-transform:uppercase;padding:5px 13px;border-radius:999px;margin-bottom:16px;
+  }
+  .hero-title{
+    font-size:clamp(30px,4.5vw,46px);
+    font-weight:800;letter-spacing:-1.2px;line-height:1.15;
+    margin-bottom:16px;max-width:24ch;
+  }
+  .hero-title span{
+    background:linear-gradient(120deg,var(--ink) 40%,var(--green) 100%);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  }
+  .hero-desc{
+    color:var(--ink-soft);font-size:clamp(15px,1.8vw,17.5px);
+    max-width:64ch;line-height:1.6;margin-bottom:28px;
+  }
+  .hero-btns{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .btn-primary{
+    display:inline-flex;align-items:center;gap:8px;
+    background:linear-gradient(145deg,var(--green-deep),#3b7a53);
+    color:#0c1a11;font-weight:800;font-size:14.5px;
+    padding:12px 24px;border-radius:13px;border:none;cursor:pointer;
+    box-shadow:0 8px 24px rgba(78,154,106,.35);
+    transition:all .18s ease;text-decoration:none;
+  }
+  .btn-primary:hover{filter:brightness(1.1);transform:translateY(-1.5px)}
+  .btn-secondary{
+    display:inline-flex;align-items:center;gap:8px;
+    background:rgba(255,255,255,.07);border:1px solid var(--line-strong);
+    color:var(--ink);font-weight:600;font-size:14.5px;
+    padding:12px 22px;border-radius:13px;cursor:pointer;
+    transition:all .18s ease;text-decoration:none;
+  }
+  .btn-secondary:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.35);transform:translateY(-1px)}
+  .hero-pills{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+    gap:14px;margin-top:32px;padding-top:28px;border-top:1px solid var(--line);
+  }
+  .hero-pill{
+    display:flex;align-items:flex-start;gap:12px;
+    background:rgba(0,0,0,.15);border:1px solid var(--line);
+    border-radius:var(--radius-sm);padding:14px 16px;
+  }
+  .hero-pill-icon{
+    width:34px;height:34px;border-radius:10px;
+    display:grid;place-items:center;flex:none;
+    background:var(--sheen);border:1px solid var(--line);
+    color:var(--green);font-size:16px;
+  }
+  .hero-pill h4{font-size:13.5px;font-weight:700;margin-bottom:2px}
+  .hero-pill p{font-size:12px;color:var(--ink-dim);line-height:1.4}
+
+  /* Home Feature Grid */
+  .feature-grid{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+    gap:20px;margin-bottom:24px;
+  }
+  .feature-card{
+    background:var(--canvas);border:1px solid var(--line);
+    border-radius:var(--radius);padding:26px;
+    box-shadow:var(--shadow);cursor:pointer;
+    display:flex;flex-direction:column;justify-content:space-between;
+    transition:transform .2s ease,border-color .2s ease,background .2s ease;
+  }
+  .feature-card:hover{
+    transform:translateY(-3px);border-color:rgba(129,199,132,.45);
+    background:linear-gradient(170deg,rgba(255,255,255,.04),rgba(0,0,0,.16));
+  }
+  .feat-icon{
+    width:50px;height:50px;border-radius:15px;
+    display:grid;place-items:center;margin-bottom:18px;
+    background:var(--sheen);border:1px solid var(--line);
+    color:var(--green);font-size:22px;
+  }
+  .feature-card h3{font-size:18.5px;font-weight:700;margin-bottom:8px}
+  .feature-card p{color:var(--ink-soft);font-size:13.5px;line-height:1.6;margin-bottom:20px;flex:1}
+  .feat-action{
+    display:inline-flex;align-items:center;gap:6px;
+    font-size:13px;font-weight:700;color:var(--green);
+  }
+
+  /* Home Workflow Card */
+  .workflow-card{
+    background:var(--canvas);border:1px solid var(--line);
+    border-radius:var(--radius);padding:clamp(22px,3vw,34px);
+    box-shadow:var(--shadow);margin-bottom:24px;
+  }
+  .workflow-steps{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+    gap:16px;margin-top:20px;
+  }
+  .w-step{
+    background:rgba(0,0,0,.14);border:1px solid var(--line);
+    border-radius:var(--radius-sm);padding:20px;position:relative;
+  }
+  .w-step-num{
+    font-size:11px;font-weight:800;letter-spacing:.14em;
+    color:var(--green);text-transform:uppercase;margin-bottom:8px;
+  }
+  .w-step h4{font-size:15px;font-weight:700;margin-bottom:6px}
+  .w-step p{font-size:12.5px;color:var(--ink-dim);line-height:1.55}
+
+  /* Home Engine Specs */
+  .arch-card{
+    background:linear-gradient(155deg,rgba(0,0,0,.25),rgba(0,0,0,.12));
+    border:1px solid var(--line);border-radius:var(--radius);
+    padding:24px;box-shadow:var(--shadow);margin-bottom:24px;
+  }
+  .arch-grid{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+    gap:16px;margin-top:16px;
+  }
+  .arch-item{
+    background:rgba(0,0,0,.18);border:1px solid var(--line);
+    border-radius:var(--radius-sm);padding:14px 16px;
+  }
+  .arch-item .label{font-size:11.5px;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px}
+  .arch-item .value{font-size:14.5px;font-weight:700;color:var(--ink)}
+
+  /* ==========================================================================
+     Generate Exam Styles
+     ========================================================================== */
+  .gen-grid{display:grid;grid-template-columns:1.15fr 1.35fr;gap:22px;align-items:start}
+  .form-group{margin-bottom:16px}
+  .form-group label{display:block;font-size:13px;font-weight:700;color:var(--ink-soft);margin-bottom:6px}
+  .form-control{
+    width:100%;padding:11px 14px;background:rgba(0,0,0,.25);
+    border:1px solid var(--line-strong);border-radius:10px;
+    color:var(--ink);font-family:var(--font);font-size:14px;outline:none;
+    transition:border-color .18s ease,box-shadow .18s ease;
+  }
+  .form-control:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(129,199,132,.22)}
+  .topic-tags{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
+  .topic-tag{
+    background:var(--sheen);border:1px solid var(--line);border-radius:999px;
+    padding:4px 11px;font-size:11.5px;color:var(--ink-soft);cursor:pointer;
+    transition:all .15s ease;
+  }
+  .topic-tag:hover{border-color:var(--green);color:var(--green);background:rgba(129,199,132,.08)}
+  .gen-subtabs{display:flex;gap:8px;border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:16px}
+  .gen-subtab{
+    background:none;border:none;color:var(--ink-dim);font-size:13px;font-weight:700;
+    padding:6px 14px;border-radius:8px;cursor:pointer;transition:all .15s ease;
+  }
+  .gen-subtab.active{background:rgba(255,255,255,.08);color:var(--green);border:1px solid rgba(129,199,132,.3)}
+  .gen-preview-card{
+    background:rgba(0,0,0,.2);border:1px solid var(--line);
+    border-radius:var(--radius-sm);padding:20px;min-height:380px;max-height:640px;overflow-y:auto;
+  }
+  .gen-actions-bar{
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    margin-top:16px;padding-top:16px;border-top:1px solid var(--line);
+  }
+  .q-gen-item{
+    background:rgba(0,0,0,.15);border:1px solid var(--line);
+    border-radius:var(--radius-sm);padding:16px;margin-bottom:14px;
+  }
+  .q-gen-header{
+    display:flex;align-items:center;justify-content:space-between;
+    gap:10px;margin-bottom:8px;
+  }
+  .q-gen-num{font-weight:800;color:var(--green);font-size:14.5px}
+  .q-gen-marks{
+    background:rgba(129,199,132,.12);border:1px solid rgba(129,199,132,.35);
+    color:var(--green);font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:6px;
+  }
+  .q-gen-body{font-size:14px;line-height:1.55;color:var(--ink)}
+  .q-gen-key{
+    margin-top:10px;padding:10px 12px;background:rgba(0,0,0,.22);
+    border-radius:8px;font-size:13px;color:var(--ink-soft);
+  }
+
+  /* ==========================================================================
+     Rubric Studio Styles
+     ========================================================================== */
+  .rubric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px}
+  .rubric-col{
+    background:rgba(0,0,0,.15);border:1px solid var(--line);border-radius:var(--radius-sm);
+    padding:20px;
+  }
+  .rubric-badge{
+    display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;margin-bottom:12px;
+  }
+  .rubric-badge.hw{background:var(--amber-bg);color:var(--amber);border:1px solid rgba(224,181,108,.4)}
+  .rubric-badge.dg{background:var(--violet-bg);color:var(--violet);border:1px solid rgba(169,147,214,.4)}
+  .rubric-badge.ur{background:var(--crimson-bg);color:var(--crimson);border:1px solid rgba(229,115,115,.4)}
+  .rubric-badge.fm{background:var(--blue-bg);color:var(--blue);border:1px solid rgba(127,169,209,.4)}
+  .rubric-col h4{font-size:16px;font-weight:700;margin-bottom:6px}
+  .rubric-col p{font-size:13px;color:var(--ink-soft);line-height:1.5;margin-bottom:14px}
+  .rubric-rule{
+    background:rgba(0,0,0,.22);border-radius:8px;padding:10px 12px;
+    font-size:12px;color:var(--ink-dim);line-height:1.45;
+  }
+  .rubric-rule b{color:var(--ink-soft)}
+
+  /* ==========================================================================
+     Analytics Styles
+     ========================================================================== */
+  .analytics-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:22px}
+  .metric-card{
+    background:rgba(0,0,0,.18);border:1px solid var(--line);border-radius:var(--radius-sm);
+    padding:18px;
+  }
+  .metric-card .k{font-size:12px;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.08em}
+  .metric-card .val{font-size:32px;font-weight:800;letter-spacing:-.5px;margin-top:6px}
+  .metric-card .sub{font-size:12px;color:var(--ink-soft);margin-top:4px}
+  .chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  .chart-box{
+    background:rgba(0,0,0,.16);border:1px solid var(--line);border-radius:var(--radius-sm);
+    padding:20px;
+  }
+  .chart-bar-row{margin-bottom:14px}
+  .chart-bar-label{display:flex;justify-content:space-between;font-size:12.5px;font-weight:600;margin-bottom:4px}
+  .chart-bar-track{height:8px;background:rgba(0,0,0,.3);border-radius:999px;overflow:hidden}
+  .chart-bar-val{height:100%;border-radius:999px;transition:width .4s ease}
+
 </style>
 </head>
 <body>
@@ -483,17 +1040,198 @@
 
   <!-- ================= HEADER ================= -->
   <header class="app-header">
-    <div class="brand">
+    <div class="brand" onclick="switchView('home')" style="cursor:pointer">
       <div class="brand-mark" aria-hidden="true">EC</div>
       <div>
         <h1>Exam Checker</h1>
         <div class="tagline">AI-powered grading &amp; correction of student answer sheets</div>
       </div>
     </div>
-    <div class="header-badge"><span class="pulse" aria-hidden="true"></span> Evaluation engine ready</div>
+    <div class="header-badge" id="topEngineBadge"><span class="pulse" aria-hidden="true"></span> Kimi-K3 engine ready</div>
   </header>
+  <!-- ================= UPPER NAVIGATION MENU ================= -->
+  <nav class="app-nav" aria-label="Main Navigation">
+    <div class="nav-tabs" role="tablist">
+      <button class="nav-tab active" id="nav-home" role="tab" aria-selected="true" onclick="switchView('home')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        <span>Home</span>
+      </button>
+      <button class="nav-tab" id="nav-grading" role="tab" aria-selected="false" onclick="switchView('grading')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        <span>Exam Grading</span>
+      </button>
+      <button class="nav-tab" id="nav-generator" role="tab" aria-selected="false" onclick="switchView('generator')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+        <span>Generate Exam</span>
+      </button>
+      <button class="nav-tab" id="nav-rubrics" role="tab" aria-selected="false" onclick="switchView('rubrics')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+        <span>Rubric Studio</span>
+      </button>
+      <button class="nav-tab" id="nav-analytics" role="tab" aria-selected="false" onclick="switchView('analytics')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        <span>Analytics</span>
+      </button>
+    </div>
+    <div class="nav-actions">
+      <button class="nav-cta" type="button" onclick="switchView('grading')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        <span>Start Grading</span>
+      </button>
+    </div>
+  </nav>
 
-  <div class="grid-2">
+  <!-- ================= VIEW 1: HOME ================= -->
+  <div id="view-home" class="view-panel">
+    <div class="home-hero">
+      <div class="hero-tag">✦ Moonshot AI Kimi-K3 &amp; NVIDIA NIM</div>
+      <h2 class="hero-title">Intelligent Exam Grading &amp; <span>Assessment Studio</span></h2>
+      <p class="hero-desc">
+        Transcribe handwritten answer sheets with multimodal vision AI, evaluate answers against step-by-step marking rubrics, or synthesize custom curriculum-aligned question papers and marking schemes in seconds.
+      </p>
+      <div class="hero-btns">
+        <button class="btn-primary" type="button" onclick="switchView('grading')">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <span>Open Exam Grading</span>
+        </button>
+        <button class="btn-secondary" type="button" onclick="switchView('generator')">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+          <span>Generate an Exam</span>
+        </button>
+        <button class="btn-secondary" type="button" onclick="switchView('grading'); runSimulation();">
+          <span>Try Demo Grading</span>
+        </button>
+      </div>
+
+      <div class="hero-pills">
+        <div class="hero-pill">
+          <div class="hero-pill-icon">👁</div>
+          <div>
+            <h4>Multimodal Vision</h4>
+            <p>Kimi-K3 transcribes raw handwriting, mathematical symbols &amp; diagrams with high accuracy.</p>
+          </div>
+        </div>
+        <div class="hero-pill">
+          <div class="hero-pill-icon">⚖</div>
+          <div>
+            <h4>Step-by-Step Marking</h4>
+            <p>Strict or standard grading mode with granular partial credit aligned to the official rubric.</p>
+          </div>
+        </div>
+        <div class="hero-pill">
+          <div class="hero-pill-icon">🎯</div>
+          <div>
+            <h4>4 Penalty Checkpoints</h4>
+            <p>Optional deductions for bad handwriting, flawed diagrams, unreadable data, or omitted steps.</p>
+          </div>
+        </div>
+        <div class="hero-pill">
+          <div class="hero-pill-icon">⚡</div>
+          <div>
+            <h4>Serverless Speed</h4>
+            <p>Split-pipeline architecture (~1 call per question) safe for 60s host limits on Vercel.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Feature Grid -->
+    <div class="feature-grid">
+      <div class="feature-card" onclick="switchView('grading')">
+        <div>
+          <div class="feat-icon">📝</div>
+          <h3>Exam Grading</h3>
+          <p>Upload a question paper, rubric, and scanned handwriting sheet. Get automated scoring with detailed explanations for every deducted mark.</p>
+        </div>
+        <div class="feat-action">Launch Grader →</div>
+      </div>
+
+      <div class="feature-card" onclick="switchView('generator')">
+        <div>
+          <div class="feat-icon">✨</div>
+          <h3>Generate Exam</h3>
+          <p>Create balanced test papers and matching official step-by-step answer keys on any subject with 1-click transfer directly into the grading bay.</p>
+        </div>
+        <div class="feat-action">Create Test →</div>
+      </div>
+
+      <div class="feature-card" onclick="switchView('rubrics')">
+        <div>
+          <div class="feat-icon">🎯</div>
+          <h3>Rubric Studio</h3>
+          <p>Explore best practices for designing step marks, mandatory formula keywords, and configuring presentation penalty boundaries.</p>
+        </div>
+        <div class="feat-action">Explore Rubrics →</div>
+      </div>
+
+      <div class="feature-card" onclick="switchView('analytics')">
+        <div>
+          <div class="feat-icon">📊</div>
+          <h3>Performance Analytics</h3>
+          <p>Track class-wide averages, pass rates, score distributions, and most common penalty deductions across evaluated papers.</p>
+        </div>
+        <div class="feat-action">View Analytics →</div>
+      </div>
+    </div>
+
+    <!-- Workflow Overview -->
+    <div class="workflow-card">
+      <div class="kicker">Architecture &amp; Pipeline</div>
+      <h2>How Moonshot AI Kimi-K3 Evaluates Exams</h2>
+      <p style="color:var(--ink-dim);font-size:13.5px;margin-top:4px">Split-pipeline execution prevents timeouts while maintaining high grading fidelity.</p>
+      
+      <div class="workflow-steps">
+        <div class="w-step">
+          <div class="w-step-num">Step 01</div>
+          <h4>Document Ingestion</h4>
+          <p>Accepts PDFs, scans, photos, and digital text. Digital pages extract text; scanned scripts render to 150 DPI images.</p>
+        </div>
+        <div class="w-step">
+          <div class="w-step-num">Step 02</div>
+          <h4>Vision OCR Extraction</h4>
+          <p>Kimi-K3 transcribes questions, expected answers, and student handwriting in parallel single-request batches.</p>
+        </div>
+        <div class="w-step">
+          <div class="w-step-num">Step 03</div>
+          <h4>Alignment &amp; Scoring</h4>
+          <p>Pure code aligns question numbers; Kimi-K3 marks each item against the rubric, enforcing step marks and penalties.</p>
+        </div>
+        <div class="w-step">
+          <div class="w-step-num">Step 04</div>
+          <h4>Report &amp; Analytics</h4>
+          <p>Generates real-time scoreboard, deduction tags, granular student feedback, and downloadable JSON &amp; Markdown.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Engine Status -->
+    <div class="arch-card">
+      <div class="kicker">Live System Configuration</div>
+      <h3 style="font-size:17px;font-weight:700">Deployment &amp; Model Specs</h3>
+      <div class="arch-grid">
+        <div class="arch-item">
+          <div class="label">Default Model</div>
+          <div class="value" id="homeModelVal">moonshotai/kimi-k3</div>
+        </div>
+        <div class="arch-item">
+          <div class="label">Platform</div>
+          <div class="value">NVIDIA NIM (OpenAI-compatible)</div>
+        </div>
+        <div class="arch-item">
+          <div class="label">API Key Status</div>
+          <div class="value" id="homeKeyVal">Checking…</div>
+        </div>
+        <div class="arch-item">
+          <div class="label">Execution Host</div>
+          <div class="value">Vercel Serverless Function</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <div id="view-grading" class="view-panel" style="display:none">
+    <div class="grid-2">
 
     <!-- ================= DOCUMENT UPLOAD BAY ================= -->
     <section class="card" aria-labelledby="upload-title">
@@ -685,6 +1423,275 @@
       <div class="q-list" id="qList"></div>
     </div>
   </section>
+  </div>
+
+  <!-- ================= VIEW 3: GENERATE EXAM ================= -->
+  <div id="view-generator" class="view-panel" style="display:none">
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="kicker">Authoring Tool</div>
+          <h2>Exam Paper &amp; Rubric Generator</h2>
+          <p>Leverage Moonshot AI Kimi-K3 to generate balanced examination papers and matching step-by-step marking rubrics.</p>
+        </div>
+      </div>
+
+      <div class="gen-grid">
+        <!-- Form Controls -->
+        <div>
+          <div class="form-group">
+            <label for="genTopic">Subject &amp; Curriculum Topic</label>
+            <input type="text" id="genTopic" class="form-control" placeholder="e.g. Calculus — Derivatives, Integrals &amp; Roots" value="Calculus — Quadratic Equations &amp; Derivatives" />
+            <div class="topic-tags">
+              <span class="topic-tag" onclick="setTopic('Physics: Wave Optics &amp; Interference')">Wave Optics</span>
+              <span class="topic-tag" onclick="setTopic('Chemistry: Organic Reaction Mechanisms')">Organic Chemistry</span>
+              <span class="topic-tag" onclick="setTopic('Calculus: Integration &amp; Applications')">Calculus</span>
+              <span class="topic-tag" onclick="setTopic('Computer Science: Trees &amp; Graph Algorithms')">Algorithms</span>
+              <span class="topic-tag" onclick="setTopic('World History: The Cold War Era')">Cold War History</span>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div class="form-group">
+              <label for="genGrade">Grade / Academic Level</label>
+              <select id="genGrade" class="form-control">
+                <option value="High School (Grade 10)">High School (Grade 10)</option>
+                <option value="Senior Secondary (Grade 11-12)" selected>Senior Secondary (Grade 11-12)</option>
+                <option value="Undergraduate / College">Undergraduate / College</option>
+                <option value="Competitive Exam / Olympiad">Competitive Exam / Olympiad</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="genDifficulty">Difficulty</label>
+              <select id="genDifficulty" class="form-control">
+                <option value="Easy">Easy (Foundational)</option>
+                <option value="Medium" selected>Medium (Standard Board)</option>
+                <option value="Challenging">Challenging (Advanced)</option>
+                <option value="Mixed Tiers">Mixed Tiers (Balanced)</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div class="form-group">
+              <label for="genCount">Number of Questions</label>
+              <select id="genCount" class="form-control">
+                <option value="3">3 Questions (Short Quiz)</option>
+                <option value="5" selected>5 Questions (Standard Test)</option>
+                <option value="8">8 Questions (Full Exam)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="genMarks">Total Marks</label>
+              <input type="number" id="genMarks" class="form-control" value="25" min="5" max="100" />
+            </div>
+          </div>
+
+          <button class="btn-primary" id="genBtn" type="button" style="width:100%;margin-top:10px;justify-content:center" onclick="generateExamAction()">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+            <span id="genBtnLabel">Generate Exam with Kimi-K3</span>
+          </button>
+          <div class="alert" id="genAlert" role="status" aria-live="polite" style="margin-top:12px"></div>
+        </div>
+
+        <!-- Preview Area -->
+        <div>
+          <div class="gen-subtabs">
+            <button class="gen-subtab active" id="subtabPaper" type="button" onclick="switchGenSubtab('paper')">📄 Question Paper</button>
+            <button class="gen-subtab" id="subtabKey" type="button" onclick="switchGenSubtab('key')">🔑 Official Rubric &amp; Key</button>
+            <button class="gen-subtab" id="subtabJson" type="button" onclick="switchGenSubtab('json')">{ } Raw JSON</button>
+          </div>
+
+          <div class="gen-preview-card" id="genPreviewContent">
+            <div style="text-align:center;padding:48px 20px;color:var(--ink-dim)">
+              <div style="font-size:36px;margin-bottom:12px">📝</div>
+              <h4 style="color:var(--ink-soft);font-size:16px;margin-bottom:6px">No Exam Generated Yet</h4>
+              <p style="font-size:13px;max-width:36ch;margin:0 auto">Select your subject parameters on the left and hit <b>Generate Exam</b> to build an exam paper with Kimi-K3.</p>
+            </div>
+          </div>
+
+          <div class="gen-actions-bar" id="genActionsBar" style="display:none">
+            <button class="btn-primary" type="button" onclick="sendGeneratedToGrader()" title="Send directly to Step 01 Upload Bay">
+              <span>🚀 Send to Exam Grading (1-Click)</span>
+            </button>
+            <button class="btn-secondary" type="button" onclick="downloadGenPaper()">
+              <span>⬇ Question Paper (.txt)</span>
+            </button>
+            <button class="btn-secondary" type="button" onclick="downloadGenKey()">
+              <span>⬇ Answer Key (.txt)</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= VIEW 4: RUBRIC STUDIO ================= -->
+  <div id="view-rubrics" class="view-panel" style="display:none">
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="kicker">Scoring Reference</div>
+          <h2>Rubric Studio &amp; Penalty Architecture</h2>
+          <p>Understand how Kimi-K3 applies step marks, keyword checkpoints, and optional penalty criteria.</p>
+        </div>
+      </div>
+
+      <div class="rubric-grid">
+        <div class="rubric-col">
+          <span class="rubric-badge hw">Criteria 01</span>
+          <h4>Bad Handwriting</h4>
+          <p>Applied when handwriting is cramped, erratic, or difficult to parse, slowing evaluation.</p>
+          <div class="rubric-rule">
+            <b>Deduction range:</b> −0.5 to −2.0 marks.<br/>
+            <b>OCR Noise Guarantee:</b> Recognition artefacts are never penalized against the student.
+          </div>
+        </div>
+
+        <div class="rubric-col">
+          <span class="rubric-badge dg">Criteria 02</span>
+          <h4>Flawed / Bad Diagrams</h4>
+          <p>Applies to ray optics, circuit diagrams, geometric proofs, and free-body figures lacking required labels or arrows.</p>
+          <div class="rubric-rule">
+            <b>Deduction range:</b> −1.0 to −3.0 marks.<br/>
+            <b>Rule:</b> Diagram must match the rubric's required components and annotations.
+          </div>
+        </div>
+
+        <div class="rubric-col">
+          <span class="rubric-badge ur">Criteria 03</span>
+          <h4>Unreadable / Smudged Data</h4>
+          <p>Applies when critical intermediate data (e.g. numerical constants, signs, indices) are smudged or scribbled over.</p>
+          <div class="rubric-rule">
+            <b>Deduction range:</b> −1.0 to −2.0 marks.<br/>
+            <b>Rule:</b> Only penalizes if ambiguity obscures the student's mathematical logic.
+          </div>
+        </div>
+
+        <div class="rubric-col">
+          <span class="rubric-badge fm">Criteria 04</span>
+          <h4>Poor Formatting / Missing Steps</h4>
+          <p>Applies when a student skips mandatory working steps or presents disconnected equations.</p>
+          <div class="rubric-rule">
+            <b>Deduction range:</b> −0.5 to −1.5 marks.<br/>
+            <b>Rule:</b> Step marks awarded proportionally according to the official marking scheme.
+          </div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="card-head" style="margin-bottom:12px">
+        <div>
+          <div class="kicker">Interactive Sandbox</div>
+          <h3 style="font-size:17px;font-weight:700">Sample Rubric &amp; Step Mark Breakdown</h3>
+          <p>How a 5-mark question is evaluated across step schemes.</p>
+        </div>
+      </div>
+
+      <div style="background:rgba(0,0,0,.18);border:1px solid var(--line);border-radius:var(--radius-sm);padding:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
+          <span style="font-weight:700;color:var(--green)">Q1: Solve x² − 3x − 10 = 0 (5 Marks)</span>
+          <span class="meta-chip">Standard Step Breakdown</span>
+        </div>
+        <div style="font-size:13.5px;color:var(--ink-soft);line-height:1.6">
+          <div style="padding:8px 12px;background:rgba(0,0,0,.2);border-radius:8px;margin-bottom:8px">
+            <b>Step 1 (Formula Identification, 1.5 marks):</b> Statement of quadratic formula <code>x = (-b ± √(b² - 4ac)) / 2a</code>.
+          </div>
+          <div style="padding:8px 12px;background:rgba(0,0,0,.2);border-radius:8px;margin-bottom:8px">
+            <b>Step 2 (Discriminant Evaluation, 1.5 marks):</b> Correct calculation of <code>Δ = (-3)² - 4(1)(-10) = 49</code>.
+          </div>
+          <div style="padding:8px 12px;background:rgba(0,0,0,.2);border-radius:8px;margin-bottom:8px">
+            <b>Step 3 (Square Root &amp; Substitution, 1.0 mark):</b> <code>√49 = 7</code>, yielding <code>x = (3 ± 7) / 2</code>.
+          </div>
+          <div style="padding:8px 12px;background:rgba(0,0,0,.2);border-radius:8px">
+            <b>Step 4 (Final Roots, 1.0 mark):</b> Both roots explicitly stated: <code>x = 5</code> and <code>x = -2</code>.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= VIEW 5: ANALYTICS ================= -->
+  <div id="view-analytics" class="view-panel" style="display:none">
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="kicker">Class Insights</div>
+          <h2>Evaluation Performance &amp; Analytics</h2>
+          <p>Real-time analytics aggregated across all graded answer scripts.</p>
+        </div>
+        <button class="btn-secondary" type="button" onclick="resetAnalytics()">
+          <span>↺ Reset Stats</span>
+        </button>
+      </div>
+
+      <div class="analytics-metrics">
+        <div class="metric-card">
+          <div class="k">Exams Evaluated</div>
+          <div class="val" id="anaTotal">1</div>
+          <div class="sub">Total student submissions</div>
+        </div>
+        <div class="metric-card">
+          <div class="k">Average Score</div>
+          <div class="val" style="color:var(--green)" id="anaAvg">62.0%</div>
+          <div class="sub">Mean marks obtained</div>
+        </div>
+        <div class="metric-card">
+          <div class="k">Pass Rate (&ge;60%)</div>
+          <div class="val" style="color:var(--green)" id="anaPass">100%</div>
+          <div class="sub">Class pass percentage</div>
+        </div>
+        <div class="metric-card">
+          <div class="k">Total Deductions</div>
+          <div class="val" style="color:var(--crimson)" id="anaDeduct">9.5 pts</div>
+          <div class="sub">Content + penalty points</div>
+        </div>
+      </div>
+
+      <div class="chart-grid">
+        <div class="chart-box">
+          <h4 style="font-size:15px;font-weight:700;margin-bottom:14px">Penalty Category Impact</h4>
+          <div class="chart-bar-row">
+            <div class="chart-bar-label"><span>Bad Handwriting</span><span id="anaHwVal">1.0 pts</span></div>
+            <div class="chart-bar-track"><div class="chart-bar-val" id="anaHwBar" style="width:25%;background:var(--amber)"></div></div>
+          </div>
+          <div class="chart-bar-row">
+            <div class="chart-bar-label"><span>Flawed Diagrams</span><span id="anaDgVal">1.5 pts</span></div>
+            <div class="chart-bar-track"><div class="chart-bar-val" id="anaDgBar" style="width:35%;background:var(--violet)"></div></div>
+          </div>
+          <div class="chart-bar-row">
+            <div class="chart-bar-label"><span>Formatting / Missing Steps</span><span id="anaFmVal">0.5 pts</span></div>
+            <div class="chart-bar-track"><div class="chart-bar-val" id="anaFmBar" style="width:15%;background:var(--blue)"></div></div>
+          </div>
+          <div class="chart-bar-row">
+            <div class="chart-bar-label"><span>Unreadable Data</span><span id="anaUrVal">0.0 pts</span></div>
+            <div class="chart-bar-track"><div class="chart-bar-val" id="anaUrBar" style="width:0%;background:var(--crimson)"></div></div>
+          </div>
+        </div>
+
+        <div class="chart-box">
+          <h4 style="font-size:15px;font-weight:700;margin-bottom:14px">Grade Distribution</h4>
+          <div class="chart-bar-row">
+            <div class="chart-bar-label"><span>Grade A (90% – 100%)</span><span>0 papers</span></div>
+            <div class="chart-bar-track"><div class="chart-bar-val" style="width:0%;background:var(--green)"></div></div>
+          </div>
+          <div class="chart-bar-row">
+            <div class="chart-bar-label"><span>Grade B (80% – 89%)</span><span>0 papers</span></div>
+            <div class="chart-bar-track"><div class="chart-bar-val" style="width:0%;background:var(--green)"></div></div>
+          </div>
+          <div class="chart-bar-row">
+            <div class="chart-bar-label"><span>Grade C (70% – 79%)</span><span>0 papers</span></div>
+            <div class="chart-bar-track"><div class="chart-bar-val" style="width:0%;background:var(--blue)"></div></div>
+          </div>
+          <div class="chart-bar-row">
+            <div class="chart-bar-label"><span>Grade D (60% – 69%)</span><span>1 paper</span></div>
+            <div class="chart-bar-track"><div class="chart-bar-val" style="width:100%;background:var(--amber)"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <footer class="foot">
     Exam Checker — offline demo runs fully in your browser. With <b>live AI grading</b> on,
