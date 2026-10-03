@@ -1,0 +1,10 @@
+[project]
+name = "somethingscalable"
+version = "1.0.0"
+description = "Exam Checker - AI answer sheet grading (static frontend + serverless grading API)"
+requires-python = ">=3.12"
+
+# Tell Vercel's Python runtime which function to serve.
+# (Without this it scans app.py — the local-only Streamlit UI — and fails.)
+[tool.vercel]
+entrypoint = "api.grade:handler"
