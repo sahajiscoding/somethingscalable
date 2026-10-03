@@ -34,12 +34,13 @@ from pipeline import SessionError, run_session, write_reports
 
 PAGE_ICON = "📝"
 MODEL_OPTIONS = [
-    "gemini-3.8-flash",      # default: best current Flash, strong vision
-    "gemini-3.5-flash-lite", # cheapest, for bulk grading
+    "moonshotai/kimi-k3",                  # NVIDIA NIM (default Kimi model, needs nvapi- key)
+    "gemini-3.8-flash",                    # default Gemini: best current Flash, strong vision
+    "gemini-3.5-flash-lite",               # cheapest, for bulk grading
     "gemini-3.7-flash",
     "gemini-3.6-flash",
     "gemini-3.1-flash-lite",
-    "meta/llama-3.2-11b-vision-instruct",  # NVIDIA NIM (needs nvapi- key)
+    "meta/llama-3.2-11b-vision-instruct",  # NVIDIA NIM
     "meta/llama-3.2-90b-vision-instruct",  # NVIDIA NIM, larger + slower
 ]
 

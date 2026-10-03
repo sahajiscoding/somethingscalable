@@ -36,18 +36,37 @@ from typing import Any
 # cheaper bulk grading).
 DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 
-# NVIDIA NIM (OpenAI-compatible chat-completions endpoint) — same proven
-# setup as the reference AI project: MiniMax-M3 reads the pages and grades
-# (vision + JSON). Override the model with NVIDIA_MODEL; any vision-capable
-# NIM id works.
+# NVIDIA NIM (OpenAI-compatible chat-completions endpoint) —
+# Kimi-K3 (moonshotai/kimi-k3) reads the pages and grades (native vision + JSON).
+# Override the model with NVIDIA_MODEL; any vision-capable NIM id works.
 NIM_ENDPOINT = os.environ.get(
     "NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
-NVIDIA_DEFAULT_MODEL = os.environ.get("NVIDIA_MODEL", "minimaxai/minimax-m3")
+NVIDIA_DEFAULT_MODEL = os.environ.get("NVIDIA_MODEL", "moonshotai/kimi-k3")
 # Per-request HTTP timeout; Vercel kills functions at 60 s wall time, so this
 # stays just under it and failures come back as clean errors, not hangs.
 _NIM_TIMEOUT = 55
 # Rendered-PDF page cap (same as the reference project).
 _NVIDIA_MAX_PDF_PAGES = 15
+
+_NVIDIA_KEY_NAMES = (
+    "NVIDIA_API_KEY",
+    "NVIDIA_KEY",
+    "NIM_API_KEY",
+    "NV_API_KEY",
+    "MOONSHOT_API_KEY",
+    "KIMI_API_KEY",
+)
+
+
+def get_nvidia_key(explicit_key: str | None = None) -> str:
+    """Return explicit key or first discovered NVIDIA/Moonshot env var."""
+    if explicit_key and explicit_key.strip():
+        return explicit_key.strip()
+    for name in _NVIDIA_KEY_NAMES:
+        val = os.environ.get(name, "").strip()
+        if val:
+            return val
+    return ""
 
 # NVIDIA's free tier allows ~40 requests/minute per key. A token bucket
 # refilled at NVIDIA_RPM/min (default 39) serialises bursts — parallel page
@@ -245,11 +264,9 @@ class GeminiEngine:
 class NvidiaEngine:
     """Vision + grading through NVIDIA NIM (api.nvidia.com).
 
-    Same proven setup as the reference AI project: MiniMax-M3 reads the
-    pages and grades (vision + JSON), HTTP via ``requests``. The key comes
-    ONLY from the ``NVIDIA_API_KEY`` environment variable — it is never
-    hardcoded. Any ``nvapi-...`` key selects this engine automatically via
-    :func:`make_engine`; override with ``backend="nvidia"``.
+    Kimi-K3 (moonshotai/kimi-k3) reads the pages and grades (native vision + JSON),
+    HTTP via ``requests``. The key comes from ``NVIDIA_API_KEY`` (or aliases
+    like MOONSHOT_API_KEY / KIMI_API_KEY) configured in Vercel or environment.
 
     Images go over as base64 data-URL blocks. PDF pages are rendered to PNG
     with PyMuPDF (digital pages with enough embedded text ride along as
@@ -260,11 +277,11 @@ class NvidiaEngine:
     name = "nvidia"
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
-        key = api_key or os.environ.get("NVIDIA_API_KEY")
+        key = get_nvidia_key(api_key)
         if not key:
             raise EngineError(
-                "No NVIDIA API key found. Set NVIDIA_API_KEY or pass --api-key "
-                "(keys start with 'nvapi-')."
+                "No NVIDIA API key found. Set NVIDIA_API_KEY in Vercel Environment "
+                "Variables (or pass --api-key)."
             )
         self.key = key
         self.model = model or NVIDIA_DEFAULT_MODEL
@@ -414,8 +431,8 @@ class NvidiaEngine:
                 raise EngineError(f"NVIDIA API unreachable: {exc}") from exc
             if resp.status_code == 200:
                 try:
-                    return (resp.json()["choices"][0]["message"]["content"]
-                            or "")
+                    choice_msg = resp.json()["choices"][0]["message"]
+                    return (choice_msg.get("content") or choice_msg.get("reasoning_content") or "")
                 except (KeyError, IndexError, TypeError) as exc:
                     raise EngineError(
                         "NVIDIA API returned an unexpected payload: "
@@ -713,23 +730,48 @@ class MockEngine:
 # ---------------------------------------------------------------------------
 
 def _parse_json(text: str) -> tuple[Any | None, str]:
-    """Parse JSON from a model reply, tolerating fences and prose."""
+    """Parse JSON from a model reply, tolerating reasoning tokens (<think>), fences, and prose."""
     candidate = text.strip()
-    if candidate.startswith("```"):
-        candidate = re.sub(r"^```[a-zA-Z]*\s*", "", candidate)
-        candidate = re.sub(r"\s*```$", "", candidate)
+    # Strip reasoning tags often output by reasoning models like Kimi-K3
+    candidate = re.sub(r"<think>[\s\S]*?</think>", "", candidate).strip()
+
+    # Try direct parse
     try:
         return json.loads(candidate), "ok"
-    except json.JSONDecodeError as exc:
-        first, last = candidate.find("{"), candidate.find("[")
-        start = min(i for i in (first, last) if i != -1) if (first != -1 or last != -1) else -1
+    except json.JSONDecodeError:
+        pass
+
+    # Extract markdown code fence content if present (```json ... ``` or ``` ... ```)
+    fences = re.findall(r"```(?:json)?\s*([\s\S]*?)\s*```", candidate)
+    for fence in fences:
+        try:
+            return json.loads(fence.strip()), "ok"
+        except json.JSONDecodeError:
+            pass
+
+    # Tolerant fence strip if candidate begins with fence but ending fence was clipped
+    if candidate.startswith("```"):
+        clipped = re.sub(r"^```[a-zA-Z]*\s*", "", candidate)
+        clipped = re.sub(r"\s*```$", "", clipped)
+        try:
+            return json.loads(clipped), "ok"
+        except json.JSONDecodeError:
+            pass
+
+    # Fallback: look for outermost JSON object { ... } or array [ ... ]
+    first_brace = candidate.find("{")
+    first_bracket = candidate.find("[")
+    starts = [i for i in (first_brace, first_bracket) if i != -1]
+    if starts:
+        start = min(starts)
         end = max(candidate.rfind("}"), candidate.rfind("]"))
-        if start != -1 and end > start:
+        if end > start:
             try:
                 return json.loads(candidate[start:end + 1]), "ok"
-            except json.JSONDecodeError:
-                pass
-        return None, str(exc)
+            except json.JSONDecodeError as exc:
+                return None, str(exc)
+
+    return None, "No valid JSON found in response"
 
 
 def _parse_blocks(text: str) -> dict[str, str]:
@@ -786,19 +828,25 @@ def make_engine(api_key: str | None = None,
                 backend: str | None = None):
     """Factory used by the CLI, test runners, Streamlit app and API.
 
-    ``backend`` is ``"gemini"``, ``"nvidia"`` or ``None`` (auto-detect: an
-    ``nvapi-`` key selects NVIDIA NIM, anything else selects Gemini).  A
-    Gemini-model id passed with an NVIDIA key is ignored in favour of
-    ``NVIDIA_MODEL`` so the UI default never breaks NVIDIA runs.
+    Defaults to NVIDIA NIM (``moonshotai/kimi-k3``) for checking papers,
+    using the API key configured in Vercel/environment (``NVIDIA_API_KEY``)
+    or provided explicitly.
     """
     if mock:
         return MockEngine(model=model)
     if backend is None:
-        key = (api_key
-               or os.environ.get("GEMINI_API_KEY")
-               or os.environ.get("GOOGLE_API_KEY")
-               or os.environ.get("NVIDIA_API_KEY"))
-        backend = "nvidia" if (key or "").startswith("nvapi-") else "gemini"
+        nv_key = get_nvidia_key(api_key)
+        gemini_key = (
+            (api_key if (api_key and not api_key.startswith("nvapi-")) else None)
+            or os.environ.get("GEMINI_API_KEY")
+            or os.environ.get("GOOGLE_API_KEY")
+        )
+        if nv_key or (api_key and api_key.startswith("nvapi-")):
+            backend = "nvidia"
+        elif gemini_key and not nv_key and not (model and ("kimi" in model.lower() or "/" in model)):
+            backend = "gemini"
+        else:
+            backend = "nvidia"
     if backend == "nvidia":
         if not model or model.startswith("gemini-"):
             model = NVIDIA_DEFAULT_MODEL

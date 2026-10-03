@@ -5,6 +5,6 @@ Developer: sahajiscoding
 Site: https://github.com/sahajiscoding/somethingscalable
 
 /* Stack */
-Backend: Python, Flask, NVIDIA NIM (MiniMax-M3)
+Backend: Python, Flask, NVIDIA NIM (moonshotai/kimi-k3)
 Frontend: plain HTML/CSS/JS, no build step
 Realtime grading of handwritten answer sheets.

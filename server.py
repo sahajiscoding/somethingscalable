@@ -43,6 +43,7 @@ from engine import (  # noqa: E402
     NVIDIA_DEFAULT_MODEL,
     PENALTY_CATEGORIES,
     EngineError,
+    get_nvidia_key,
     make_engine,
 )
 from extract import (  # noqa: E402
@@ -92,7 +93,7 @@ def _key(name: str) -> str:
 
 
 def _has_key() -> bool:
-    return bool(_key("NVIDIA_API_KEY") or _key("GEMINI_API_KEY")
+    return bool(get_nvidia_key() or _key("GEMINI_API_KEY")
                 or _key("GOOGLE_API_KEY"))
 
 
@@ -124,7 +125,7 @@ def _model(body: dict) -> str | None:
 def _backend(body) -> str | None:
     get = body.get if isinstance(body, dict) else (lambda k, d=None: d)
     value = (get("backend") or "").strip() or None
-    return value
+    return value or "nvidia"
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +218,7 @@ def sitemap_xml():
 @app.get("/api/health")
 def api_health():
     return jsonify({"ok": True, "hasApiKey": _has_key(),
-                    "hasNvidiaKey": bool(_key("NVIDIA_API_KEY")),
+                    "hasNvidiaKey": bool(get_nvidia_key()),
                     "model": NVIDIA_DEFAULT_MODEL})
 
 

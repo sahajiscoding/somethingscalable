@@ -7,7 +7,7 @@ a scoreboard plus a question-by-question report (target vs student answer,
 deductions, reasoning) downloadable as JSON and Markdown.
 
 - Web UI: `/` (works offline as a demo; live grading via the API below)
-- Grading backend: NVIDIA NIM (`minimaxai/minimax-m3` by default)
+- Grading backend: NVIDIA NIM (`moonshotai/kimi-k3` by default)
 - API keys live ONLY in server environment variables — never in the client
 
 ## API (split pipeline — every call is ~1 AI request, safe for capped hosts)
