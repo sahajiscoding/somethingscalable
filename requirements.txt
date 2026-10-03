@@ -1,7 +1,13 @@
 # Exam Checker - Python dependencies
 # Install with: pip install -r requirements.txt
+# API keys are NEVER listed here — set GEMINI_API_KEY / NVIDIA_API_KEY in
+# the environment (or a local .env file, see .env.example).
 
 streamlit>=1.36.0            # Web UI framework (streamlit_app.py, local only)
 google-genai>=1.20.0         # Unified Google Gen AI SDK - vision OCR + grading
                              #   (replaces the EOL google-generativeai package)
 pypdf>=5.0.0                 # Multi-page PDF page counts + chunking
+flask==3.1.3                 # Web server (server.py, local + Vercel)
+requests==2.34.2             # NVIDIA NIM HTTP calls
+python-dotenv==1.2.2         # Local .env loading (Vercel injects env itself)
+pymupdf==1.28.2              # PDF page rendering for the NVIDIA path

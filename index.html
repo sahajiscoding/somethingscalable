@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Exam Checker — AI Answer Sheet Grading</title>
 <meta name="description" content="Exam Checker: upload a question paper, answer key and student answer sheet, pick penalty criteria and run an AI evaluation." />
+<script>window.__APP_SECRET__="__VERCEL_APP_SECRET__";</script>
 <style>
   /* ==========================================================================
      Design tokens — dark premium dashboard
@@ -271,6 +272,7 @@
   .backend input[type="password"]:focus, .backend input[type="text"]:focus{outline:none;border-color:var(--green);
     box-shadow:0 0 0 3px rgba(129,199,132,.25)}
   .backend .b-row{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:13px}
+  .backend .b-note{font-size:12.5px;color:var(--ink-dim);margin-bottom:4px}
   .backend .b-status{font-size:12px;color:var(--ink-dim);margin-top:8px}
   .backend .b-status.ok{color:var(--green)}
   .backend .b-status.bad{color:var(--crimson)}
@@ -310,6 +312,14 @@
   }
   .meta-chip.strict{border-color:rgba(224,181,108,.5);background:var(--amber-bg);color:#ffe6c0}
   .meta-chip.crit{border-color:rgba(229,115,115,.45);background:var(--crimson-bg);color:#ffd6d6}
+
+  .dl-row{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap}
+  .dl-btn{
+    padding:9px 18px;border-radius:10px;border:1px solid rgba(129,199,132,.45);
+    background:rgba(129,199,132,.10);color:#d8f5db;font-family:var(--font);
+    font-size:13.5px;font-weight:700;cursor:pointer;
+  }
+  .dl-btn:hover{background:rgba(129,199,132,.18)}
 
   .scoreboard{
     display:grid;grid-template-columns:minmax(240px,1fr) minmax(260px,1.25fr);
@@ -574,13 +584,10 @@
 
       <div class="backend" aria-label="Live backend settings">
         <div class="b-title">Live AI backend</div>
-        <label for="apiKey">API key
-          <span style="color:var(--ink-dim)">(skip if set on the server: GEMINI_API_KEY or NVIDIA_API_KEY)</span></label>
-        <input type="password" id="apiKey" placeholder="nvapi-… or AIza… — sent only to your deployment's /api/grade"
-               autocomplete="off" aria-label="API key" />
+        <div class="b-note">API keys live on the server — nothing secret is typed here.</div>
         <label for="modelId" style="margin-top:10px;display:block">Model override
-          <span style="color:var(--ink-dim)">(optional — auto-picks per key type)</span></label>
-        <input type="text" id="modelId" placeholder="e.g. meta/llama-3.2-90b-vision-instruct"
+          <span style="color:var(--ink-dim)">(optional — server default is MiniMax-M3)</span></label>
+        <input type="text" id="modelId" placeholder="e.g. minimaxai/minimax-m3"
                autocomplete="off" aria-label="Model id override" />
         <div class="b-row">
           <label class="crit" style="flex:1">
@@ -621,6 +628,11 @@
       </div>
 
       <div class="results-meta" id="resultsMeta"></div>
+
+      <div class="dl-row" id="dlRow" style="display:none">
+        <button class="dl-btn" id="dlJson" type="button">⬇ report.json</button>
+        <button class="dl-btn" id="dlMd" type="button">⬇ report.md</button>
+      </div>
 
       <div class="scoreboard">
         <div>
@@ -667,7 +679,8 @@
 
   <footer class="foot">
     Exam Checker — offline demo runs fully in your browser. With <b>live AI grading</b> on,
-    documents are sent to your own deployment's <code>/api/grade</code> and on to Google's Gemini API.
+    documents are sent to your own deployment's <code>/api</code> (extract → grade)
+    and on to NVIDIA's API. API keys stay on the server and are never hardcoded.
   </footer>
 </div>
 
@@ -1002,21 +1015,39 @@ function renderResults() {
 }
 
 /* ==========================================================================
-   Live backend (/api/grade) — real Gemini grading with demo fallback
+   Live backend (split /api pipeline) — real NVIDIA grading with demo fallback
    ========================================================================== */
 state.backendOk = false;
+
+// App secret (if the operator set one): injected into the page by the server,
+// never typed, never hardcoded. Untouched placeholder = open access.
+const APP_SECRET = (() => {
+  const v = window.__APP_SECRET__ || "";
+  return v.startsWith("__VERCEL") ? "" : v;
+})();
+
+function api(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  if (APP_SECRET) headers["X-App-Secret"] = APP_SECRET;
+  return fetch(path, { ...opts, headers });
+}
+
+async function apiJson(path, opts = {}) {
+  const res = await api(path, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `backend error (HTTP ${res.status})`);
+  return data;
+}
 
 async function checkBackend() {
   const el = $("#backendStatus");
   try {
-    const res = await fetch("api/grade", { method: "GET" });
-    if (!res.ok) throw new Error("bad status");
-    const health = await res.json();
+    const health = await apiJson("/api/health");
     state.backendOk = true;
     el.className = "b-status ok";
     el.textContent = health.hasApiKey
-      ? "● Live backend connected — server API key set."
-      : "● Live backend connected — enter your API key above to grade.";
+      ? `● Live backend connected (AI model ${health.model}).`
+      : "● Live backend connected — set NVIDIA_API_KEY on the server to grade.";
   } catch {
     state.backendOk = false;
     if (el) {
@@ -1026,22 +1057,7 @@ async function checkBackend() {
   }
 }
 
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(",", 2)[1] || "");
-    reader.onerror = () => reject(new Error("could not read " + file.name));
-    reader.readAsDataURL(file);
-  });
-}
-
-function tagForCategory(cat) {
-  if (cat === "content") return `<span class="tag content">Content deduction</span>`;
-  const label = CRITERIA[cat] ? CRITERIA[cat].label : cat;
-  return `<span class="tag c-${esc(cat)}">${esc(label)}</span>`;
-}
-
-function renderLiveReport(report) {
+function renderLiveReport(report, markdown) {
   const s = report.summary;
   const pct = s.total_marks ? (s.marks_awarded / s.total_marks) * 100 : 0;
   const activeCrit = report.mode.penalty_criteria || [];
@@ -1118,15 +1134,54 @@ function renderLiveReport(report) {
         ${r.ocr_note ? `<div class="explain good" style="border-left-color:var(--blue)">OCR note: ${esc(r.ocr_note)}</div>` : ""}
       </article>`;
   }).join("");
+
+  state.liveReport = { json: report, markdown: markdown || "" };
+  const dl = $("#dlRow");
+  if (dl) {
+    dl.style.display = "flex";
+    $("#dlJson").onclick = () => downloadText(
+      JSON.stringify(report, null, 2), "report.json", "application/json");
+    $("#dlMd").onclick = () => downloadText(
+      state.liveReport.markdown || "# Exam Checker — Grading Report\n",
+      "report.md", "text/markdown");
+  }
+}
+
+function downloadText(text, filename, mime) {
+  const blob = new Blob([text], { type: mime });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+
+async function pool(items, n, fn) {
+  const out = new Array(items.length);
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length || 1) }, async () => {
+    while (i < items.length) {
+      const k = i++;
+      out[k] = await fn(items[k], k);
+    }
+  }));
+  return out;
+}
+
+function setSteps(steps, doneCount, activeIndex) {
+  steps.forEach((s, idx) => {
+    s.classList.toggle("done", idx < doneCount);
+    s.classList.toggle("active", idx === activeIndex);
+  });
 }
 
 async function runLiveEvaluation() {
   const btn = $("#runBtn"), label = $("#runLabel"), prog = $("#progress"), steps = $$("#progress .step");
-  const files = { paper: state.files.paper, key: state.files.key, sheet: state.files.sheet };
-  const oversize = Object.entries(files).find(([, f]) => f && f.size > 3_500_000);
+  const files = { paper: state.files.paper, key: state.files.key, student: state.files.sheet };
+  const oversize = Object.entries(files).find(([, f]) => f && f.size > 4_000_000);
   if (oversize) {
-    showAlert(`"${oversize[1].name}" is ${(oversize[1].size / 1048576).toFixed(1)} MB — too large for Vercel's ~4.5 MB request cap. Running the offline demo instead.`);
-    await runSimulation();
+    showAlert(`"${oversize[1].name}" is ${(oversize[1].size / 1048576).toFixed(1)} MB — too large for the 4.5 MB hosting cap. Compress it and retry, or run the offline demo.`);
     return;
   }
 
@@ -1135,46 +1190,84 @@ async function runLiveEvaluation() {
   label.textContent = "Grading with live AI…";
   showAlert("");
   $("#results").classList.remove("show");
+  const dl0 = $("#dlRow"); if (dl0) dl0.style.display = "none";
   steps.forEach(s => s.classList.remove("active", "done"));
   prog.classList.add("show");
-  steps[0].classList.add("active");
+
+  const model = ($("#modelId") || {}).value ? $("#modelId").value.trim() : undefined;
+  const penalties = Object.keys(state.criteria).filter(k => state.criteria[k]);
 
   try {
-    const [paperB64, keyB64, sheetB64] = await Promise.all(
-      [files.paper, files.key, files.sheet].map(fileToBase64));
-    steps[0].classList.replace("active", "done");
-    steps[1].classList.add("active");
-    steps[2].classList.add("active");
+    // Stage 1 — transcribe the three documents in parallel (one AI call each).
+    setSteps(steps, 0, 0);
+    const roles = ["paper", "key", "student"];
+    const extracted = await Promise.all(roles.map(async role => {
+      const fd = new FormData();
+      fd.append("file", files[role], files[role].name);
+      fd.append("role", role);
+      if (model) fd.append("model", model);
+      const res = await api("/api/extract", { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `could not transcribe ${files[role].name} (HTTP ${res.status})`);
+      return data;
+    }));
+    const byRole = {};
+    extracted.forEach(e => { byRole[e.role] = e; });
+    setSteps(steps, 2, 2);
 
-    const res = await fetch("api/grade", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+    // Stage 2 — map responses onto question numbers (instant, no AI).
+    const docs = {};
+    roles.forEach(r => {
+      docs[r] = { file: byRole[r].filename, kind: byRole[r].kind, pages: byRole[r].pages };
+    });
+    const docWarnings = [];
+    extracted.forEach(e => (e.warnings || []).forEach(w => docWarnings.push(`${e.role}: ${w}`)));
+    const alignBody = {
+      paper: byRole.paper.data.questions,
+      key: byRole.key.data.entries,
+      student: byRole.student.data.answers,
+      documents: docs,
+    };
+    if (model) alignBody.model = model;
+    const aligned = await apiJson("/api/align", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(alignBody),
+    });
+    const usedModel = aligned.model;
+    setSteps(steps, 3, 3);
+
+    // Stage 3 — grade one question per call (short enough for capped hosts).
+    const records = await pool(aligned.aligned, 3, async q => {
+      const data = await apiJson("/api/grade-one", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: q, strict: state.strict, penalties, model: usedModel,
+        }),
+      });
+      return data.record;
+    });
+    setSteps(steps, 4, 4);
+
+    // Stage 4 — assemble the canonical report (instant, no AI).
+    const reportData = await apiJson("/api/report", {
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        paper: { filename: files.paper.name, data: paperB64 },
-        key: { filename: files.key.name, data: keyB64 },
-        student: { filename: files.sheet.name, data: sheetB64 },
-        strict: state.strict,
-        penalties: Object.keys(state.criteria).filter(k => state.criteria[k]),
-        apiKey: ($("#apiKey") || {}).value ? $("#apiKey").value.trim() : undefined,
-        model: ($("#modelId") || {}).value ? $("#modelId").value.trim() : undefined,
+        records, documents: docs, strict: state.strict, penalties,
+        warnings: docWarnings.concat(aligned.warnings || []),
+        engine: "nvidia", model: usedModel,
       }),
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `backend error (HTTP ${res.status})`);
+    setSteps(steps, 5, -1);
 
-    steps.forEach(s => { s.classList.remove("active"); s.classList.add("done"); });
     state.running = false;
     state.evaluated = false; // live output is final; toggles require a re-run
     btn.disabled = false;
     label.textContent = "Re-run AI Evaluation";
     prog.classList.remove("show");
 
-    renderLiveReport(data.report);
-    const warnCount = (data.warnings || []).length;
+    renderLiveReport(reportData.report, reportData.markdown);
     $("#results").classList.add("show");
-    showAlert(warnCount
-      ? `✓ Live evaluation complete — ${warnCount} warning(s), see report.`
-      : "✓ Live AI evaluation complete — report generated below.", true);
+    showAlert("✓ Live AI evaluation complete — report generated below.", true);
     $("#results").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (err) {
     state.running = false;
@@ -1252,6 +1345,7 @@ async function runSimulation() {
   prog.classList.remove("show");
 
   renderResults();
+  const dlSim = $("#dlRow"); if (dlSim) dlSim.style.display = "none";
   const res = $("#results");
   res.classList.add("show");
   showAlert("✓ Evaluation complete — report generated below.", true);

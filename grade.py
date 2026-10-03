@@ -197,6 +197,33 @@ def grade_answers(engine, aligned: list[AlignedQuestion],
     return records
 
 
+_ALIGNED_FIELDS = ("number", "question", "max_marks", "expected_answer",
+                   "marking_scheme", "student_answer", "legibility",
+                   "uncertain_spans", "keywords", "page", "warnings")
+
+
+def grade_one_record(engine, aligned: dict,
+                     params: GradeParams | None = None) -> dict:
+    """Grade a single aligned question (split-pipeline server endpoint).
+
+    ``aligned`` is one :meth:`AlignedQuestion.to_payload` dict, as returned
+    by ``/api/align``. Reuses :func:`grade_answers` so single-question and
+    full-batch grading stay identical.
+    """
+    params = params or GradeParams()
+    question = {k: aligned.get(k) for k in _ALIGNED_FIELDS if k in aligned}
+    question["number"] = str(question.get("number") or "?")
+    if not isinstance(question.get("marking_scheme"), list):
+        question["marking_scheme"] = []
+    if not isinstance(question.get("uncertain_spans"), list):
+        question["uncertain_spans"] = []
+    if not isinstance(question.get("keywords"), list):
+        question["keywords"] = []
+    if not isinstance(question.get("warnings"), list):
+        question["warnings"] = []
+    return grade_answers(engine, [AlignedQuestion(**question)], params)[0]
+
+
 def normalise_record(item: dict | None, q: AlignedQuestion,
                      params: GradeParams) -> dict:
     """Enforce the report schema on one grading record."""

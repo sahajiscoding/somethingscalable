@@ -28,6 +28,7 @@ import json
 import math
 import os
 import re
+import threading
 from typing import Any
 
 # Model defaults.  Gemini 3.8 Flash is the current recommended Flash model;
@@ -35,15 +36,89 @@ from typing import Any
 # cheaper bulk grading).
 DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 
-# NVIDIA NIM defaults (OpenAI-compatible chat-completions endpoint).
-# Override the model with the NVIDIA_MODEL env var; any vision-capable NIM
-# model id works (e.g. meta/llama-3.2-90b-vision-instruct).
+# NVIDIA NIM (OpenAI-compatible chat-completions endpoint) — same proven
+# setup as the reference AI project: MiniMax-M3 reads the pages and grades
+# (vision + JSON). Override the model with NVIDIA_MODEL; any vision-capable
+# NIM id works.
 NIM_ENDPOINT = os.environ.get(
     "NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
-NVIDIA_DEFAULT_MODEL = os.environ.get(
-    "NVIDIA_MODEL", "meta/llama-3.2-11b-vision-instruct")
-# Per-request HTTP timeout; Vercel caps functions at 60 s wall time.
-_NIM_TIMEOUT = 50
+NVIDIA_DEFAULT_MODEL = os.environ.get("NVIDIA_MODEL", "minimaxai/minimax-m3")
+# Per-request HTTP timeout; Vercel kills functions at 60 s wall time, so this
+# stays just under it and failures come back as clean errors, not hangs.
+_NIM_TIMEOUT = 55
+# Rendered-PDF page cap (same as the reference project).
+_NVIDIA_MAX_PDF_PAGES = 15
+
+# NVIDIA's free tier allows ~40 requests/minute per key. A token bucket
+# refilled at NVIDIA_RPM/min (default 39) serialises bursts — parallel page
+# OCR, per-question grading calls — so callers wait instead of tripping 429s.
+try:
+    NVIDIA_RPM = int(os.environ.get("NVIDIA_RPM", 39))
+except ValueError:  # a bad env value must never crash the import
+    NVIDIA_RPM = 39
+_bucket_lock = threading.Lock()
+_bucket_tokens = float(NVIDIA_RPM)
+_bucket_last: float | None = None
+
+
+def _acquire_nvidia_token() -> None:
+    """Block until a rate-limit token is available, then consume it."""
+    import time
+    global _bucket_tokens, _bucket_last
+    while True:
+        with _bucket_lock:
+            now = time.monotonic()
+            if _bucket_last is None:
+                _bucket_last = now
+            _bucket_tokens = min(
+                float(NVIDIA_RPM),
+                _bucket_tokens + (now - _bucket_last) * NVIDIA_RPM / 60.0,
+            )
+            _bucket_last = now
+            if _bucket_tokens >= 1.0:
+                _bucket_tokens -= 1.0
+                return
+            wait = (1.0 - _bucket_tokens) * 60.0 / NVIDIA_RPM
+        time.sleep(min(max(wait, 0.05), 2.0))
+
+
+def _get_pdf_renderer():
+    """Lazy PyMuPDF import — heavy and optional (text fallback otherwise)."""
+    try:
+        import pymupdf
+        return pymupdf
+    except ImportError:
+        return None
+
+
+def _pdf_text_fallback(document) -> str:
+    """Pull the PDF text layer with pypdf when PyMuPDF is unavailable."""
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise EngineError(
+            "pypdf is required for PDF input. "
+            "Install dependencies with: pip install -r requirements.txt"
+        ) from exc
+    import io
+
+    texts: list[str] = []
+    for chunk in document.pages:
+        try:
+            reader = PdfReader(io.BytesIO(chunk.data))
+            texts.extend([(p.extract_text() or "") for p in reader.pages])
+        except Exception as exc:
+            raise EngineError(
+                f"Could not read PDF {document.filename}: {exc}") from exc
+    text = "\n".join(t.strip() for t in texts if t and t.strip())
+    if not text:
+        raise EngineError(
+            f"{document.filename} looks like a scanned/image-only PDF. Without "
+            "PyMuPDF it cannot be rendered — install pymupdf, upload the pages "
+            "as JPG/PNG images, or use the Gemini engine."
+        )
+    return (f"Document text ({document.filename}, PDF text layer):\n---\n"
+            f"{text}\n---")
 
 SYSTEM_INSTRUCTION = (
     "You are an exam-processing engine that answers strictly with valid JSON. "
@@ -170,14 +245,16 @@ class GeminiEngine:
 class NvidiaEngine:
     """Vision + grading through NVIDIA NIM (api.nvidia.com).
 
-    Uses only the standard library (``urllib``), so no extra dependency is
-    needed.  Any ``nvapi-...`` key selects this engine automatically via
+    Same proven setup as the reference AI project: MiniMax-M3 reads the
+    pages and grades (vision + JSON), HTTP via ``requests``. The key comes
+    ONLY from the ``NVIDIA_API_KEY`` environment variable — it is never
+    hardcoded. Any ``nvapi-...`` key selects this engine automatically via
     :func:`make_engine`; override with ``backend="nvidia"``.
 
-    Images ride along as base64 data-URL blocks.  PDFs carry no rendered
-    pixels in this pipeline, so the PDF text layer is extracted with pypdf
-    when present; scanned (image-only) PDFs are rejected with a clear error
-    suggesting image uploads or the Gemini engine instead.
+    Images go over as base64 data-URL blocks. PDF pages are rendered to PNG
+    with PyMuPDF (digital pages with enough embedded text ride along as
+    text instead), so scanned handwriting works — the case a text-layer
+    fallback could never handle.
     """
 
     name = "nvidia"
@@ -225,8 +302,6 @@ class NvidiaEngine:
     # -- helpers ------------------------------------------------------------
 
     def _build_messages(self, instruction: str, document: Any, data: Any):
-        import base64
-
         messages: list[Any] = [
             {"role": "system", "content": SYSTEM_INSTRUCTION}
         ]
@@ -241,14 +316,10 @@ class NvidiaEngine:
                 })
             elif document.kind == "image":
                 page = document.pages[0]
-                b64 = base64.b64encode(page.data).decode("ascii")
-                content.append({
-                    "type": "image_url",
-                    "image_url": {"url": f"data:{page.mime};base64,{b64}"},
-                })
-            else:  # pdf: NIM chat has no native PDF reader, send text layer
-                content.append({"type": "text",
-                                "text": self._pdf_as_text(document)})
+                content.append(
+                    self._image_block(document.filename, page.mime, page.data))
+            else:  # pdf: digital pages as text, scanned pages as PNG images
+                content.extend(self._pdf_blocks(document))
         if data is not None:
             content.append({
                 "type": "text",
@@ -259,91 +330,118 @@ class NvidiaEngine:
         return messages
 
     @staticmethod
-    def _pdf_as_text(document) -> str:
-        try:
-            from pypdf import PdfReader
-        except ImportError as exc:  # pragma: no cover - dependency guard
-            raise EngineError(
-                "pypdf is required for PDF input. "
-                "Install dependencies with: pip install -r requirements.txt"
-            ) from exc
-        import io
+    def _image_block(filename: str, mime: str, data: bytes) -> dict:
+        import base64
 
-        texts: list[str] = []
-        for page in document.pages:
-            try:
-                reader = PdfReader(io.BytesIO(page.data))
-                texts.extend((p.extract_text() or "") for p in reader.pages)
-            except Exception as exc:
-                raise EngineError(
-                    f"Could not read PDF {document.filename}: {exc}") from exc
-        text = "\n".join(t.strip() for t in texts if t and t.strip())
-        if not text:
+        if len(data) > 8 * 1024 * 1024:
             raise EngineError(
-                f"{document.filename} looks like a scanned/image-only PDF, which "
-                "the NVIDIA endpoint cannot read (it takes text + images, not "
-                "PDFs). Upload the pages as JPG/PNG images, use a text-based "
-                "PDF, or switch to the Gemini engine."
+                f"{filename} is {len(data) // 1024} KB — too large to send. "
+                "Compress/downscale the image and retry."
             )
-        return (f"Document text ({document.filename}, PDF text layer):\n---\n"
-                f"{text}\n---")
+        b64 = base64.b64encode(data).decode("ascii")
+        return {"type": "image_url",
+                "image_url": {"url": f"data:{mime};base64,{b64}"}}
+
+    @staticmethod
+    def _pdf_blocks(document) -> list[dict]:
+        """One content block per PDF page: embedded text for digital pages,
+        a rendered PNG for scanned ones (handwriting lives here)."""
+        fitz = _get_pdf_renderer()
+        if fitz is None:
+            return [{"type": "text", "text": _pdf_text_fallback(document)}]
+
+        blocks: list[dict] = []
+        page_no = 0
+        try:
+            for chunk in document.pages:
+                with fitz.open(stream=chunk.data, filetype="pdf") as doc:
+                    for page in doc:
+                        page_no += 1
+                        if page_no > _NVIDIA_MAX_PDF_PAGES:
+                            raise EngineError(
+                                f"{document.filename} has more than "
+                                f"{_NVIDIA_MAX_PDF_PAGES} pages — split it and "
+                                "grade the parts separately."
+                            )
+                        text = (page.get_text() or "").strip()
+                        if len(text) >= 40:
+                            blocks.append({
+                                "type": "text",
+                                "text": (f"--- {document.filename} page "
+                                         f"{page_no} (text) ---\n{text}"),
+                            })
+                        else:
+                            png = page.get_pixmap(dpi=150).tobytes("png")
+                            blocks.append(NvidiaEngine._image_block(
+                                f"{document.filename} p{page_no}",
+                                "image/png", png))
+        except EngineError:
+            raise
+        except Exception as exc:
+            raise EngineError(
+                f"Could not read PDF {document.filename}: {exc}") from exc
+        if not blocks:
+            raise EngineError(f"No pages found in {document.filename}.")
+        return blocks
 
     def _chat(self, messages: list[Any], temperature: float) -> str:
         import time
-        import urllib.error
-        import urllib.request
 
-        body = json.dumps({
+        try:
+            import requests
+        except ImportError as exc:
+            raise EngineError(
+                "The requests package is not installed. "
+                "Install dependencies with: pip install -r requirements.txt"
+            ) from exc
+
+        payload = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": 4096,
-        }).encode("utf-8")
-
+            "stream": False,
+        }
+        headers = {"Authorization": f"Bearer {self.key}",
+                   "Accept": "application/json"}
+        _acquire_nvidia_token()
         last = "no response"
-        for attempt in range(3):
-            req = urllib.request.Request(
-                NIM_ENDPOINT, data=body,
-                headers={"Authorization": f"Bearer {self.key}",
-                         "Content-Type": "application/json"},
-                method="POST",
-            )
+        for attempt in range(2):
             try:
-                with urllib.request.urlopen(req, timeout=_NIM_TIMEOUT) as resp:
-                    payload = json.loads(resp.read().decode("utf-8"))
+                resp = requests.post(NIM_ENDPOINT, headers=headers,
+                                     json=payload, timeout=_NIM_TIMEOUT)
+            except requests.RequestException as exc:
+                raise EngineError(f"NVIDIA API unreachable: {exc}") from exc
+            if resp.status_code == 200:
                 try:
-                    return payload["choices"][0]["message"]["content"] or ""
+                    return (resp.json()["choices"][0]["message"]["content"]
+                            or "")
                 except (KeyError, IndexError, TypeError) as exc:
                     raise EngineError(
-                        f"NVIDIA API returned an unexpected payload: {exc}"
-                    ) from exc
-            except urllib.error.HTTPError as exc:
-                try:
-                    detail = exc.read().decode("utf-8", "replace")[:300]
-                except Exception:
-                    detail = ""
-                last = f"HTTP {exc.code}: {detail or exc.reason}"
-                if exc.code in (401, 403):
-                    raise EngineError(
-                        f"NVIDIA API rejected the key (HTTP {exc.code}). "
-                        "Check NVIDIA_API_KEY."
-                    ) from exc
-                if exc.code == 404:
-                    raise EngineError(
-                        f"NVIDIA API has no model '{self.model}' (HTTP 404). "
-                        "Set NVIDIA_MODEL to a vision-capable NIM id."
-                    ) from exc
-                if exc.code in (429, 500, 502, 503, 504) and attempt < 2:
-                    time.sleep(2 * (attempt + 1))
-                    continue
-                raise EngineError(f"NVIDIA API call failed: {last}") from exc
-            except (urllib.error.URLError, TimeoutError) as exc:
-                last = str(exc)
-                if attempt < 2:
-                    time.sleep(2 * (attempt + 1))
-                    continue
-                raise EngineError(f"NVIDIA API unreachable: {exc}") from exc
-        raise EngineError(f"NVIDIA API call failed after retries: {last}")
+                        "NVIDIA API returned an unexpected payload: "
+                        f"{exc}") from exc
+            if resp.status_code in (401, 403):
+                raise EngineError(
+                    f"NVIDIA API rejected the key (HTTP {resp.status_code}). "
+                    "Check NVIDIA_API_KEY."
+                )
+            if resp.status_code == 404:
+                raise EngineError(
+                    f"NVIDIA API has no model '{self.model}' (HTTP 404). "
+                    "Set NVIDIA_MODEL to a hosted NIM id."
+                )
+            last = f"HTTP {resp.status_code}: {resp.text[:300]}"
+            if resp.status_code in (429, 500, 502, 503, 504) and attempt == 0:
+                time.sleep(5)
+                _acquire_nvidia_token()
+                continue
+            if resp.status_code == 429:
+                raise EngineError(
+                    "NVIDIA API rate limit (HTTP 429) — the free tier allows "
+                    "~40 req/min. Wait a moment and retry."
+                )
+            raise EngineError(f"NVIDIA API call failed: {last}")
+        raise EngineError(f"NVIDIA API call failed after retry: {last}")
 
 
 # ---------------------------------------------------------------------------
