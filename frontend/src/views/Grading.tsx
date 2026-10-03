@@ -6,6 +6,7 @@ import {
   type BackendState,
   type LiveReport,
 } from '../lib/api';
+import { compressImageIfNeeded, UPLOAD_TARGET_BYTES } from '../lib/image';
 import {
   CRITERIA,
   evaluateDemo,
@@ -217,6 +218,9 @@ function Dropzone({
   onFile,
   onClear,
   missing,
+  compressing,
+  shrink,
+  onCompress,
 }: {
   docKey: DocKey;
   title: string;
@@ -225,6 +229,9 @@ function Dropzone({
   onFile: (doc: DocKey, f: File) => void;
   onClear: (doc: DocKey) => void;
   missing: boolean;
+  compressing: boolean;
+  shrink: string | null;
+  onCompress: (doc: DocKey) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
@@ -282,6 +289,36 @@ function Dropzone({
             ✓
           </span>
           <span className="max-w-[19ch] overflow-hidden text-ellipsis whitespace-nowrap text-white">{file.name}</span>
+        </div>
+      )}
+      {file && file.type.startsWith('image/') && file.size > UPLOAD_TARGET_BYTES && (
+        <div className="mt-2 rounded-[9px] border border-sand/40 bg-sand/10 px-2.5 py-2 text-left text-xs">
+          <div className="text-[#ffe6c0]">⚠ {(file.size / 1048576).toFixed(1)} MB — over the 4.5 MB hosting cap</div>
+          <div className="mt-1.5 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={e => {
+                e.stopPropagation();
+                void onCompress(docKey);
+              }}
+              disabled={compressing}
+              className="cursor-pointer rounded-lg border border-mint/45 bg-mint/10 px-2.5 py-1 text-[11.5px] font-bold text-[#d8f5db] transition hover:bg-mint/20 disabled:cursor-wait disabled:opacity-60"
+            >
+              {compressing ? 'Compressing…' : '🗜 Compress to fit'}
+            </button>
+            {shrink && !compressing && <span className="text-white/60">{shrink}</span>}
+          </div>
+        </div>
+      )}
+      {file && !file.type.startsWith('image/') && file.size > UPLOAD_TARGET_BYTES && (
+        <div className="mt-2 rounded-[9px] border border-sand/40 bg-sand/10 px-2.5 py-2 text-left text-xs text-[#ffe6c0]">
+          ⚠ {(file.size / 1048576).toFixed(1)} MB — over the 4.5 MB hosting cap. Split the PDF or re-scan at a lower
+          DPI, then re-upload.
+        </div>
+      )}
+      {file && shrink && file.size <= UPLOAD_TARGET_BYTES && (
+        <div className="mt-2 rounded-[9px] border border-mint/35 bg-mint/10 px-2.5 py-1.5 text-left text-xs text-[#d8f5db]">
+          ✓ Compressed {shrink} — fits the cap, ready to grade
         </div>
       )}
       {file && (
@@ -560,6 +597,8 @@ export default function Grading(props: GradingProps) {
   const [vm, setVm] = useState<ResultsVM | null>(null);
   const [liveBlobs, setLiveBlobs] = useState<{ json: string; md: string } | null>(null);
   const [loaderStatus, setLoaderStatus] = useState<'working' | 'done' | 'error' | null>(null);
+  const [compressing, setCompressing] = useState<DocKey | null>(null);
+  const [shrinkInfo, setShrinkInfo] = useState<Partial<Record<DocKey, string>>>({});
   const missingTimer = useRef<number | null>(null);
 
   const flagMissing = useCallback((docs: DocKey[]) => {
@@ -612,15 +651,20 @@ export default function Grading(props: GradingProps) {
     setAlert(null);
     setVm(null);
     setLiveBlobs(null);
-    setRunLabel('Grading with live AI…');
+    setRunLabel('Preparing uploads…');
     setLoaderStatus('working');
     setStage({ done: 0, active: 0 });
+    const [paperDoc, keyDoc, studentDoc] = await Promise.all(
+      [files.paper!, files.key!, files.sheet!].map(f => compressImageIfNeeded(f)),
+    );
+    const shrunk = [paperDoc, keyDoc, studentDoc].filter(r => r.compressed);
+    setRunLabel('Grading with live AI…');
     const penalties = Object.keys(criteria).filter(k => criteria[k]);
     try {
       const { report, markdown } = await runLiveEvaluation({
-        paper: files.paper!,
-        key: files.key!,
-        student: files.sheet!,
+        paper: paperDoc.file,
+        key: keyDoc.file,
+        student: studentDoc.file,
         strict,
         penalties,
         model: modelOverride.trim() || undefined,
@@ -641,7 +685,10 @@ export default function Grading(props: GradingProps) {
       setRunLabel('Re-run AI Evaluation');
       setStage(null);
       setLoaderStatus('done');
-      setAlert({ msg: '✓ Live AI evaluation complete — report generated below.', ok: true });
+      const shrinkNote = shrunk.length
+        ? ` (auto-compressed uploads: ${shrunk.map(r => `${r.file.name} ${r.fromMB.toFixed(1)}→${r.toMB.toFixed(1)} MB`).join(', ')})`
+        : '';
+      setAlert({ msg: `✓ Live AI evaluation complete — report generated below.${shrinkNote}`, ok: true });
     } catch (err) {
       setRunning(false);
       setRunLabel('Run AI Evaluation');
@@ -681,9 +728,40 @@ export default function Grading(props: GradingProps) {
 
   const onFile = (doc: DocKey, f: File) => {
     setFiles({ ...files, [doc]: f });
+    setShrinkInfo(s => {
+      if (!(doc in s)) return s;
+      const next = { ...s };
+      delete next[doc];
+      return next;
+    });
     setAlert(null);
   };
-  const onClear = (doc: DocKey) => setFiles({ ...files, [doc]: null });
+  const onClear = (doc: DocKey) => {
+    setFiles({ ...files, [doc]: null });
+    setShrinkInfo(s => {
+      if (!(doc in s)) return s;
+      const next = { ...s };
+      delete next[doc];
+      return next;
+    });
+  };
+
+  const handleCompress = async (doc: DocKey) => {
+    const f = files[doc];
+    if (!f || compressing) return;
+    setCompressing(doc);
+    try {
+      const r = await compressImageIfNeeded(f);
+      if (r.compressed) {
+        onFile(doc, r.file);
+        setShrinkInfo(s => ({ ...s, [doc]: `${r.fromMB.toFixed(1)} → ${r.toMB.toFixed(1)} MB` }));
+      } else {
+        setShrinkInfo(s => ({ ...s, [doc]: 'could not shrink — resize it manually' }));
+      }
+    } finally {
+      setCompressing(null);
+    }
+  };
 
   return (
     <div>
@@ -711,6 +789,9 @@ export default function Grading(props: GradingProps) {
                 onFile={onFile}
                 onClear={onClear}
                 missing={missing.includes(d.key)}
+                compressing={compressing === d.key}
+                shrink={shrinkInfo[d.key] ?? null}
+                onCompress={doc => void handleCompress(doc)}
               />
             ))}
           </div>
