@@ -1,0 +1,44 @@
+# Licensing — somethingscalable
+Copyright (c) 2026 Sahaj Chugh
+
+This project is MULTI-LICENSED. You, as a recipient, may choose
+any ONE of the following licenses to govern your use of this software:
+
+- MIT License — see `MIT-LICENSE`
+- BSD 2-Clause "Simplified" License — see `BSD-2-LICENSE`
+- BSD 3-Clause "New" or "Revised" License — see `BSD-3-LICENSE`
+- Apache License 2.0 — see `APACHE-2.0-LICENSE`
+- ISC License — see `ISC-LICENSE`
+- Mozilla Public License 2.0 — see `MPL-2.0-LICENSE`
+- GNU General Public License v3.0 — see `GPL-3.0-LICENSE`
+- GNU Affero General Public License v3.0 — see `AGPL-3.0-LICENSE`
+- CC0 1.0 Universal (public domain dedication) — see `CC0-1.0-LICENSE`
+- The Unlicense (public domain) — see `UNLICENSE`
+
+## How it works
+
+1. Pick ONE license from the list above that suits your needs.
+2. Your rights and obligations are governed SOLELY by the license you pick.
+3. You do NOT need to comply with all licenses — only the one you choose.
+4. Include a copy of / reference to the license you chose when you
+   redistribute the software, as required by that license.
+
+Example: if you choose MIT, follow the MIT terms only.
+If you choose GPL-3.0, follow the GPL-3.0 terms only (including
+source-code disclosure for derivative / distributed works).
+If you choose AGPL-3.0 and run a modified version over a network,
+you must offer Corresponding Source per AGPL section 13.
+
+## Notes
+
+- Permissive options (MIT / BSD-2 / BSD-3 / Apache-2.0 / ISC) allow
+  proprietary use with attribution.
+- Weak-copyleft option (MPL-2.0) requires sharing modified MPL-covered files.
+- Strong-copyleft options (GPL-3.0 / AGPL-3.0) require sharing full
+  Corresponding Source of derivative works (AGPL also for network use).
+- Public-domain options (CC0-1.0 / UNLICENSE) waive rights to the
+  maximum extent permitted by law.
+
+If in doubt about which license fits your use case, choose MIT for
+maximum compatibility, GPL-3.0/AGPL-3.0 if you want copyleft guarantees,
+or consult a lawyer — this file is not legal advice.
