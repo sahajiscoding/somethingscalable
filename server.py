@@ -2,7 +2,7 @@
 
 Same proven layout as the reference AI project: one Flask WSGI app,
 re-exported from ``api/index.py`` for Vercel. API keys live ONLY in the
-environment (``NVIDIA_API_KEY`` / ``GEMINI_API_KEY``) — they are never
+environment (``NVIDIA_API_KEY``) — they are never
 hardcoded, never committed, and never sent to the browser.
 
 Split-pipeline endpoints keep every call to ~1 LLM request so capped hosts
@@ -92,14 +92,8 @@ def _js_escape(value: str) -> str:
                  .replace("\n", "").replace("</", "<\\/"))
 
 
-def _key(name: str) -> str:
-    """Env key or '' (never a placeholder, never hardcoded)."""
-    return os.environ.get(name, "").strip()
-
-
 def _has_key() -> bool:
-    return bool(get_nvidia_key() or _key("GEMINI_API_KEY")
-                or _key("GOOGLE_API_KEY"))
+    return bool(get_nvidia_key())
 
 
 def _api_error(exc: Exception):

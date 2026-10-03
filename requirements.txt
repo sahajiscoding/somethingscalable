@@ -2,11 +2,9 @@
 # this into the serverless function, which has a 500 MB bundle limit).
 # Local-only tools (Streamlit UI) live in requirements-dev.txt and are never
 # deployed. Install with: pip install -r requirements.txt
-# API keys are NEVER listed here — set GEMINI_API_KEY / NVIDIA_API_KEY in
+# API keys are NEVER listed here — set NVIDIA_API_KEY in
 # the environment (or a local .env file, see .env.example).
 
-google-genai>=1.20.0         # Unified Google Gen AI SDK - vision OCR + grading
-                             #   (replaces the EOL google-generativeai package)
 pypdf>=5.0.0                 # Multi-page PDF page counts + chunking
 flask==3.1.3                 # Web server (server.py, local + Vercel)
 requests==2.34.2             # NVIDIA NIM HTTP calls

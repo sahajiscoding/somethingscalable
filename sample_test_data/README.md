@@ -36,15 +36,15 @@ the test fails and prints the expected names.
 ## Running the tests
 
 ```bash
-export GEMINI_API_KEY=your-key        # real OCR + grading (PDFs/images ok)
+export NVIDIA_API_KEY=your-key         # real OCR + grading (PDFs/images ok)
 
 python test_real_exam.py                       # all cases in this directory
 python test_real_exam.py --case 01_real_exam   # just one case
 python test_real_exam.py --mock                # offline, TEXT files only
 ```
 
-- **Real mode** sends the documents to Gemini for vision transcription
-  (handwriting included) and rubric-based marking.
+- **Real mode** sends the documents to NVIDIA NIM (Kimi-K3) for vision
+  transcription (handwriting included) and rubric-based marking.
 - **`--mock` mode** uses a deterministic offline engine (token-overlap
   scoring) to exercise ingest → extraction → alignment → grading → report
   **without an API key**. It only reads plain-text documents, and its

@@ -13,7 +13,7 @@ multi-page PDF, JPG/PNG/TIFF image, or TXT):
 Then run:
 
 ```bash
-export GEMINI_API_KEY=your-key
+export NVIDIA_API_KEY=your-key
 python test_real_exam.py --case 01_real_exam
 ```
 

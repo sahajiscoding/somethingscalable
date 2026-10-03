@@ -2,7 +2,7 @@
 """WeHelpTeachers CLI - grade one student against a question paper + answer key.
 
 Examples:
-    export GEMINI_API_KEY=...
+    export NVIDIA_API_KEY=...
     python grade_exam.py \
         --paper sample_test_data/00_synthetic/question_paper.txt \
         --key   sample_test_data/00_synthetic/answer_key.txt \
@@ -22,7 +22,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from engine import DEFAULT_MODEL, NVIDIA_DEFAULT_MODEL, PENALTY_CATEGORIES
+from engine import NVIDIA_DEFAULT_MODEL, PENALTY_CATEGORIES
 from grade import GradeParams
 from pipeline import SessionError, run_session, write_reports
 
@@ -48,14 +48,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="Comma-separated penalty criteria to enable: "
                              + ",".join(PENALTY_CATEGORIES))
     parser.add_argument("--api-key", default=None,
-                        help="API key: Gemini key, or nvapi-... NVIDIA key "
-                             "(else GEMINI_API_KEY / NVIDIA_API_KEY env var)")
+                        help="nvapi-... NVIDIA API key "
+                             "(else NVIDIA_API_KEY env var)")
     parser.add_argument("--model", default=None,
-                        help=f"Model id (Gemini default: {DEFAULT_MODEL}; "
-                             f"NVIDIA default: {NVIDIA_DEFAULT_MODEL})")
+                        help=f"NVIDIA model id (default: {NVIDIA_DEFAULT_MODEL})")
     parser.add_argument("--backend", default=None,
-                        choices=["gemini", "nvidia"],
-                        help="Force a backend (default: auto-detect from the key)")
+                        choices=["nvidia"],
+                        help="Force a backend (NVIDIA NIM only)")
     parser.add_argument("--mock", action="store_true",
                         help="Use the offline mock engine (text files only)")
     parser.add_argument("--quiet", action="store_true",

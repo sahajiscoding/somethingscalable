@@ -16,7 +16,7 @@ used by the grade_exam.py CLI and test_real_exam.py runner.
 
 Run locally:
     pip install -r requirements.txt
-    export GEMINI_API_KEY=...
+    export NVIDIA_API_KEY=...
     streamlit run streamlit_app.py
 """
 
@@ -35,11 +35,6 @@ from pipeline import SessionError, run_session, write_reports
 PAGE_ICON = "📝"
 MODEL_OPTIONS = [
     "moonshotai/kimi-k3",                  # NVIDIA NIM (default Kimi model, needs nvapi- key)
-    "gemini-3.8-flash",                    # default Gemini: best current Flash, strong vision
-    "gemini-3.5-flash-lite",               # cheapest, for bulk grading
-    "gemini-3.7-flash",
-    "gemini-3.6-flash",
-    "gemini-3.1-flash-lite",
     "meta/llama-3.2-11b-vision-instruct",  # NVIDIA NIM
     "meta/llama-3.2-90b-vision-instruct",  # NVIDIA NIM, larger + slower
 ]
@@ -113,17 +108,15 @@ with st.sidebar:
     api_key = st.text_input(
         "API Key",
         type="password",
-        help="Gemini key, or an nvapi-... NVIDIA key (auto-detected). "
-             "Sent to the chosen provider on each run; never stored. "
-             "You can also set GEMINI_API_KEY / NVIDIA_API_KEY as env vars.",
+        help="nvapi-... NVIDIA key. "
+             "Sent to NVIDIA NIM on each run; never stored. "
+             "You can also set NVIDIA_API_KEY as an env var.",
     )
     if not api_key:
-        api_key = (os.environ.get("GEMINI_API_KEY")
-                   or os.environ.get("GOOGLE_API_KEY")
-                   or os.environ.get("NVIDIA_API_KEY"))
+        api_key = os.environ.get("NVIDIA_API_KEY")
 
     model = st.selectbox("Model", MODEL_OPTIONS, index=0,
-                         help="Override with the GEMINI_MODEL / NVIDIA_MODEL "
+                         help="Override with the NVIDIA_MODEL "
                               "env var. NVIDIA models need an nvapi- key.")
     st.caption("No API key? Runs with `--mock` are available from the "
                "CLI (text documents only) via test_real_exam.py.")

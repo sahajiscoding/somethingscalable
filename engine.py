@@ -1,11 +1,7 @@
 """LLM engines for WeHelpTeachers.
 
-Three interchangeable engines expose the same interface:
+Two engines expose the same interface:
 
-* ``GeminiEngine`` - the real OCR/vision + grading engine built on the
-  unified Google GenAI SDK (``google-genai``).  It sends PDF pages and
-  images straight to Gemini, which transcribes handwriting and printed
-  text and returns schema-shaped JSON.
 * ``NvidiaEngine`` - OCR/vision + grading through NVIDIA NIM
   (``https://integrate.api.nvidia.com``, OpenAI-compatible).  Standard
   library only (``urllib``), no extra dependency.  Any ``nvapi-...`` key
@@ -31,10 +27,7 @@ import re
 import threading
 from typing import Any
 
-# Model defaults.  Gemini 3.8 Flash is the current recommended Flash model;
-# override with the GEMINI_MODEL env var (e.g. gemini-3.5-flash-lite for
-# cheaper bulk grading).
-DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+# (Model default lives below as NVIDIA_DEFAULT_MODEL.)
 
 # NVIDIA NIM (OpenAI-compatible chat-completions endpoint) —
 # Kimi-K3 (moonshotai/kimi-k3) reads the pages and grades (native vision + JSON).
@@ -133,8 +126,8 @@ def _pdf_text_fallback(document) -> str:
     if not text:
         raise EngineError(
             f"{document.filename} looks like a scanned/image-only PDF. Without "
-            "PyMuPDF it cannot be rendered — install pymupdf, upload the pages "
-            "as JPG/PNG images, or use the Gemini engine."
+            "PyMuPDF it cannot be rendered — install pymupdf or upload the pages "
+            "as JPG/PNG images."
         )
     return (f"Document text ({document.filename}, PDF text layer):\n---\n"
             f"{text}\n---")
@@ -155,106 +148,6 @@ PENALTY_CATEGORIES = {
 
 class EngineError(RuntimeError):
     """Raised when the engine cannot produce a usable result."""
-
-
-# ---------------------------------------------------------------------------
-# Real engine: Gemini via the unified google-genai SDK
-# ---------------------------------------------------------------------------
-
-class GeminiEngine:
-    """Vision + grading through the Gemini API."""
-
-    name = "gemini"
-
-    def __init__(self, api_key: str | None = None, model: str | None = None):
-        key = (api_key
-               or os.environ.get("GEMINI_API_KEY")
-               or os.environ.get("GOOGLE_API_KEY"))
-        if not key:
-            raise EngineError(
-                "No Gemini API key found. Set GEMINI_API_KEY (or NVIDIA_API_KEY "
-                "to use NVIDIA NIM instead) or pass --api-key."
-            )
-        try:
-            from google import genai
-            from google.genai import types
-        except ImportError as exc:  # pragma: no cover - dependency guard
-            raise EngineError(
-                "The google-genai package is not installed. "
-                "Install dependencies with: pip install -r requirements.txt"
-            ) from exc
-
-        self._types = types
-        self.client = genai.Client(api_key=key)
-        self.model = model or DEFAULT_MODEL
-
-    # -- public API ---------------------------------------------------------
-
-    def generate_json(self,
-                      task: str,
-                      document: Any = None,
-                      data: Any = None,
-                      instruction: str = "",
-                      temperature: float = 0.15,
-                      max_attempts: int = 3) -> Any:
-        types = self._types
-        contents = self._build_contents(instruction, document, data)
-        config = types.GenerateContentConfig(
-            temperature=temperature,
-            max_output_tokens=16384,
-            response_mime_type="application/json",
-            system_instruction=SYSTEM_INSTRUCTION,
-        )
-
-        last_error = "unknown parse error"
-        for _ in range(max_attempts):
-            try:
-                response = self.client.models.generate_content(
-                    model=self.model, contents=contents, config=config
-                )
-            except Exception as exc:
-                raise EngineError(
-                    f"Gemini API call failed ({task}): {exc}"
-                ) from exc
-
-            text = (response.text or "").strip()
-            if not text:
-                last_error = "empty response (possibly blocked by safety filters)"
-            else:
-                parsed, last_error = _parse_json(text)
-                if parsed is not None:
-                    return parsed
-            contents = list(contents) + [
-                f"Your previous reply was not valid JSON ({last_error}). "
-                "Reply again with the corrected JSON only."
-            ]
-
-        raise EngineError(
-            f"Engine returned unparseable JSON for task '{task}': {last_error}"
-        )
-
-    # -- helpers ------------------------------------------------------------
-
-    def _build_contents(self, instruction: str, document: Any, data: Any):
-        types = self._types
-        contents: list[Any] = [instruction]
-
-        if document is not None:
-            if document.kind == "text":
-                contents.append(
-                    f"Document text ({document.filename}):\n---\n"
-                    f"{document.text}\n---"
-                )
-            else:
-                for page in document.pages:
-                    contents.append(types.Part.from_bytes(
-                        data=page.data, mime_type=page.mime
-                    ))
-        if data is not None:
-            contents.append(
-                "Input data:\n" + json.dumps(data, ensure_ascii=False, indent=2)
-            )
-        return contents
 
 
 # ---------------------------------------------------------------------------
@@ -476,7 +369,7 @@ _STOPWORDS = {
 
 
 class MockEngine:
-    """Fully offline stand-in for Gemini.
+    """Fully offline stand-in (no API).
 
     Reads numbered blocks out of *text* documents and scores answers by
     token overlap with the answer key (rounded to half marks, floored in
@@ -510,7 +403,7 @@ class MockEngine:
         if document is None or document.kind != "text" or not document.text:
             raise EngineError(
                 "Mock engine can only read plain-text documents. "
-                "Set GEMINI_API_KEY (or drop --mock) to OCR scanned PDFs "
+                "Set NVIDIA_API_KEY (or drop --mock) to OCR scanned PDFs "
                 "and images."
             )
         blocks = _parse_blocks(document.text)
@@ -660,7 +553,7 @@ class MockEngine:
                     "feedback": (
                         f"[MOCK] scored {awarded}/{max_marks:g} by keyword "
                         f"coverage ({mode_label}); "
-                        "replace with a real Gemini run for genuine marking."
+                        "replace with a real NVIDIA run for genuine marking."
                     ),
                     "ocr_note": "",
                 })
@@ -718,7 +611,7 @@ class MockEngine:
                 "deductions": deductions,
                 "feedback": (
                     f"[MOCK] scored {awarded}/{max_marks:g} by token overlap; "
-                    "replace with a real Gemini run for genuine marking."
+                    "replace with a real NVIDIA run for genuine marking."
                 ),
                 "ocr_note": "",
             })
@@ -828,27 +721,16 @@ def make_engine(api_key: str | None = None,
                 backend: str | None = None):
     """Factory used by the CLI, test runners, Streamlit app and API.
 
-    Defaults to NVIDIA NIM (``moonshotai/kimi-k3``) for checking papers,
+    NVIDIA NIM only (``moonshotai/kimi-k3``) for checking papers,
     using the API key configured in Vercel/environment (``NVIDIA_API_KEY``)
     or provided explicitly.
     """
     if mock:
         return MockEngine(model=model)
-    if backend is None:
-        nv_key = get_nvidia_key(api_key)
-        gemini_key = (
-            (api_key if (api_key and not api_key.startswith("nvapi-")) else None)
-            or os.environ.get("GEMINI_API_KEY")
-            or os.environ.get("GOOGLE_API_KEY")
+    if backend not in (None, "nvidia"):
+        raise EngineError(
+            f"Unknown backend {backend!r}: this build supports NVIDIA NIM only."
         )
-        if nv_key or (api_key and api_key.startswith("nvapi-")):
-            backend = "nvidia"
-        elif gemini_key and not nv_key and not (model and ("kimi" in model.lower() or "/" in model)):
-            backend = "gemini"
-        else:
-            backend = "nvidia"
-    if backend == "nvidia":
-        if not model or model.startswith("gemini-"):
-            model = NVIDIA_DEFAULT_MODEL
-        return NvidiaEngine(api_key=api_key, model=model)
-    return GeminiEngine(api_key=api_key, model=model)
+    if not model or model.startswith("gemini-"):
+        model = NVIDIA_DEFAULT_MODEL
+    return NvidiaEngine(api_key=api_key, model=model)

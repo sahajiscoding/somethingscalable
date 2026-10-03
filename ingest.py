@@ -6,7 +6,7 @@ Accepts the three grading inputs as file paths:
 2. Answer key/rubric - PDF, image or text file
 3. Student sheet     - scanned PDF or image with handwriting, or text file
 
-PDFs and images are handed to the vision model as raw page bytes (Gemini
+PDFs and images are handed to the vision model as raw page bytes (NVIDIA NIM
 reads multi-page PDFs natively), so no rendering stack is required.  PDFs
 larger than the inline request limit are split into page chunks.  Text
 files are decoded with a UTF-8 -> Latin-1 fallback.
@@ -21,7 +21,7 @@ import mimetypes
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Gemini inline-request limit is 20 MB; stay comfortably under it.
+# Inline-request limit is 20 MB; stay comfortably under it.
 MAX_INLINE_BYTES = 19 * 1024 * 1024
 # Hard page ceiling for a single request (PDF page-token limit).
 MAX_PAGES = 300
@@ -187,7 +187,7 @@ def _load_pdf(path: Path, data: bytes, role: str) -> Document:
 
     warnings: list[str] = []
     if len(data) <= MAX_INLINE_BYTES:
-        # Whole document fits in one request - Gemini reads all pages.
+        # Whole document fits in one request - the vision model reads all pages.
         pages = [Page(index=1, mime="application/pdf", data=data)]
     else:
         pages = _split_pdf(data, page_count, PdfReader, PdfWriter)

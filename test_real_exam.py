@@ -269,7 +269,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="Comma-separated penalty criteria to enable "
                              "(empty for none)")
     parser.add_argument("--api-key", default=None,
-                        help="API key: Gemini key, or nvapi-... NVIDIA key")
+                        help="API key: nvapi-... NVIDIA key")
     parser.add_argument("--model", default=None,
                         help="Model id (backend default if omitted)")
     parser.add_argument("--verbose", action="store_true",
@@ -277,11 +277,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if not args.mock and not (args.api_key
-                              or os.environ.get("GEMINI_API_KEY")
-                              or os.environ.get("GOOGLE_API_KEY")
                               or os.environ.get("NVIDIA_API_KEY")):
         print("ERROR: no API key set.\n"
-              "  • export GEMINI_API_KEY=... (or NVIDIA_API_KEY=...)  to run real OCR + grading, or\n"
+              "  • export NVIDIA_API_KEY=...  to run real OCR + grading, or\n"
               "  • re-run with --mock         for an offline text-only run.",
               file=sys.stderr)
         return 2
@@ -301,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"WeHelpTeachers - real exam test runner")
     print(f"  data dir : {data_dir}")
-    print(f"  engine   : {'mock (offline)' if args.mock else 'gemini'}")
+    print(f"  engine   : {'mock (offline)' if args.mock else 'nvidia'}")
     print(f"  cases    : {len(cases)}\n")
 
     results = []

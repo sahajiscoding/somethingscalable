@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from engine import DEFAULT_MODEL, EngineError, make_engine
+from engine import NVIDIA_DEFAULT_MODEL, EngineError, make_engine
 from extract import (AlignedQuestion, ExtractionError, align_questions,
                      alignment_warnings, extract_key, extract_paper,
                      extract_student)
@@ -124,7 +124,7 @@ def run_session(paper: str | Path,
     report = build_report(
         records, summary,
         engine_name=getattr(engine, "name", "unknown"),
-        model=getattr(engine, "model", model or DEFAULT_MODEL),
+        model=getattr(engine, "model", model or NVIDIA_DEFAULT_MODEL),
         params=params, documents=documents, warnings=warnings,
     )
 
