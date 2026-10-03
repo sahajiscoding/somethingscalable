@@ -3,8 +3,10 @@ name = "somethingscalable"
 version = "1.0.0"
 description = "Exam Checker - AI answer sheet grading (static frontend + serverless grading API)"
 requires-python = ">=3.12"
-
-# Tell Vercel's Python runtime which function to serve.
-# (Without this it scans app.py — the local-only Streamlit UI — and fails.)
-[tool.vercel]
-entrypoint = "api.grade:handler"
+# Lean runtime deps for Vercel's serverless function (api/grade.py).
+# Streamlit is intentionally NOT here: it needs a long-running server and
+# cannot run on Vercel. Local Streamlit UI installs via requirements.txt.
+dependencies = [
+    "google-genai>=1.20.0",
+    "pypdf>=5.0.0",
+]

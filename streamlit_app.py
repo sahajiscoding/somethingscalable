@@ -17,7 +17,7 @@ used by the grade_exam.py CLI and test_real_exam.py runner.
 Run locally:
     pip install -r requirements.txt
     export GEMINI_API_KEY=...
-    streamlit run app.py
+    streamlit run streamlit_app.py
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """Vercel serverless grading endpoint for Exam Checker.
 
 Exposes the real pipeline (ingest -> Gemini vision OCR -> rubric grading)
-as an HTTP API because Streamlit (app.py) needs a long-running server and
+as an HTTP API because Streamlit (streamlit_app.py) needs a long-running server and
 cannot run on Vercel's serverless platform. Deployed layout:
 
   /           -> index.html (static frontend on Vercel's CDN)
@@ -87,7 +87,7 @@ def _decode_upload(role: str, slot) -> tuple[str, bytes] | tuple[None, str]:
         return None, (
             f'Document "{role}" is {len(data) // 1024} KB (limit '
             f"{MAX_FILE_BYTES // 1024} KB per file on Vercel). Downscale the "
-            "scan or grade locally via `streamlit run app.py`."
+            "scan or grade locally via `streamlit run streamlit_app.py`."
         )
     return (filename, data), None
 

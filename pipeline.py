@@ -6,7 +6,7 @@ One call runs the whole pipeline for a single student:
         -> rubric grading -> report document
 
 Used by ``grade_exam.py`` (CLI), ``test_real_exam.py`` (test runner) and
-``app.py`` (Streamlit UI).  A ``progress`` callback receives human-readable
+``streamlit_app.py`` (Streamlit UI).  A ``progress`` callback receives human-readable
 step names as the session advances (UI progress bars / CLI logging).
 """
 

@@ -2,7 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "cleanUrls": true,
   "trailingSlash": false,
-  "installCommand": "pip install -r requirements-vercel.txt",
   "functions": {
     "api/grade.py": {
       "maxDuration": 60

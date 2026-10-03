@@ -1,7 +1,7 @@
 # Exam Checker - Python dependencies
 # Install with: pip install -r requirements.txt
 
-streamlit>=1.36.0            # Web UI framework (app.py)
+streamlit>=1.36.0            # Web UI framework (streamlit_app.py, local only)
 google-genai>=1.20.0         # Unified Google Gen AI SDK - vision OCR + grading
                              #   (replaces the EOL google-generativeai package)
 pypdf>=5.0.0                 # Multi-page PDF page counts + chunking
