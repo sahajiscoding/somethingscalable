@@ -1,0 +1,29 @@
+# Embedded Python runtime used by this workspace (423 MB) - never commit.
+.python/
+
+# Freebuff local app state (project database + machine-local identifiers).
+.freebuff/
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Secrets and local environment
+.env
+.env.*
+*.key
+*.pem
+secrets.json
+
+# Generated grading output
+reports/
+sample_test_data/*/output/
+
+# Editor / OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

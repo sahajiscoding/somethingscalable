@@ -1,0 +1,11 @@
+1. Factorise as (x - 5)(x + 2) = 0, giving roots x = 5 and x = -2.
+   Marks: factorisation 2, correct roots 2, verification 1.
+
+2. Lenz's law: the induced current flows in the direction that opposes the change in flux producing it. The diagram must show the magnet, the copper tube, the field lines and arrows for the induced current direction.
+   Marks: correct statement of the law 2, labelled diagram with current direction 4.
+
+3. Signed on 28 June 1919 between the Allied Powers and Germany.
+
+4. n(NaOH) = 2.0 g / 40 g/mol = 0.05 mol. NaOH is the limiting reagent. Yield = 0.05 mol x 58.5 g/mol = 2.925 g of NaCl.
+
+5. A full-mark answer gives a clear claim, evidence linked back to the claim, a reasoning chain connecting them, and a conclusion that weighs the evidence.

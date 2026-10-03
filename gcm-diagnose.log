@@ -1,0 +1,182 @@
+﻿Diagnose log at 2026-10-03T08:08:43Z
+
+AppPath: D:\Git\ucrt64\bin\git-credential-manager.exe
+InstallDir: D:\Git\ucrt64\bin\
+Version: 2.9.1+6760f0ef069c994aa2bb1d703fb374986ee82a3e
+
+------------
+Diagnostic: Environment
+Skipped: False
+Success: True
+Exception: None
+Log:
+OSType: Windows
+OSVersion: 10.0 (build 26200)
+Reading environment variables... OK
+ Variables:
+SESSIONNAME=Console
+ProgramFiles(x86)=C:\Program Files (x86)
+MSYSTEM=UCRT64
+ProgramW6432=C:\Program Files
+PROCESSOR_IDENTIFIER=AMD64 Family 23 Model 24 Stepping 1, AuthenticAMD
+AMDRMSDKPATH=C:\Program Files\AMD\RyzenMasterSDK\
+PROCESSOR_ARCHITECTURE=AMD64
+DriverData=C:\Windows\System32\Drivers\DriverData
+Path=D:/Git/ucrt64/libexec/git-core;D:\Git\ucrt64\bin;D:\Git\usr\bin;C:\Users\Advik\bin;C:\Program Files (x86)\Common Files\Oracle\Java\java8path;C:\Program Files (x86)\Common Files\Oracle\Java\javapath;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\Program Files\NVIDIA Corporation\NVIDIA App\NvDLISR;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\Program Files\dotnet\;D:\Git\cmd;C:\Program Files (x86)\Common Files\Oracle\Java\java8path;C:\Program Files (x86)\Common Files\Oracle\Java\javapath;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\Program Files\NVIDIA Corporation\NVIDIA App\NvDLISR;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\Program Files\dotnet\;C:\Users\Advik\AppData\Local\Microsoft\WindowsApps;;C:\Users\Advik\AppData\Local\spicetify;C:\Program Files (x86)\Steam\ext\bin
+EFC_2064_2775293581=1
+EFC_2064_2946480783=1
+USERPROFILE=C:\Users\Advik
+PROCESSOR_REVISION=1801
+TEMP=C:\Users\Advik\AppData\Local\Temp
+FPS_BROWSER_APP_PROFILE_STRING=Internet Explorer
+FPS_BROWSER_USER_PROFILE_STRING=Default
+LOGONSERVER=\\DESKTOP-MAFF5OG
+TERM=xterm-256color
+USERNAME=Advik
+SystemRoot=C:\WINDOWS
+GIT_EXEC_PATH=D:/Git/ucrt64/libexec/git-core
+PLINK_PROTOCOL=ssh
+OneDrive=C:\Users\Advik\OneDrive
+CommonProgramFiles=C:\Program Files\Common Files
+EFC_2064_2283032206=1
+ProgramData=C:\ProgramData
+LC_CTYPE=C.UTF-8
+HOMEPATH=\Users\Advik
+EFC_2064_4126798990=1
+COMPUTERNAME=DESKTOP-MAFF5OG
+EFC_2064_1262719628=1
+ALLUSERSPROFILE=C:\ProgramData
+CommonProgramW6432=C:\Program Files\Common Files
+EFC_2064_1592913036=1
+TMP=C:\Users\Advik\AppData\Local\Temp
+__PSLockDownPolicy=0
+CommonProgramFiles(x86)=C:\Program Files (x86)\Common Files
+HOMEDRIVE=C:
+windir=C:\WINDOWS
+GIT_TRACE2_PARENT_SID=dd631c50-0703-4edd-a394-ad4f404e2322
+SystemDrive=C:
+NUMBER_OF_PROCESSORS=8
+OS=Windows_NT
+VBOX_HWVIRTEX_IGNORE_SVM_IN_USE=1
+ProgramFiles=C:\Program Files
+ComSpec=C:\WINDOWS\system32\cmd.exe
+PATHEXT=.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC
+HOME=C:\Users\Advik
+PSModulePath=C:\Program Files\WindowsPowerShell\Modules;C:\WINDOWS\system32\WindowsPowerShell\v1.0\Modules
+PROMPT=$P$G
+TMPDIR=C:\Users\Advik\AppData\Local\Temp
+APPDATA=C:\Users\Advik\AppData\Roaming
+USERDOMAIN=DESKTOP-MAFF5OG
+PROCESSOR_LEVEL=23
+LOCALAPPDATA=C:\Users\Advik\AppData\Local
+USERDOMAIN_ROAMINGPROFILE=DESKTOP-MAFF5OG
+EFC_2064_3789132940=1
+COLORTERM=truecolor
+PUBLIC=C:\Users\Public
+
+
+------------
+Diagnostic: File system
+Skipped: False
+Success: True
+Exception: None
+Log:
+Temporary directory is 'C:\Users\Advik\AppData\Local\Temp\'...
+Checking basic file I/O...
+Writing to temporary file 'C:\Users\Advik\AppData\Local\Temp\db504cf5ab5d3ede63994ddc'... OK
+Reading from temporary file 'C:\Users\Advik\AppData\Local\Temp\db504cf5ab5d3ede63994ddc'... OK
+Deleting temporary file 'C:\Users\Advik\AppData\Local\Temp\db504cf5ab5d3ede63994ddc'... OK
+Testing IFileSystem instance...
+UserHomePath: C:\Users\Advik
+UserDataDirectoryPath: C:\Users\Advik\.gcm
+GetCurrentDirectory(): C:\Users\Advik\Desktop\Checker project 1
+
+------------
+Diagnostic: Networking
+Skipped: False
+Success: True
+Exception: None
+Log:
+Checking networking and HTTP stack...
+Creating HTTP client... OK
+IsNetworkAvailable: True
+Sending HEAD request to http://example.com... OK
+Sending HEAD request to https://example.com... OK
+Acquiring free TCP port... OK
+Testing local HTTP loopback connections...
+Creating new HTTP listener for http://localhost:13932/... OK
+Waiting for loopback connection... OK
+Writing response... OK
+Waiting for response data... OK
+Loopback connection data OK
+
+------------
+Diagnostic: Git
+Skipped: False
+Success: True
+Exception: None
+Log:
+Getting Git version... OK
+Git version is '2.56.0.windows.1'
+Locating current repository...Git repository at 'C:/Users/Advik/Desktop/Checker project 1/.git'
+ OK
+Listing all Git configuration... OK
+Git configuration:
+file:D:/Git/etc/gitconfig	diff.astextplain.textconv=astextplain
+file:D:/Git/etc/gitconfig	filter.lfs.clean=git-lfs clean -- %f
+file:D:/Git/etc/gitconfig	filter.lfs.smudge=git-lfs smudge -- %f
+file:D:/Git/etc/gitconfig	filter.lfs.process=git-lfs filter-process
+file:D:/Git/etc/gitconfig	filter.lfs.required=true
+file:D:/Git/etc/gitconfig	http.sslbackend=schannel
+file:D:/Git/etc/gitconfig	core.autocrlf=true
+file:D:/Git/etc/gitconfig	core.fscache=true
+file:D:/Git/etc/gitconfig	core.symlinks=false
+file:D:/Git/etc/gitconfig	pull.rebase=false
+file:D:/Git/etc/gitconfig	credential.helper=manager
+file:D:/Git/etc/gitconfig	credential.https://dev.azure.com.usehttppath=true
+file:D:/Git/etc/gitconfig	init.defaultbranch=master
+file:C:/Users/Advik/.gitconfig	user.email=advikyoyo@gmail.com
+file:.git/config	core.repositoryformatversion=0
+file:.git/config	core.filemode=false
+file:.git/config	core.bare=false
+file:.git/config	core.logallrefupdates=true
+file:.git/config	core.symlinks=false
+file:.git/config	core.ignorecase=true
+file:.git/config	remote.origin.url=https://github.com/sahajiscoding/somethingscalable.git
+file:.git/config	remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*
+
+
+------------
+Diagnostic: Credential storage
+Skipped: False
+Success: True
+Exception: None
+Log:
+ICredentialStore instance is of type: CredentialStore
+Writing test credential... OK
+Reading test credential... OK
+Deleting test credential... OK
+
+------------
+Diagnostic: Microsoft authentication (AAD/MSA)
+Skipped: False
+Success: True
+Exception: None
+Log:
+Broker is not enabled.
+Gathering MSAL token cache data... OK
+CacheDirectory: C:\Users\Advik\AppData\Local\.IdentityService
+CacheFileName: msal.cache
+CacheFilePath: C:\Users\Advik\AppData\Local\.IdentityService\msal.cache
+Creating cache helper... OK
+Verifying MSAL token cache persistence... OK
+
+------------
+Diagnostic: GitHub API
+Skipped: False
+Success: True
+Exception: None
+Log:
+Using 'https://github.com/' as API target.
+Querying '/meta' endpoint... OK
+

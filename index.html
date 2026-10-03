@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Exam Checker — AI Answer Sheet Grading</title>
+<meta name="description" content="Exam Checker: upload a question paper, answer key and student answer sheet, pick penalty criteria and run an AI evaluation." />
+<style>
+  /* ==========================================================================
+     Design tokens — dark premium dashboard
+     ========================================================================== */
+  :root{
+    --canvas:#363737;                       /* strict theme requirement */
+    --ink:#FFFFFF;                          /* pure white text           */
+    --ink-soft:rgba(255,255,255,.70);
+    --ink-dim:rgba(255,255,255,.46);
+
+    --line:rgba(255,255,255,.10);
+    --line-strong:rgba(255,255,255,.20);
+    --sheen:rgba(255,255,255,.05);
+
+    --crimson:#e57373;                      /* deductions                */
+    --crimson-bg:rgba(229,115,115,.14);
+    --green:#81c784;                        /* correct marks             */
+    --green-bg:rgba(129,199,132,.14);
+    --green-deep:#4e9a6a;
+
+    --amber:#e0b56c;                        /* handwriting               */
+    --amber-bg:rgba(224,181,108,.14);
+    --violet:#a993d6;                       /* diagrams                  */
+    --violet-bg:rgba(169,147,214,.14);
+    --blue:#7fa9d1;                         /* formatting                */
+    --blue-bg:rgba(127,169,209,.14);
+
+    --radius:18px;
+    --radius-sm:12px;
+    --shadow:0 20px 44px rgba(0,0,0,.32);
+    --font:"Inter","Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--canvas);
+    color:var(--ink);
+    font-family:var(--font);
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  ::selection{background:rgba(129,199,132,.32)}
+
+  .app{max-width:1180px;margin:0 auto;padding:28px 20px 72px}
+
+  /* ==========================================================================
+     Header
+     ========================================================================== */
+  .app-header{
+    display:flex;align-items:center;justify-content:space-between;gap:20px;
+    flex-wrap:wrap;
+    padding:6px 4px 26px;
+  }
+  .brand{display:flex;align-items:center;gap:16px}
+  .brand-mark{
+    width:52px;height:52px;border-radius:15px;flex:none;
+    display:grid;place-items:center;
+    background:linear-gradient(145deg,var(--green-deep),#3b7a53);
+    color:#0f1a13;font-weight:800;font-size:19px;letter-spacing:.5px;
+    box-shadow:0 10px 26px rgba(78,154,106,.35);
+  }
+  .brand h1{
+    font-size:clamp(26px,4vw,36px);
+    font-weight:800;letter-spacing:-1px;line-height:1.1;
+  }
+  .brand .tagline{color:var(--ink-dim);font-size:14px;margin-top:3px}
+  .header-badge{
+    display:flex;align-items:center;gap:9px;
+    border:1px solid var(--line);background:var(--sheen);
+    padding:9px 16px;border-radius:999px;font-size:13px;color:var(--ink-soft);
+  }
+  .pulse{width:8px;height:8px;border-radius:50%;background:var(--green);
+    box-shadow:0 0 0 0 rgba(129,199,132,.6);animation:pulse 2.2s infinite}
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 rgba(129,199,132,.55)}
+    70%{box-shadow:0 0 0 9px rgba(129,199,132,0)}
+    100%{box-shadow:0 0 0 0 rgba(129,199,132,0)}
+  }
+
+  /* ==========================================================================
+     Layout primitives
+     ========================================================================== */
+  .grid-2{display:grid;grid-template-columns:1.35fr 1fr;gap:22px;align-items:start}
+  .card{
+    background:var(--canvas);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    padding:clamp(20px,3vw,30px);
+  }
+  .card + .card{margin-top:22px}
+  .kicker{
+    font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--ink-dim);font-weight:700;margin-bottom:4px;
+  }
+  .card h2{font-size:19px;font-weight:700;letter-spacing:-.3px}
+  .card-head{
+    display:flex;align-items:flex-start;justify-content:space-between;
+    gap:14px;margin-bottom:20px;flex-wrap:wrap;
+  }
+  .card-head p{color:var(--ink-dim);font-size:13.5px;margin-top:4px;max-width:52ch}
+  .divider{height:1px;background:var(--line);margin:22px 0}
+
+  /* ==========================================================================
+     Upload bay
+     ========================================================================== */
+  .dropzones{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+  .dropzone{
+    position:relative;
+    border:1.5px dashed var(--line-strong);
+    border-radius:var(--radius-sm);
+    background:rgba(0,0,0,.10);
+    padding:22px 18px 18px;
+    text-align:center;cursor:pointer;
+    transition:border-color .18s ease,background .18s ease,transform .18s ease;
+    outline:none;
+  }
+  .dropzone:hover,.dropzone:focus-within{border-color:rgba(129,199,132,.55);background:rgba(0,0,0,.16)}
+  .dropzone:focus-within{box-shadow:0 0 0 3px rgba(129,199,132,.25)}
+  .dropzone.dragover{
+    border-color:var(--green);background:rgba(129,199,132,.08);transform:translateY(-2px);
+  }
+  .dropzone.is-ready{
+    border-style:solid;border-color:rgba(129,199,132,.5);
+    background:rgba(129,199,132,.06);
+  }
+  .dropzone.is-missing{border-color:var(--crimson);animation:shake .35s ease}
+  @keyframes shake{
+    0%,100%{transform:translateX(0)}
+    25%{transform:translateX(-6px)}75%{transform:translateX(6px)}
+  }
+  .dz-icon{
+    width:44px;height:44px;margin:0 auto 12px;border-radius:12px;
+    display:grid;place-items:center;
+    background:var(--sheen);border:1px solid var(--line);color:var(--ink-soft);
+    transition:color .18s ease,border-color .18s ease;
+  }
+  .dropzone.is-ready .dz-icon{color:var(--green);border-color:rgba(129,199,132,.45)}
+  .dz-label{font-size:14.5px;font-weight:700;line-height:1.35}
+  .dz-hint{font-size:12.5px;color:var(--ink-dim);margin-top:6px}
+  .dz-input{position:absolute;inset:0;opacity:0;cursor:pointer;z-index:1}
+  .dz-ready{
+    display:none;align-items:center;gap:8px;justify-content:center;
+    margin-top:12px;padding:8px 10px;border-radius:9px;
+    background:rgba(0,0,0,.24);border:1px solid rgba(129,199,132,.35);
+    font-size:12.5px;
+  }
+  .dropzone.is-ready .dz-ready{display:flex}
+  .dropzone.is-ready .dz-hint{display:none}
+  .dz-name{
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:ltr;
+    max-width:19ch;color:var(--ink);
+  }
+  .dz-check{
+    flex:none;width:18px;height:18px;border-radius:50%;
+    background:var(--green);color:#12211a;display:grid;place-items:center;
+    font-size:11px;font-weight:900;
+  }
+  .dz-remove{
+    position:absolute;top:8px;right:8px;z-index:5;
+    width:24px;height:24px;border-radius:7px;border:1px solid var(--line);
+    background:rgba(0,0,0,.3);color:var(--ink-soft);cursor:pointer;
+    font-size:13px;line-height:1;display:none;
+  }
+  .dropzone.is-ready .dz-remove{display:grid;place-items:center}
+  .dz-remove:hover{border-color:var(--crimson);color:var(--crimson)}
+
+  /* ==========================================================================
+     Control panel
+     ========================================================================== */
+  .toggle-row{
+    display:flex;align-items:center;justify-content:space-between;gap:16px;
+    padding:16px;border:1px solid var(--line);border-radius:var(--radius-sm);
+    background:rgba(0,0,0,.12);
+  }
+  .toggle-row .t-title{font-size:14.5px;font-weight:700}
+  .toggle-row .t-sub{font-size:12.5px;color:var(--ink-dim);margin-top:3px;max-width:34ch}
+  .switch{position:relative;flex:none;width:56px;height:30px;cursor:pointer}
+  .switch input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer}
+  .slider{
+    position:absolute;inset:0;border-radius:999px;
+    background:rgba(0,0,0,.35);border:1px solid var(--line-strong);
+    transition:background .2s ease,border-color .2s ease;
+  }
+  .slider::after{
+    content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;
+    border-radius:50%;background:var(--ink-soft);
+    transition:transform .22s cubic-bezier(.4,0,.2,1),background .2s ease;
+  }
+  .switch input:checked + .slider{background:rgba(129,199,132,.28);border-color:var(--green)}
+  .switch input:checked + .slider::after{transform:translateX(26px);background:var(--green)}
+  .switch input:focus-visible + .slider{box-shadow:0 0 0 3px rgba(129,199,132,.3)}
+
+  .criteria{border:0;margin-top:18px}
+  .criteria legend{
+    font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--ink-dim);font-weight:700;margin-bottom:10px;
+  }
+  .crit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:10px}
+  .crit{
+    display:flex;align-items:center;gap:11px;cursor:pointer;
+    padding:13px 14px;border:1px solid var(--line);border-radius:var(--radius-sm);
+    background:rgba(0,0,0,.10);font-size:13.5px;
+    transition:border-color .16s ease,background .16s ease;
+    user-select:none;
+  }
+  .crit:hover{border-color:var(--line-strong);background:rgba(0,0,0,.16)}
+  .crit input{position:absolute;opacity:0;pointer-events:none}
+  .box{
+    flex:none;width:19px;height:19px;border-radius:6px;
+    border:1.5px solid var(--line-strong);background:rgba(0,0,0,.25);
+    display:grid;place-items:center;font-size:12px;font-weight:900;color:#12211a;
+    transition:background .16s ease,border-color .16s ease;
+  }
+  .crit input:checked ~ .box{background:var(--green);border-color:var(--green)}
+  .crit input:focus-visible ~ .box{box-shadow:0 0 0 3px rgba(129,199,132,.3)}
+  .crit:has(input:checked){border-color:rgba(129,199,132,.45);background:rgba(129,199,132,.07)}
+  .crit-text b{display:block;font-weight:650}
+  .crit-text span{font-size:11.5px;color:var(--ink-dim)}
+
+  /* Run button + progress */
+  .run-btn{
+    width:100%;margin-top:20px;
+    display:flex;align-items:center;justify-content:center;gap:10px;
+    padding:16px 20px;border:none;border-radius:var(--radius-sm);
+    background:linear-gradient(145deg,#57a674,var(--green-deep));
+    color:#0d1a12;font-family:var(--font);font-size:15.5px;font-weight:800;
+    letter-spacing:.2px;cursor:pointer;
+    box-shadow:0 14px 30px rgba(78,154,106,.32);
+    transition:transform .15s ease,filter .15s ease,box-shadow .15s ease;
+  }
+  .run-btn:hover:not(:disabled){transform:translateY(-2px);filter:brightness(1.07)}
+  .run-btn:active:not(:disabled){transform:translateY(0)}
+  .run-btn:disabled{cursor:progress;filter:saturate(.55) brightness(.85)}
+  .spinner{
+    width:16px;height:16px;border-radius:50%;flex:none;
+    border:2px solid rgba(13,26,18,.3);border-top-color:#0d1a12;
+    animation:spin .7s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .alert{
+    display:none;margin-top:14px;padding:12px 14px;font-size:13.5px;
+    border-radius:var(--radius-sm);border:1px solid rgba(229,115,115,.45);
+    background:var(--crimson-bg);color:#ffd9d9;
+  }
+  .alert.show{display:block}
+  .alert.ok{border-color:rgba(129,199,132,.45);background:var(--green-bg);color:#dff6e1}
+
+  .progress{display:none;margin-top:16px;position:relative;padding-left:4px}
+  .progress.show{display:block}
+  .step{
+    display:flex;align-items:center;gap:11px;
+    font-size:13px;color:var(--ink-dim);padding:6px 0;
+    opacity:.4;transition:opacity .2s ease,color .2s ease;
+  }
+  .step .dot{
+    width:9px;height:9px;border-radius:50%;flex:none;
+    background:var(--line-strong);transition:background .2s ease,box-shadow .2s ease;
+  }
+  .step.active{opacity:1;color:var(--ink)}
+  .step.active .dot{background:var(--green);box-shadow:0 0 0 4px rgba(129,199,132,.18)}
+  .step.done{opacity:.75;color:var(--ink-soft)}
+  .step.done .dot{background:var(--green)}
+  .step .tick{margin-left:auto;color:var(--green);font-weight:800;visibility:hidden}
+  .step.done .tick{visibility:visible}
+
+  /* ==========================================================================
+     Results
+     ========================================================================== */
+  #results{display:none;margin-top:26px;scroll-margin-top:18px}
+  #results.show{display:block;animation:rise .45s ease both}
+  @keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+
+  .results-meta{
+    display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:18px;
+  }
+  .meta-chip{
+    font-size:12px;padding:6px 12px;border-radius:999px;
+    border:1px solid var(--line);background:var(--sheen);color:var(--ink-soft);
+  }
+  .meta-chip.strict{border-color:rgba(224,181,108,.5);background:var(--amber-bg);color:#ffe6c0}
+  .meta-chip.crit{border-color:rgba(229,115,115,.45);background:var(--crimson-bg);color:#ffd6d6}
+
+  .scoreboard{
+    display:grid;grid-template-columns:minmax(240px,1fr) minmax(260px,1.25fr);
+    gap:22px;align-items:center;
+  }
+  .score-hero{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .score-big{
+    font-size:clamp(52px,8vw,74px);font-weight:800;letter-spacing:-3px;line-height:1;
+    color:var(--ink);
+  }
+  .score-total{font-size:22px;font-weight:650;color:var(--ink-dim)}
+  .score-label{
+    font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--ink-dim);font-weight:700;margin-bottom:10px;
+  }
+  .bar-wrap{margin-top:6px}
+  .bar-top{display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:8px}
+  .bar-top .pct{font-weight:800;font-size:20px}
+  .bar{
+    height:12px;border-radius:999px;background:rgba(0,0,0,.32);
+    border:1px solid var(--line);overflow:hidden;
+  }
+  .bar > i{
+    display:block;height:100%;border-radius:999px;
+    background:linear-gradient(90deg,#66c17f,var(--green-deep));
+    transition:width .8s cubic-bezier(.22,1,.36,1);
+  }
+  .grade-pill{
+    display:inline-flex;align-items:center;gap:8px;margin-top:16px;
+    padding:8px 16px;border-radius:999px;font-weight:800;font-size:14px;
+    background:var(--green-bg);border:1px solid rgba(129,199,132,.45);color:#d8f5db;
+  }
+  .grade-pill.low{background:var(--crimson-bg);border-color:rgba(229,115,115,.5);color:#ffd9d9}
+  .grade-pill.mid{background:var(--amber-bg);border-color:rgba(224,181,108,.5);color:#ffe9c9}
+
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:22px}
+  .stat{
+    padding:14px 16px;border-radius:var(--radius-sm);
+    border:1px solid var(--line);background:rgba(0,0,0,.12);
+  }
+  .stat .k{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-dim);font-weight:700}
+  .stat .v{font-size:24px;font-weight:800;margin-top:5px;letter-spacing:-.5px}
+  .stat .v.red{color:var(--crimson)}
+  .stat .v.green{color:var(--green)}
+  .stat .sub{font-size:11.5px;color:var(--ink-dim);margin-top:2px}
+
+  .impact{margin-top:22px;border-top:1px solid var(--line);padding-top:18px}
+  .impact h3{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim);font-weight:700;margin-bottom:12px}
+  .impact-row{
+    display:flex;align-items:center;gap:12px;padding:8px 0;font-size:13.5px;
+  }
+  .impact-row .swatch{width:10px;height:10px;border-radius:3px;flex:none}
+  .impact-row .amt{margin-left:auto;font-weight:800;color:var(--crimson);font-variant-numeric:tabular-nums}
+  .impact-empty{font-size:13px;color:var(--ink-dim)}
+
+  /* Question breakdown */
+  .q-list{display:grid;gap:16px;margin-top:6px}
+  .q-card{
+    border:1px solid var(--line);border-radius:var(--radius-sm);
+    background:rgba(0,0,0,.12);padding:20px;
+    transition:border-color .18s ease;
+  }
+  .q-card:hover{border-color:var(--line-strong)}
+  .q-top{
+    display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    padding-bottom:14px;border-bottom:1px solid var(--line);
+  }
+  .q-num{
+    font-weight:800;font-size:15px;padding:6px 13px;border-radius:9px;
+    background:var(--sheen);border:1px solid var(--line);
+  }
+  .q-score{font-weight:800;font-size:15px;font-variant-numeric:tabular-nums}
+  .q-score.ok{color:var(--green)}
+  .q-score.part{color:var(--amber)}
+  .q-score.bad{color:var(--crimson)}
+  .q-max{color:var(--ink-dim);font-size:13px}
+  .q-flag{
+    margin-left:auto;font-size:12px;padding:5px 12px;border-radius:999px;
+    background:var(--crimson-bg);border:1px solid rgba(229,115,115,.4);
+    color:#ffd6d6;font-weight:650;
+  }
+  .q-flag.perfect{background:var(--green-bg);border-color:rgba(129,199,132,.4);color:#d8f5db}
+
+  .compare{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+  .pane{
+    border:1px solid var(--line);border-radius:10px;padding:14px;
+    background:rgba(0,0,0,.18);
+  }
+  .pane .p-label{
+    font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+    font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:7px;
+  }
+  .pane.target .p-label{color:var(--green)}
+  .pane.student .p-label{color:var(--ink-dim)}
+  .pane p{font-size:13.5px;color:var(--ink-soft);line-height:1.6}
+
+  .deduct-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px}
+  .deduct-row .row-label{
+    font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ink-dim);font-weight:700;margin-right:2px;
+  }
+  .tag{
+    font-size:12px;font-weight:700;padding:5px 11px;border-radius:999px;
+    border:1px solid transparent;white-space:nowrap;
+  }
+  .tag.content{background:var(--crimson-bg);border-color:rgba(229,115,115,.45);color:#ffcfcf}
+  .tag.strict{background:var(--amber-bg);border-color:rgba(224,181,108,.45);color:#ffe6c0}
+  .tag.c-handwriting{background:var(--amber-bg);border-color:rgba(224,181,108,.45);color:#ffe6c0}
+  .tag.c-diagrams{background:var(--violet-bg);border-color:rgba(169,147,214,.5);color:#e6ddff}
+  .tag.c-unreadable{background:rgba(229,115,115,.16);border-color:rgba(229,115,115,.5);color:#ffd2d2}
+  .tag.c-formatting{background:var(--blue-bg);border-color:rgba(127,169,209,.5);color:#d9edff}
+  .tag.total{background:rgba(229,115,115,.22);border-color:var(--crimson);color:#ffe0e0}
+  .tag.awarded{background:var(--green-bg);border-color:rgba(129,199,132,.5);color:#d8f5db}
+
+  .explain{
+    margin-top:14px;padding:14px 16px;border-radius:10px;
+    background:rgba(0,0,0,.22);border:1px solid var(--line);
+    border-left:3px solid var(--crimson);
+    font-size:13.5px;color:var(--ink-soft);line-height:1.65;
+  }
+  .explain.good{border-left-color:var(--green)}
+  .explain strong{color:var(--crimson);font-weight:800}
+  .explain.good strong{color:var(--green)}
+
+  .foot{
+    margin-top:34px;text-align:center;font-size:12px;color:var(--ink-dim);
+    padding-top:18px;border-top:1px solid var(--line);
+  }
+
+  /* ==========================================================================
+     Responsive
+     ========================================================================== */
+  @media (max-width:960px){
+    .grid-2{grid-template-columns:1fr}
+    .scoreboard{grid-template-columns:1fr}
+  }
+  @media (max-width:640px){
+    .app{padding:20px 14px 56px}
+    .compare{grid-template-columns:1fr}
+    .app-header{padding-bottom:20px}
+    .header-badge{display:none}
+    .q-flag{margin-left:0}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.01ms !important;transition-duration:.01ms !important}
+    html{scroll-behavior:auto}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ================= HEADER ================= -->
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">EC</div>
+      <div>
+        <h1>Exam Checker</h1>
+        <div class="tagline">AI-powered grading &amp; correction of student answer sheets</div>
+      </div>
+    </div>
+    <div class="header-badge"><span class="pulse" aria-hidden="true"></span> Evaluation engine ready</div>
+  </header>
+
+  <div class="grid-2">
+
+    <!-- ================= DOCUMENT UPLOAD BAY ================= -->
+    <section class="card" aria-labelledby="upload-title">
+      <div class="card-head">
+        <div>
+          <div class="kicker">Step 01</div>
+          <h2 id="upload-title">Document Upload Bay</h2>
+          <p>Provide the question paper, the official rubric and the student's answer sheet. All three are required before evaluation.</p>
+        </div>
+      </div>
+
+      <div class="dropzones">
+        <!-- Question paper -->
+        <div class="dropzone" data-doc="paper">
+          <div class="dz-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+          </div>
+          <div class="dz-label">Upload Question Paper</div>
+          <div class="dz-hint">Drop a PDF, DOCX or image — or click to browse</div>
+          <div class="dz-ready"><span class="dz-check">✓</span><span class="dz-name"></span></div>
+          <button class="dz-remove" type="button" title="Remove file" aria-label="Remove question paper">✕</button>
+          <input class="dz-input" type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt" aria-label="Choose question paper file" />
+        </div>
+
+        <!-- Answer key -->
+        <div class="dropzone" data-doc="key">
+          <div class="dz-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.6 7.6a5 5 0 1 1-7.07 7.07 5 5 0 0 1 7.07-7.07zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+          </div>
+          <div class="dz-label">Upload Official Answer Key / Rubric</div>
+          <div class="dz-hint">The marking scheme used as ground truth</div>
+          <div class="dz-ready"><span class="dz-check">✓</span><span class="dz-name"></span></div>
+          <button class="dz-remove" type="button" title="Remove file" aria-label="Remove answer key">✕</button>
+          <input class="dz-input" type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt" aria-label="Choose answer key file" />
+        </div>
+
+        <!-- Student sheet -->
+        <div class="dropzone" data-doc="sheet">
+          <div class="dz-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/></svg>
+          </div>
+          <div class="dz-label">Upload Student Answer Sheet</div>
+          <div class="dz-hint">Scanned or photographed script to be graded</div>
+          <div class="dz-ready"><span class="dz-check">✓</span><span class="dz-name"></span></div>
+          <button class="dz-remove" type="button" title="Remove file" aria-label="Remove student answer sheet">✕</button>
+          <input class="dz-input" type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt" aria-label="Choose student answer sheet file" />
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= CONTROL PANEL ================= -->
+    <section class="card" aria-labelledby="control-title">
+      <div class="card-head">
+        <div>
+          <div class="kicker">Step 02</div>
+          <h2 id="control-title">Grading Modes &amp; Parameters</h2>
+          <p>Control how the evaluation engine awards — and deducts — marks.</p>
+        </div>
+      </div>
+
+      <div class="toggle-row">
+        <div>
+          <div class="t-title">Strict Checking Mode</div>
+          <div class="t-sub">No partial credit for incomplete answers; rubric must be matched exactly.</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="strictToggle" role="switch" aria-label="Strict Checking Mode" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <fieldset class="criteria">
+        <legend>Penalty Criteria — deduct marks for</legend>
+        <div class="crit-grid">
+          <label class="crit">
+            <input type="checkbox" class="crit-input" value="handwriting" />
+            <span class="box" aria-hidden="true">✓</span>
+            <span class="crit-text"><b>Bad Handwriting</b><span>Illegible script &amp; cramped letters</span></span>
+          </label>
+          <label class="crit">
+            <input type="checkbox" class="crit-input" value="diagrams" />
+            <span class="box" aria-hidden="true">✓</span>
+            <span class="crit-text"><b>Flawed / Bad Diagrams</b><span>Missing labels, wrong structure</span></span>
+          </label>
+          <label class="crit">
+            <input type="checkbox" class="crit-input" value="unreadable" />
+            <span class="box" aria-hidden="true">✓</span>
+            <span class="crit-text"><b>Unreadable / Smudged Data</b><span>Figures the engine cannot parse</span></span>
+          </label>
+          <label class="crit">
+            <input type="checkbox" class="crit-input" value="formatting" />
+            <span class="box" aria-hidden="true">✓</span>
+            <span class="crit-text"><b>Poor Formatting / Missing Steps</b><span>Skipped working &amp; unstructured answers</span></span>
+          </label>
+        </div>
+      </fieldset>
+
+      <button class="run-btn" id="runBtn" type="button">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        <span id="runLabel">Run AI Evaluation</span>
+      </button>
+
+      <div class="alert" id="alert" role="status" aria-live="polite"></div>
+
+      <div class="progress" id="progress" aria-live="polite">
+        <div class="step" data-step><span class="dot"></span><span>Reading question paper &amp; answer key…</span><span class="tick">✓</span></div>
+        <div class="step" data-step><span class="dot"></span><span>Extracting responses from student sheet…</span><span class="tick">✓</span></div>
+        <div class="step" data-step><span class="dot"></span><span>Matching answers against the rubric…</span><span class="tick">✓</span></div>
+        <div class="step" data-step><span class="dot"></span><span>Applying selected penalty criteria…</span><span class="tick">✓</span></div>
+        <div class="step" data-step><span class="dot"></span><span>Compiling evaluation report…</span><span class="tick">✓</span></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ================= RESULTS ================= -->
+  <section id="results" aria-live="polite">
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="kicker">Step 03</div>
+          <h2>Detailed Evaluation Summary</h2>
+          <p id="resultSub">Generated by the AI evaluation engine.</p>
+        </div>
+      </div>
+
+      <div class="results-meta" id="resultsMeta"></div>
+
+      <div class="scoreboard">
+        <div>
+          <div class="score-label">Marks Obtained</div>
+          <div class="score-hero">
+            <span class="score-big" id="scoreObtained">0</span>
+            <span class="score-total" id="scoreTotal">/ 0 total</span>
+          </div>
+        </div>
+        <div class="bar-wrap">
+          <div class="bar-top">
+            <span style="color:var(--ink-dim)">Overall performance</span>
+            <span class="pct" id="scorePct">0%</span>
+          </div>
+          <div class="bar"><i id="scoreBar" style="width:0%"></i></div>
+          <span class="grade-pill" id="gradePill">Grade —</span>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><div class="k">Total Marks</div><div class="v" id="statTotal">0</div><div class="sub">across <span id="statQCount">0</span> questions</div></div>
+        <div class="stat"><div class="k">Marks Obtained</div><div class="v green" id="statObtained">0</div><div class="sub">after deductions</div></div>
+        <div class="stat"><div class="k">Total Deducted</div><div class="v red" id="statDeducted">0</div><div class="sub">content + penalties</div></div>
+        <div class="stat"><div class="k">Checking Mode</div><div class="v" id="statMode">Standard</div><div class="sub" id="statCritCount">0 penalty criteria active</div></div>
+      </div>
+
+      <div class="impact">
+        <h3>Penalty Impact — where marks were lost</h3>
+        <div id="impactList"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="kicker">Granular Breakdown</div>
+          <h2>Question-by-Question Report</h2>
+          <p>Target answer vs. student answer, deduction tags and a full explanation of every mark cut.</p>
+        </div>
+      </div>
+      <div class="q-list" id="qList"></div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    Exam Checker — simulated AI evaluation engine. Documents are processed locally in your browser and never uploaded.
+  </footer>
+</div>
+
+<script>
+/* ==========================================================================
+   Data — simulated evaluation engine dataset
+   ========================================================================== */
+const CRITERIA = {
+  handwriting: { label: "Bad Handwriting",                  color: "var(--amber)" },
+  diagrams:    { label: "Flawed / Bad Diagrams",             color: "var(--violet)" },
+  unreadable:  { label: "Unreadable / Smudged Data",         color: "var(--crimson)" },
+  formatting:  { label: "Poor Formatting / Missing Steps",   color: "var(--blue)" }
+};
+
+const QUESTIONS = [
+  {
+    no: "Q1", total: 5,
+    target: "x = (−b ± √(b² − 4ac)) / 2a, with discriminant b² − 4ac evaluated to 49, giving roots x = 5 and x = −2.",
+    student: "x = (−b ± √(b² − 4ac)) / 2a written correctly; discriminant left unevaluated and final roots not stated.",
+    contentLoss: 1.5, strictLoss: 0.5,
+    contentReason: "the discriminant was never evaluated and the final roots were not stated",
+    penalties: {
+      handwriting: { amount: 0.5, note: "handwriting penalties were applied" },
+      formatting:  { amount: 0.5, note: "intermediate working steps were missing from the solution" }
+    },
+    fullNote: "formula, discriminant and both roots match the official key"
+  },
+  {
+    no: "Q2", total: 6,
+    target: "Explanation of Lenz's law (4 marks) plus a fully labelled diagram showing induced current opposing the flux change (2 marks).",
+    student: "Correct verbal explanation of the opposing flux change, but the diagram has no current-direction arrows and only one coil turn is shown.",
+    contentLoss: 1.0, strictLoss: 0.5,
+    contentReason: "the induced-current direction was never annotated on the diagram",
+    penalties: {
+      diagrams:    { amount: 1.5, note: "the diagram was incomplete and marked flawed" },
+      handwriting: { amount: 0.5, note: "handwriting penalties were applied" }
+    },
+    fullNote: "explanation and diagram both meet the rubric"
+  },
+  {
+    no: "Q3", total: 4,
+    target: "The Treaty of Versailles was signed on 28 June 1919, ending the First World War between the Allied Powers and Germany.",
+    student: "Signed on 28 June 1919; ended the First World War between the Allied Powers and Germany.",
+    contentLoss: 0, strictLoss: 0,
+    contentReason: "",
+    penalties: {},
+    fullNote: "response matches the official answer key exactly — no corrections required"
+  },
+  {
+    no: "Q4", total: 5,
+    target: "n = 0.25 mol; limiting reagent NaOH; theoretical yield = 11.0 g.",
+    student: "n ≈ 0.2? mol (figure smudged), limiting reagent NaOH, calculated yield 9.8 g.",
+    contentLoss: 1.5, strictLoss: 0.5,
+    contentReason: "the mole calculation started from an incorrect value, giving 9.8 g instead of 11.0 g",
+    penalties: {
+      unreadable:  { amount: 1.0, note: "the input data was smudged and treated as unreadable" },
+      handwriting: { amount: 0.5, note: "handwriting penalties were applied" }
+    },
+    fullNote: "limiting reagent and yield both correct"
+  },
+  {
+    no: "Q5", total: 5,
+    target: "Structured response: claim → evidence → reasoning → conclusion, with each step of the argument shown in order.",
+    student: "Conclusion present, but evidence is never linked back to the claim and the working steps are skipped; ideas jump between paragraphs.",
+    contentLoss: 2.0, strictLoss: 0.5,
+    contentReason: "the reasoning chain was incomplete: evidence was not linked back to the claim",
+    penalties: {
+      formatting:  { amount: 1.0, note: "poor formatting and missing steps were penalised" },
+      handwriting: { amount: 0.5, note: "handwriting penalties were applied" }
+    },
+    fullNote: "structure and reasoning chain fully developed"
+  }
+];
+
+const STEPS_TEXT = [
+  "Reading question paper & answer key…",
+  "Extracting responses from student sheet…",
+  "Matching answers against the rubric…",
+  "Applying selected penalty criteria…",
+  "Compiling evaluation report…"
+];
+
+/* ==========================================================================
+   State
+   ========================================================================== */
+const state = {
+  files: { paper: null, key: null, sheet: null },
+  strict: false,
+  criteria: { handwriting: false, diagrams: false, unreadable: false, formatting: false },
+  evaluated: false,
+  running: false
+};
+
+/* ==========================================================================
+   Helpers
+   ========================================================================== */
+const $  = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const fmt = n => (Math.round(n * 10) % 10 === 0 ? String(Math.round(n)) : n.toFixed(1));
+const delay = ms => new Promise(r => setTimeout(r, ms));
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* ==========================================================================
+   Upload bay
+   ========================================================================== */
+$$(".dropzone").forEach(zone => {
+  const doc   = zone.dataset.doc;
+  const input = $(".dz-input", zone);
+  const nameEl= $(".dz-name", zone);
+
+  const setFile = file => {
+    if (!file) return;
+    state.files[doc] = file;
+    nameEl.textContent = file.name;
+    zone.classList.add("is-ready");
+    zone.classList.remove("is-missing");
+    showAlert("");
+  };
+  const clearFile = () => {
+    state.files[doc] = null;
+    input.value = "";
+    nameEl.textContent = "";
+    zone.classList.remove("is-ready");
+  };
+
+  input.addEventListener("change", e => setFile(e.target.files[0]));
+
+  zone.addEventListener("click", e => {
+    if (e.target === input || e.target.closest(".dz-remove")) return;
+    input.click();
+  });
+  $(".dz-remove", zone).addEventListener("click", e => { e.stopPropagation(); clearFile(); });
+
+  ["dragenter", "dragover"].forEach(ev =>
+    zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.add("dragover"); }));
+  ["dragleave", "drop"].forEach(ev =>
+    zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.remove("dragover"); }));
+  zone.addEventListener("drop", e => {
+    const f = e.dataTransfer && e.dataTransfer.files[0];
+    if (f) { input.files = e.dataTransfer.files; setFile(f); }
+  });
+});
+
+/* ==========================================================================
+   Control panel
+   ========================================================================== */
+$("#strictToggle").addEventListener("change", e => {
+  state.strict = e.target.checked;
+  refreshResults();
+});
+
+$$(".crit-input").forEach(cb => cb.addEventListener("change", e => {
+  state.criteria[e.target.value] = e.target.checked;
+  refreshResults();
+}));
+
+function showAlert(msg, ok = false) {
+  const el = $("#alert");
+  el.textContent = msg;
+  el.classList.toggle("show", !!msg);
+  el.classList.toggle("ok", ok && !!msg);
+}
+
+/* ==========================================================================
+   Evaluation engine (simulated)
+   ========================================================================== */
+function evaluate() {
+  const rows = QUESTIONS.map(q => {
+    const content = q.contentLoss;
+    const strict  = state.strict ? q.strictLoss : 0;
+    const crit    = {};
+    let critTotal = 0;
+    Object.keys(state.criteria).forEach(k => {
+      if (state.criteria[k] && q.penalties[k]) {
+        crit[k] = q.penalties[k].amount;
+        critTotal += q.penalties[k].amount;
+      }
+    });
+    const deducted = Math.min(q.total, content + strict + critTotal);
+    return {
+      q, content, strict, crit, critTotal, deducted,
+      awarded: Math.max(0, q.total - deducted)
+    };
+  });
+
+  const total     = rows.reduce((s, r) => s + r.q.total, 0);
+  const awarded   = rows.reduce((s, r) => s + r.awarded, 0);
+  const deducted  = total - awarded;
+  const contentSum= rows.reduce((s, r) => s + r.content, 0);
+  const strictSum = rows.reduce((s, r) => s + r.strict, 0);
+
+  const impact = {};
+  Object.keys(state.criteria).forEach(k => {
+    if (!state.criteria[k]) return;
+    const sum = rows.reduce((s, r) => s + (r.crit[k] || 0), 0);
+    if (sum > 0) impact[k] = sum;
+  });
+
+  return { rows, total, awarded, deducted, contentSum, strictSum, impact };
+}
+
+function buildExplanation(r) {
+  const q = r.q;
+  if (r.deducted === 0) {
+    return { good: true, html: `<strong>Full marks awarded:</strong> ${esc(q.fullNote)}.` };
+  }
+  const clauses = [];
+  if (r.content > 0) clauses.push(q.contentReason);
+  if (r.strict  > 0) clauses.push("strict checking mode withheld partial credit for incomplete work");
+
+  const notes = [];
+  Object.keys(r.crit).forEach(k => notes.push(q.penalties[k].note));
+  let penText = "";
+  if (notes.length === 1) penText = notes[0];
+  else if (notes.length > 1) penText = notes.slice(0, -1).join(", ") + " and " + notes[notes.length - 1];
+  if (penText) clauses.push(penText);
+
+  return {
+    good: false,
+    html: `<strong>Deducted ${fmt(r.deducted)} mark${r.deducted === 1 ? "" : "s"}:</strong> ${esc(clauses.join("; "))}.`
+  };
+}
+
+/* ==========================================================================
+   Results rendering
+   ========================================================================== */
+function refreshResults() {
+  if (state.evaluated) renderResults();
+}
+
+function renderResults() {
+  const ev = evaluate();
+  const pct = ev.total ? (ev.awarded / ev.total) * 100 : 0;
+
+  // Meta chips
+  const activeCrit = Object.keys(state.criteria).filter(k => state.criteria[k]);
+  $("#resultsMeta").innerHTML =
+    `<span class="meta-chip">${state.strict ? "Strict checking" : "Standard checking"}</span>` +
+    `<span class="meta-chip">${esc(state.files.sheet ? state.files.sheet.name : "student sheet")}</span>` +
+    (activeCrit.length
+      ? activeCrit.map(k => `<span class="meta-chip crit">Penalty: ${esc(CRITERIA[k].label)}</span>`).join("")
+      : `<span class="meta-chip">No penalty criteria selected</span>`);
+
+  // Scoreboard
+  $("#scoreObtained").textContent = fmt(ev.awarded);
+  $("#scoreTotal").textContent = `/ ${fmt(ev.total)} total`;
+  $("#scorePct").textContent = `${pct.toFixed(1)}%`;
+  $("#scoreBar").style.width = `${pct}%`;
+
+  const pill = $("#gradePill");
+  let grade = "F";
+  if (pct >= 90) grade = "A";
+  else if (pct >= 80) grade = "B";
+  else if (pct >= 70) grade = "C";
+  else if (pct >= 60) grade = "D";
+  pill.textContent = `Grade ${grade} · ${pct >= 60 ? "Pass" : "Needs review"}`;
+  pill.className = "grade-pill" + (pct >= 80 ? "" : pct >= 60 ? " mid" : " low");
+
+  // Stats
+  $("#statTotal").textContent = fmt(ev.total);
+  $("#statQCount").textContent = QUESTIONS.length;
+  $("#statObtained").textContent = fmt(ev.awarded);
+  $("#statDeducted").textContent = fmt(ev.deducted);
+  $("#statMode").textContent = state.strict ? "Strict" : "Standard";
+  $("#statCritCount").textContent =
+    `${activeCrit.length} penalty criteria active`;
+
+  $("#resultSub").textContent =
+    `Evaluation completed — ${fmt(ev.awarded)} of ${fmt(ev.total)} marks awarded across ${QUESTIONS.length} questions.`;
+
+  // Penalty impact
+  const impactKeys = Object.keys(ev.impact);
+  $("#impactList").innerHTML = impactKeys.length
+    ? impactKeys.map(k => `
+        <div class="impact-row">
+          <span class="swatch" style="background:${CRITERIA[k].color}"></span>
+          <span>${esc(CRITERIA[k].label)}</span>
+          <span class="amt">−${fmt(ev.impact[k])}</span>
+        </div>`).join("") +
+      (ev.contentSum || ev.strictSum
+        ? `<div class="impact-row">
+             <span class="swatch" style="background:var(--crimson)"></span>
+             <span>Content &amp; strict-mode deductions</span>
+             <span class="amt">−${fmt(ev.contentSum + ev.strictSum)}</span>
+           </div>` : "")
+    : `<div class="impact-empty">No penalty criteria selected — deductions below come from content and${
+        state.strict ? " strict-mode" : ""} checks only.</div>`;
+
+  // Question cards
+  $("#qList").innerHTML = ev.rows.map(r => {
+    const ratio = r.deducted === 0 ? "ok" : r.deducted <= r.q.total * 0.3 ? "part" : "bad";
+
+    const tags = [];
+    if (r.content > 0) tags.push(`<span class="tag content">Content −${fmt(r.content)}</span>`);
+    if (r.strict  > 0) tags.push(`<span class="tag strict">Strict mode −${fmt(r.strict)}</span>`);
+    Object.keys(r.crit).forEach(k =>
+      tags.push(`<span class="tag c-${k}">${esc(CRITERIA[k].label)} −${fmt(r.crit[k])}</span>`));
+    if (r.deducted > 0) tags.push(`<span class="tag total">Total −${fmt(r.deducted)}</span>`);
+    if (r.deducted === 0) tags.push(`<span class="tag awarded">+ ${fmt(r.q.total)} awarded</span>`);
+
+    const ex = buildExplanation(r);
+
+    return `
+      <article class="q-card">
+        <div class="q-top">
+          <span class="q-num">${esc(r.q.no)}</span>
+          <span class="q-score ${ratio}">${fmt(r.awarded)} / ${fmt(r.q.total)}</span>
+          <span class="q-max">marks</span>
+          <span class="q-flag ${r.deducted === 0 ? "perfect" : ""}">${
+            r.deducted === 0 ? "✓ Full marks" : `Marks deducted: −${fmt(r.deducted)}`}</span>
+        </div>
+
+        <div class="compare">
+          <div class="pane target">
+            <div class="p-label"><span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block"></span> Target Answer (Official Key)</div>
+            <p>${esc(r.q.target)}</p>
+          </div>
+          <div class="pane student">
+            <div class="p-label"><span style="width:7px;height:7px;border-radius:50%;background:var(--ink-dim);display:inline-block"></span> Student Answer</div>
+            <p>${esc(r.q.student)}</p>
+          </div>
+        </div>
+
+        <div class="deduct-row">
+          <span class="row-label">Marks deducted</span>
+          ${tags.join("")}
+        </div>
+
+        <div class="explain ${ex.good ? "good" : ""}">${ex.html}</div>
+      </article>`;
+  }).join("");
+}
+
+/* ==========================================================================
+   Run simulation
+   ========================================================================== */
+$("#runBtn").addEventListener("click", runEvaluation);
+
+async function runEvaluation() {
+  if (state.running) return;
+
+  const missing = ["paper", "key", "sheet"].filter(d => !state.files[d]);
+  if (missing.length) {
+    const names = { paper: "Question Paper", key: "Answer Key / Rubric", sheet: "Student Answer Sheet" };
+    missing.forEach(d => {
+      const z = document.querySelector(`.dropzone[data-doc="${d}"]`);
+      z.classList.add("is-missing");
+      setTimeout(() => z.classList.remove("is-missing"), 1400);
+    });
+    showAlert(`Please upload: ${missing.map(d => names[d]).join(", ")} — all three documents are required.`);
+    return;
+  }
+
+  state.running = true;
+  const btn = $("#runBtn"), label = $("#runLabel"), prog = $("#progress"), steps = $$("#progress .step");
+  showAlert("");
+  $("#results").classList.remove("show");
+
+  btn.disabled = true;
+  label.textContent = "Evaluating…";
+  if (!btn.querySelector(".spinner")) {
+    const sp = document.createElement("span");
+    sp.className = "spinner";
+    btn.prepend(sp);
+  }
+
+  steps.forEach(s => s.classList.remove("active", "done"));
+  prog.classList.add("show");
+
+  for (let i = 0; i < steps.length; i++) {
+    steps[i].classList.add("active");
+    await delay(430);
+    steps[i].classList.remove("active");
+    steps[i].classList.add("done");
+  }
+
+  state.running = false;
+  state.evaluated = true;
+
+  const sp = btn.querySelector(".spinner");
+  if (sp) sp.remove();
+  btn.disabled = false;
+  label.textContent = "Re-run AI Evaluation";
+  prog.classList.remove("show");
+
+  renderResults();
+  const res = $("#results");
+  res.classList.add("show");
+  showAlert("✓ Evaluation complete — report generated below.", true);
+
+  await delay(150);
+  res.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+</script>
+</body>
+</html>
