@@ -1,0 +1,12 @@
+# Lean dependencies for Vercel serverless functions (api/*.py).
+# Installs much faster and stays well under Vercel's 250 MB function limit.
+#
+# NOTE: streamlit is intentionally NOT here — Streamlit needs a long-running
+# server and cannot run on Vercel's serverless platform. The deployed app is:
+#   - index.html  -> static frontend (served by Vercel's CDN)
+#   - api/grade.py -> serverless Python function (real Gemini grading)
+#
+# Local Streamlit UI still works: pip install -r requirements.txt
+
+google-genai>=1.20.0   # Gemini vision OCR + grading (engine.py)
+pypdf>=5.0.0           # Multi-page PDF page counts + chunking (ingest.py)

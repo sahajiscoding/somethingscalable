@@ -1,0 +1,14 @@
+# Keep Vercel deployments small and fast — none of this is needed at runtime.
+.python/
+.freebuff/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+reports/
+sample_test_data/
+gcm-diagnose.log
+.env
+.env.*
+.vscode/
+.idea/

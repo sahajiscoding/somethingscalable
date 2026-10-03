@@ -257,6 +257,25 @@
   .alert.show{display:block}
   .alert.ok{border-color:rgba(129,199,132,.45);background:var(--green-bg);color:#dff6e1}
 
+  .backend{
+    margin-top:18px;padding:14px 16px;border:1px solid var(--line);
+    border-radius:var(--radius-sm);background:rgba(0,0,0,.10);
+  }
+  .backend .b-title{font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--ink-dim);font-weight:700;margin-bottom:10px}
+  .backend input[type="password"]{
+    width:100%;margin-top:6px;padding:10px 12px;border-radius:9px;
+    border:1px solid var(--line-strong);background:rgba(0,0,0,.28);
+    color:var(--ink);font-family:var(--font);font-size:13px;
+  }
+  .backend input[type="password"]:focus{outline:none;border-color:var(--green);
+    box-shadow:0 0 0 3px rgba(129,199,132,.25)}
+  .backend .b-row{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:13px}
+  .backend .b-status{font-size:12px;color:var(--ink-dim);margin-top:8px}
+  .backend .b-status.ok{color:var(--green)}
+  .backend .b-status.bad{color:var(--crimson)}
+  .backend label{font-size:13px;color:var(--ink-soft)}
+
   .progress{display:none;margin-top:16px;position:relative;padding-left:4px}
   .progress.show{display:block}
   .step{
@@ -553,6 +572,22 @@
         </div>
       </fieldset>
 
+      <div class="backend" aria-label="Live backend settings">
+        <div class="b-title">Live AI backend</div>
+        <label for="apiKey">Gemini API key
+          <span style="color:var(--ink-dim)">(skip if set as GEMINI_API_KEY on the server)</span></label>
+        <input type="password" id="apiKey" placeholder="AIza… — sent only to your deployment's /api/grade"
+               autocomplete="off" aria-label="Gemini API key" />
+        <div class="b-row">
+          <label class="crit" style="flex:1">
+            <input type="checkbox" id="liveToggle" checked />
+            <span class="box" aria-hidden="true">✓</span>
+            <span class="crit-text"><b>Use live AI grading</b><span>Uncheck to preview the offline demo</span></span>
+          </label>
+        </div>
+        <div class="b-status" id="backendStatus">Checking live backend…</div>
+      </div>
+
       <button class="run-btn" id="runBtn" type="button">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
         <span id="runLabel">Run AI Evaluation</span>
@@ -627,7 +662,8 @@
   </section>
 
   <footer class="foot">
-    Exam Checker — simulated AI evaluation engine. Documents are processed locally in your browser and never uploaded.
+    Exam Checker — offline demo runs fully in your browser. With <b>live AI grading</b> on,
+    documents are sent to your own deployment's <code>/api/grade</code> and on to Google's Gemini API.
   </footer>
 </div>
 
@@ -962,11 +998,208 @@ function renderResults() {
 }
 
 /* ==========================================================================
+   Live backend (/api/grade) — real Gemini grading with demo fallback
+   ========================================================================== */
+state.backendOk = false;
+
+async function checkBackend() {
+  const el = $("#backendStatus");
+  try {
+    const res = await fetch("api/grade", { method: "GET" });
+    if (!res.ok) throw new Error("bad status");
+    const health = await res.json();
+    state.backendOk = true;
+    el.className = "b-status ok";
+    el.textContent = health.hasApiKey
+      ? "● Live backend connected — server API key set."
+      : "● Live backend connected — enter your Gemini API key above to grade.";
+  } catch {
+    state.backendOk = false;
+    if (el) {
+      el.className = "b-status bad";
+      el.textContent = "○ No live backend (offline demo mode). Deploy with `vercel` to enable AI grading.";
+    }
+  }
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",", 2)[1] || "");
+    reader.onerror = () => reject(new Error("could not read " + file.name));
+    reader.readAsDataURL(file);
+  });
+}
+
+function tagForCategory(cat) {
+  if (cat === "content") return `<span class="tag content">Content deduction</span>`;
+  const label = CRITERIA[cat] ? CRITERIA[cat].label : cat;
+  return `<span class="tag c-${esc(cat)}">${esc(label)}</span>`;
+}
+
+function renderLiveReport(report) {
+  const s = report.summary;
+  const pct = s.total_marks ? (s.marks_awarded / s.total_marks) * 100 : 0;
+  const activeCrit = report.mode.penalty_criteria || [];
+
+  $("#resultsMeta").innerHTML =
+    `<span class="meta-chip">Live AI · ${esc(report.engine)} <code>${esc(report.model)}</code></span>` +
+    `<span class="meta-chip">${state.strict ? "Strict checking" : "Standard checking"}</span>` +
+    (activeCrit.length
+      ? activeCrit.map(k => `<span class="meta-chip crit">Penalty: ${esc((CRITERIA[k] || {}).label || k)}</span>`).join("")
+      : `<span class="meta-chip">No penalty criteria selected</span>`);
+
+  $("#scoreObtained").textContent = fmt(s.marks_awarded);
+  $("#scoreTotal").textContent = `/ ${fmt(s.total_marks)} total`;
+  $("#scorePct").textContent = `${pct.toFixed(1)}%`;
+  $("#scoreBar").style.width = `${pct}%`;
+
+  const pill = $("#gradePill");
+  let grade = "F";
+  if (pct >= 90) grade = "A";
+  else if (pct >= 80) grade = "B";
+  else if (pct >= 70) grade = "C";
+  else if (pct >= 60) grade = "D";
+  pill.textContent = `Grade ${grade} · ${pct >= 60 ? "Pass" : "Needs review"}`;
+  pill.className = "grade-pill" + (pct >= 80 ? "" : pct >= 60 ? " mid" : " low");
+
+  $("#statTotal").textContent = fmt(s.total_marks);
+  $("#statQCount").textContent = s.questions_graded;
+  $("#statObtained").textContent = fmt(s.marks_awarded);
+  $("#statDeducted").textContent = fmt(s.marks_deducted);
+  $("#statMode").textContent = report.mode.strict ? "Strict" : "Standard";
+  $("#statCritCount").textContent = `${activeCrit.length} penalty criteria active`;
+
+  $("#resultSub").textContent =
+    `Live AI evaluation — ${fmt(s.marks_awarded)} of ${fmt(s.total_marks)} marks across ${s.questions_graded} questions.`;
+
+  const byCat = s.deductions_by_category || {};
+  const keys = Object.keys(byCat);
+  $("#impactList").innerHTML = keys.length
+    ? keys.map(k => `
+        <div class="impact-row">
+          <span class="swatch" style="background:${(CRITERIA[k] || {}).color || "var(--crimson)"}"></span>
+          <span>${esc((CRITERIA[k] || {}).label || k)}</span>
+          <span class="amt">−${fmt(byCat[k])}</span>
+        </div>`).join("")
+    : `<div class="impact-empty">No deductions — full marks.</div>`;
+
+  $("#qList").innerHTML = report.questions.map(r => {
+    const ratio = r.marks_deducted <= 0 ? "ok" : r.marks_deducted <= r.max_marks * 0.3 ? "part" : "bad";
+    const tags = (r.deductions || []).map(d =>
+      `<span class="tag ${d.category === "content" ? "content" : "c-" + esc(d.category)}">` +
+      `${d.category === "content" ? "Content" : esc(((CRITERIA[d.category] || {}).label) || d.category)} −${fmt(d.marks)}</span>`
+    ).join("") || `<span class="tag awarded">+ ${fmt(r.max_marks)} awarded</span>`;
+    const good = r.marks_deducted <= 0;
+    return `
+      <article class="q-card">
+        <div class="q-top">
+          <span class="q-num">Q${esc(r.number)}</span>
+          <span class="q-score ${ratio}">${fmt(r.marks_awarded)} / ${fmt(r.max_marks)}</span>
+          <span class="q-max">marks</span>
+          <span class="q-flag ${good ? "perfect" : ""}">${good ? "✓ Full marks" : `Marks deducted: −${fmt(r.marks_deducted)}`}</span>
+        </div>
+        <div class="compare">
+          <div class="pane target">
+            <div class="p-label"><span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block"></span> Target Answer (Official Key)</div>
+            <p>${esc(r.expected_answer)}</p>
+          </div>
+          <div class="pane student">
+            <div class="p-label"><span style="width:7px;height:7px;border-radius:50%;background:var(--ink-dim);display:inline-block"></span> Student Answer</div>
+            <p>${esc(r.student_answer)}</p>
+          </div>
+        </div>
+        <div class="deduct-row"><span class="row-label">Marks deducted</span>${tags}</div>
+        <div class="explain ${good ? "good" : ""}"><strong>${good ? "Full marks awarded:" : `Deducted ${fmt(r.marks_deducted)} marks:`}</strong> ${esc(r.feedback)}</div>
+        ${r.ocr_note ? `<div class="explain good" style="border-left-color:var(--blue)">OCR note: ${esc(r.ocr_note)}</div>` : ""}
+      </article>`;
+  }).join("");
+}
+
+async function runLiveEvaluation() {
+  const btn = $("#runBtn"), label = $("#runLabel"), prog = $("#progress"), steps = $$("#progress .step");
+  const files = { paper: state.files.paper, key: state.files.key, sheet: state.files.sheet };
+  const oversize = Object.entries(files).find(([, f]) => f && f.size > 3_500_000);
+  if (oversize) {
+    showAlert(`"${oversize[1].name}" is ${(oversize[1].size / 1048576).toFixed(1)} MB — too large for Vercel's ~4.5 MB request cap. Running the offline demo instead.`);
+    await runSimulation();
+    return;
+  }
+
+  state.running = true;
+  btn.disabled = true;
+  label.textContent = "Grading with live AI…";
+  showAlert("");
+  $("#results").classList.remove("show");
+  steps.forEach(s => s.classList.remove("active", "done"));
+  prog.classList.add("show");
+  steps[0].classList.add("active");
+
+  try {
+    const [paperB64, keyB64, sheetB64] = await Promise.all(
+      [files.paper, files.key, files.sheet].map(fileToBase64));
+    steps[0].classList.replace("active", "done");
+    steps[1].classList.add("active");
+    steps[2].classList.add("active");
+
+    const res = await fetch("api/grade", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        paper: { filename: files.paper.name, data: paperB64 },
+        key: { filename: files.key.name, data: keyB64 },
+        student: { filename: files.sheet.name, data: sheetB64 },
+        strict: state.strict,
+        penalties: Object.keys(state.criteria).filter(k => state.criteria[k]),
+        apiKey: ($("#apiKey") || {}).value ? $("#apiKey").value.trim() : undefined,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `backend error (HTTP ${res.status})`);
+
+    steps.forEach(s => { s.classList.remove("active"); s.classList.add("done"); });
+    state.running = false;
+    state.evaluated = false; // live output is final; toggles require a re-run
+    btn.disabled = false;
+    label.textContent = "Re-run AI Evaluation";
+    prog.classList.remove("show");
+
+    renderLiveReport(data.report);
+    const warnCount = (data.warnings || []).length;
+    $("#results").classList.add("show");
+    showAlert(warnCount
+      ? `✓ Live evaluation complete — ${warnCount} warning(s), see report.`
+      : "✓ Live AI evaluation complete — report generated below.", true);
+    $("#results").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (err) {
+    state.running = false;
+    btn.disabled = false;
+    label.textContent = "Run AI Evaluation";
+    prog.classList.remove("show");
+    showAlert(`Live backend failed (${err.message}) — running the offline demo instead.`);
+    await runSimulation();
+  }
+}
+
+async function runEvaluation() {
+  const wantLive = ($("#liveToggle") || {}).checked !== false;
+  if (wantLive && state.backendOk) {
+    const missing = ["paper", "key", "sheet"].filter(d => !state.files[d]);
+    if (missing.length) { await runSimulation(); return; } // simulation shows the missing-docs alert
+    await runLiveEvaluation();
+    return;
+  }
+  await runSimulation();
+}
+
+checkBackend();
+
+/* ==========================================================================
    Run simulation
    ========================================================================== */
 $("#runBtn").addEventListener("click", runEvaluation);
 
-async function runEvaluation() {
+async function runSimulation() {
   if (state.running) return;
 
   const missing = ["paper", "key", "sheet"].filter(d => !state.files[d]);
