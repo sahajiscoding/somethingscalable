@@ -2253,6 +2253,10 @@ async function runLiveEvaluation() {
     prog.classList.remove("show");
 
     renderLiveReport(reportData.report, reportData.markdown);
+    try {
+      const s = reportData.report.summary || {};
+      recordAnalytics(s.marks_awarded || 0, s.total_marks || 0, s.deductions_by_category || {});
+    } catch { /* analytics optional */ }
     $("#results").classList.add("show");
     showAlert("✓ Live AI evaluation complete — report generated below.", true);
     $("#results").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -2336,6 +2340,7 @@ async function runSimulation() {
   prog.classList.remove("show");
 
   renderResults();
+  try { const ev = evaluate(); recordAnalytics(ev.awarded, ev.total, ev.impact); } catch { /* analytics optional */ }
   const dlSim = $("#dlRow"); if (dlSim) dlSim.style.display = "none";
   const res = $("#results");
   res.classList.add("show");
@@ -2380,7 +2385,7 @@ window.addEventListener("hashchange", () => {
 /* ==========================================================================
    Component 1: TextFlippingBoard (Split-Flap Mechanical Board)
    ========================================================================== */
-const FLAP_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$()-+&=;:'"%,./?°";
+const FLAP_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$()-+&=;:'\"%,./?°";
 const BOARD_ROWS = 4;
 const BOARD_COLS = 22;
 
@@ -2724,15 +2729,220 @@ function initImageGenerationLoader() {
   };
 }
 
-/* Run initializers when DOM is ready */
-document.addEventListener("DOMContentLoaded", () => {
+/* ==========================================================================
+   Generate Exam + Analytics actions
+   (referenced by onclick handlers in the Generator / Analytics views)
+   ========================================================================== */
+state.generatedExam = null;
+state.genSubtab = "paper";
+state.analytics = { count: 0, pctSum: 0, pass: 0, deducted: 0, hw: 0, dg: 0, fm: 0, ur: 0 };
+
+function setTopic(t) {
+  const el = document.getElementById("genTopic");
+  if (el) { el.value = t; el.focus(); }
+}
+
+function showGenAlert(msg, ok = false) {
+  const el = document.getElementById("genAlert");
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.toggle("show", !!msg);
+  el.classList.toggle("ok", ok && !!msg);
+}
+
+function switchGenSubtab(name) {
+  state.genSubtab = name;
+  [["subtabPaper", "paper"], ["subtabKey", "key"], ["subtabJson", "json"]].forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle("active", key === name);
+  });
+  renderGenPreview();
+}
+
+function renderGenPreview() {
+  const box = document.getElementById("genPreviewContent");
+  const bar = document.getElementById("genActionsBar");
+  const exam = state.generatedExam;
+  if (!box) return;
+  if (!exam || !exam.questions || !exam.questions.length) {
+    if (bar) bar.style.display = "none";
+    return;
+  }
+  if (bar) bar.style.display = "flex";
+  const tab = state.genSubtab || "paper";
+  if (tab === "json") {
+    box.innerHTML = `<pre style="white-space:pre-wrap;font-size:12px;line-height:1.5;color:var(--ink-soft)">${esc(JSON.stringify(exam, null, 2))}</pre>`;
+    return;
+  }
+  if (tab === "key") {
+    box.innerHTML =
+      `<div style="margin-bottom:14px"><div class="kicker">Official Rubric &amp; Key</div>` +
+      `<h4 style="font-size:17px;font-weight:800">${esc(exam.title || "Generated Exam")}</h4>` +
+      `<p style="font-size:12.5px;color:var(--ink-dim)">${esc(exam.topic || "")} · ${fmt(exam.total_marks || 0)} marks</p></div>` +
+      exam.questions.map(q => `
+        <div class="q-gen-item">
+          <div class="q-gen-header"><span class="q-gen-num">${esc(q.number || "")}</span>
+          <span class="q-gen-marks">${fmt(q.max_marks || 0)} marks</span></div>
+          <div class="q-gen-body"><b>Answer:</b> ${esc(q.expected_answer || "—")}</div>
+          <div class="q-gen-key"><b>Marking scheme:</b> ${esc(q.marking_scheme || "—")}${
+            q.keywords && q.keywords.length ? `<br/><b>Keywords:</b> ${esc(q.keywords.join(", "))}` : ""
+          }</div>
+        </div>`).join("");
+    return;
+  }
+  box.innerHTML =
+    `<div style="margin-bottom:14px"><div class="kicker">Question Paper</div>` +
+    `<h4 style="font-size:17px;font-weight:800">${esc(exam.title || "Generated Exam")}</h4>` +
+    `<p style="font-size:12.5px;color:var(--ink-dim)">${esc(exam.instructions || "")}</p>` +
+    `<p style="font-size:12.5px;color:var(--ink-dim)">Total: ${fmt(exam.total_marks || 0)} marks · ${exam.questions.length} questions</p></div>` +
+    exam.questions.map(q => `
+      <div class="q-gen-item">
+        <div class="q-gen-header"><span class="q-gen-num">${esc(q.number || "")}</span>
+        <span class="q-gen-marks">${fmt(q.max_marks || 0)} marks</span></div>
+        <div class="q-gen-body">${esc(q.text || "—")}</div>
+      </div>`).join("");
+}
+
+function buildGenPaperText(exam) {
+  const lines = [exam.title || "Generated Exam", `Topic: ${exam.topic || ""}`,
+    `Instructions: ${exam.instructions || ""}`, `Total marks: ${exam.total_marks || 0}`, ""];
+  (exam.questions || []).forEach(q => {
+    lines.push(`${q.number || ""} (${q.max_marks || 0} marks)`, `${q.text || ""}`, "");
+  });
+  return lines.join("\n");
+}
+
+function buildGenKeyText(exam) {
+  const lines = [`${exam.title || "Generated Exam"} — Official Answer Key`,
+    `Topic: ${exam.topic || ""}`, ""];
+  (exam.questions || []).forEach(q => {
+    lines.push(`${q.number || ""} (${q.max_marks || 0} marks)`,
+      `Answer: ${q.expected_answer || ""}`, `Scheme: ${q.marking_scheme || ""}`,
+      q.keywords && q.keywords.length ? `Keywords: ${q.keywords.join(", ")}` : "", "");
+  });
+  return lines.join("\n");
+}
+
+async function generateExamAction() {
+  const btn = document.getElementById("genBtn");
+  const label = document.getElementById("genBtnLabel");
+  const topic = (document.getElementById("genTopic") || {}).value || "";
+  const grade = (document.getElementById("genGrade") || {}).value || "";
+  const difficulty = (document.getElementById("genDifficulty") || {}).value || "";
+  const count = parseInt(((document.getElementById("genCount") || {}).value || "5"), 10) || 5;
+  const marks = parseFloat(((document.getElementById("genMarks") || {}).value || "25")) || 25;
+  if (!topic.trim()) { showGenAlert("Enter a subject & topic first."); return; }
+  if (btn) btn.disabled = true;
+  if (label) label.textContent = "Generating…";
+  showGenAlert("");
+  try {
+    const model = ($("#modelId") || {}).value ? $("#modelId").value.trim() : undefined;
+    const body = { topic: topic.trim(), grade, difficulty, count, marks };
+    if (model) body.model = model;
+    const data = await apiJson("/api/generate-exam", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    state.generatedExam = data.exam;
+    state.genSubtab = "paper";
+    switchGenSubtab("paper");
+    renderGenPreview();
+    showGenAlert(data.note ? `✓ Generated with ${esc(data.model)} (offline template). ${data.note}`.replace(/<[^>]*>/g, "")
+      : `✓ Exam generated with ${data.model || "Kimi-K3"} — preview below.`, true);
+  } catch (err) {
+    showGenAlert(`Generation failed (${err.message}). Check the live backend and retry.`);
+  } finally {
+    if (btn) btn.disabled = false;
+    if (label) label.textContent = "Generate Exam with Kimi-K3";
+  }
+}
+
+function downloadGenPaper() {
+  if (!state.generatedExam) { showGenAlert("Generate an exam first."); return; }
+  downloadText(buildGenPaperText(state.generatedExam), "question-paper.txt", "text/plain");
+}
+
+function downloadGenKey() {
+  if (!state.generatedExam) { showGenAlert("Generate an exam first."); return; }
+  downloadText(buildGenKeyText(state.generatedExam), "answer-key.txt", "text/plain");
+}
+
+function sendGeneratedToGrader() {
+  if (!state.generatedExam) { showGenAlert("Generate an exam first."); return; }
+  const paperText = buildGenPaperText(state.generatedExam);
+  const keyText = buildGenKeyText(state.generatedExam);
+  const paperFile = new File([paperText], "generated-paper.txt", { type: "text/plain" });
+  const keyFile = new File([keyText], "generated-key.txt", { type: "text/plain" });
+  state.files.paper = paperFile;
+  state.files.key = keyFile;
+  [["paper", paperFile], ["key", keyFile]].forEach(([doc, file]) => {
+    const zone = document.querySelector(`.dropzone[data-doc="${doc}"]`);
+    if (!zone) return;
+    const nameEl = zone.querySelector(".dz-name");
+    if (nameEl) nameEl.textContent = file.name;
+    zone.classList.add("is-ready");
+    try {
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      const input = zone.querySelector(".dz-input");
+      if (input) input.files = dt.files;
+    } catch { /* DataTransfer unavailable — state.files is enough */ }
+  });
+  switchView("grading");
+  showAlert("✓ Generated paper & key loaded into the upload bay — now add the student sheet and run evaluation.", true);
+}
+
+function refreshAnalyticsUI() {
+  const a = state.analytics;
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  const bar = (id, pct) => { const el = document.getElementById(id); if (el) el.style.width = `${Math.max(0, Math.min(100, pct))}%`; };
+  set("anaTotal", String(a.count));
+  set("anaAvg", a.count ? `${(a.pctSum / a.count).toFixed(1)}%` : "—");
+  set("anaPass", a.count ? `${Math.round((a.pass / a.count) * 100)}%` : "—");
+  set("anaDeduct", `${fmt(a.deducted)} pts`);
+  set("anaHwVal", `${fmt(a.hw)} pts`); bar("anaHwBar", a.deducted ? (a.hw / a.deducted) * 100 : 0);
+  set("anaDgVal", `${fmt(a.dg)} pts`); bar("anaDgBar", a.deducted ? (a.dg / a.deducted) * 100 : 0);
+  set("anaFmVal", `${fmt(a.fm)} pts`); bar("anaFmBar", a.deducted ? (a.fm / a.deducted) * 100 : 0);
+  set("anaUrVal", `${fmt(a.ur)} pts`); bar("anaUrBar", a.deducted ? (a.ur / a.deducted) * 100 : 0);
+}
+
+function recordAnalytics(awarded, total, impact) {
+  const a = state.analytics;
+  const pct = total ? (awarded / total) * 100 : 0;
+  a.count += 1;
+  a.pctSum += pct;
+  if (pct >= 60) a.pass += 1;
+  impact = impact || {};
+  const cat = {
+    handwriting: impact.handwriting || 0,
+    diagrams: impact.diagrams || 0,
+    formatting: impact.formatting || 0,
+    unreadable: impact.unreadable || 0,
+  };
+  const catSum = cat.handwriting + cat.diagrams + cat.formatting + cat.unreadable;
+  const contentExtra = Math.max(0, (total - awarded) - catSum);
+  a.deducted += (total - awarded);
+  a.hw += cat.handwriting; a.dg += cat.diagrams; a.fm += cat.formatting; a.ur += cat.unreadable;
+  void contentExtra;
+  refreshAnalyticsUI();
+}
+
+function resetAnalytics() {
+  state.analytics = { count: 0, pctSum: 0, pass: 0, deducted: 0, hw: 0, dg: 0, fm: 0, ur: 0 };
+  refreshAnalyticsUI();
+}
+
+/* Run initializers when DOM is ready (guarded: the fallback timer and
+   DOMContentLoaded can both fire, which would double-start the rAF loops) */
+let __booted = false;
+function __boot() {
+  if (__booted) return;
+  __booted = true;
   initTextFlippingBoard();
   initImageGenerationLoader();
-});
-setTimeout(() => {
-  initTextFlippingBoard();
-  initImageGenerationLoader();
-}, 200);
+}
+document.addEventListener("DOMContentLoaded", __boot);
+setTimeout(__boot, 200);
 
 </script>
 </body>
