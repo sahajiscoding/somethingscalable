@@ -927,6 +927,7 @@ function renderResults() {
   // Meta chips
   const activeCrit = Object.keys(state.criteria).filter(k => state.criteria[k]);
   $("#resultsMeta").innerHTML =
+    `<span class="meta-chip crit">⚠ Demo — sample data, not your documents</span>` +
     `<span class="meta-chip">${state.strict ? "Strict checking" : "Standard checking"}</span>` +
     `<span class="meta-chip">${esc(state.files.sheet ? state.files.sheet.name : "student sheet")}</span>` +
     (activeCrit.length
@@ -958,7 +959,7 @@ function renderResults() {
     `${activeCrit.length} penalty criteria active`;
 
   $("#resultSub").textContent =
-    `Evaluation completed — ${fmt(ev.awarded)} of ${fmt(ev.total)} marks awarded across ${QUESTIONS.length} questions.`;
+    `DEMO preview — ${fmt(ev.awarded)} of ${fmt(ev.total)} sample marks across ${QUESTIONS.length} sample questions. Enable the live backend to grade your documents.`;
 
   // Penalty impact
   const impactKeys = Object.keys(ev.impact);
@@ -1283,20 +1284,24 @@ async function runLiveEvaluation() {
     btn.disabled = false;
     label.textContent = "Run AI Evaluation";
     prog.classList.remove("show");
-    showAlert(`Live backend failed (${err.message}) — running the offline demo instead.`);
-    await runSimulation();
+    showAlert(`Live backend failed (${err.message}) — nothing was graded and no demo was substituted. Check the server API key and retry.`);
   }
 }
 
 async function runEvaluation() {
   const wantLive = ($("#liveToggle") || {}).checked !== false;
-  if (wantLive && state.backendOk) {
-    const missing = ["paper", "key", "sheet"].filter(d => !state.files[d]);
-    if (missing.length) { await runSimulation(); return; } // simulation shows the missing-docs alert
-    await runLiveEvaluation();
+  if (!wantLive) {
+    // Explicit preview only — bannered as sample data, never your documents.
+    await runSimulation();
     return;
   }
-  await runSimulation();
+  if (!state.backendOk) {
+    showAlert("Live backend is unreachable, so nothing was graded. Set NVIDIA_API_KEY on the server and redeploy for real grading. Uncheck “Use live AI grading” only to preview the UI with sample data.");
+    return;
+  }
+  const missing = ["paper", "key", "sheet"].filter(d => !state.files[d]);
+  if (missing.length) { await runSimulation(); return; } // simulation shows the missing-docs alert
+  await runLiveEvaluation();
 }
 
 checkBackend();
@@ -1357,7 +1362,7 @@ async function runSimulation() {
   const dlSim = $("#dlRow"); if (dlSim) dlSim.style.display = "none";
   const res = $("#results");
   res.classList.add("show");
-  showAlert("✓ Evaluation complete — report generated below.", true);
+  showAlert("✓ Demo preview complete — sample data below. Turn on live AI grading for your documents.", true);
 
   await delay(150);
   res.scrollIntoView({ behavior: "smooth", block: "start" });

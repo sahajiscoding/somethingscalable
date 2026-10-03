@@ -112,6 +112,9 @@ You are preparing this exam paper for automated grading. Transcribe it to JSON.
 Rules:
 - Capture EVERY question with its exact printed question number (keep
   subparts such as "3(b)" inside the question text, do not split them).
+- Transcribe ONLY what is printed on these pages. Never invent, complete,
+  or "fix" questions from general knowledge; if a question is unreadable,
+  keep the readable words and leave the rest out.
 - "max_marks" is the marks allocated to that question as printed on the
   paper. If no marks are printed, return null - never guess.
 - "page" is the 1-based page the question starts on.
@@ -129,6 +132,9 @@ Extract the correct answer and marking scheme for every question to JSON.
 
 Rules:
 - "number" must match the question numbering used in the key.
+- Copy the key VERBATIM. Never substitute your own answer or "correct" the
+  key from general knowledge — the key is the ground truth even when you
+  disagree with it. If an entry is unreadable, return an empty string.
 - "expected_answer" is the model/correct answer, verbatim.
 - "marking_scheme" is the step-by-step breakdown:
   [{"step": "states the formula", "marks": 1}, ...]; use [] if the key
@@ -158,6 +164,8 @@ Rules:
 - "legibility" overall for that answer: "good", "fair" or "poor".
 - Never merge two answers, never drop a response, even if it is blank
   (return an empty string for blanks).
+- NEVER invent answer content. A missing answer is data — do not fill it in
+  from the question, the key, or general knowledge.
 - "page" is the 1-based page the answer starts on.
 
 Return ONLY this JSON shape:

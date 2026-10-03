@@ -95,6 +95,12 @@ MARKING RULES:
    disabled, be generous with partial credit.
 5. Questions with no student answer: 0 marks, category "content".
 6. max_marks unknown (0/null): grade with 0 max and explain in feedback.
+7. NEVER INVENT INPUTS (critical): grade ONLY the expected_answer and
+   student_answer given above. Never replace them with your own knowledge
+   of the topic, and never mark what the student "probably meant" beyond
+   what is written. If the expected answer is empty, award 0 under
+   "content" and say so. Every deduction must quote or directly reference
+   the provided texts.
 
 Return ONLY a JSON array of question objects (no prose, no fences).
 """
