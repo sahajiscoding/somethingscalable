@@ -13,3 +13,8 @@ gcm-diagnose.log
 .vscode/
 .idea/
 frontend/node_modules/
+# Local-only Python entry points — never imported by server.py / api/index.py.
+# (search.py and pipeline.py stay: engine.py imports search lazily.)
+streamlit_app.py
+grade_exam.py
+test_real_exam.py

@@ -1,9 +1,10 @@
-# Exam Checker - Python dependencies
-# Install with: pip install -r requirements.txt
+# Exam Checker - Python dependencies (RUNTIME ONLY — Vercel installs exactly
+# this into the serverless function, which has a 500 MB bundle limit).
+# Local-only tools (Streamlit UI) live in requirements-dev.txt and are never
+# deployed. Install with: pip install -r requirements.txt
 # API keys are NEVER listed here — set GEMINI_API_KEY / NVIDIA_API_KEY in
 # the environment (or a local .env file, see .env.example).
 
-streamlit>=1.36.0            # Web UI framework (streamlit_app.py, local only)
 google-genai>=1.20.0         # Unified Google Gen AI SDK - vision OCR + grading
                              #   (replaces the EOL google-generativeai package)
 pypdf>=5.0.0                 # Multi-page PDF page counts + chunking

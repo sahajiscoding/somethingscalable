@@ -1,0 +1,7 @@
+# Exam Checker - LOCAL DEV ONLY (never deployed to Vercel).
+# Install with: pip install -r requirements-dev.txt
+# streamlit_app.py is a local-only UI; the deployed site is Flask + React.
+
+-r requirements.txt
+
+streamlit>=1.36.0            # Web UI framework (streamlit_app.py, local only)
