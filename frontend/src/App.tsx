@@ -95,20 +95,22 @@ export default function App() {
 
   return (
     <>
-      <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true">
-        <PatternWaves
-          preset="silk"
-          color="#81c784"
-          backgroundColor="transparent"
-          spacing={13}
-          opacity={0.55}
-          fade="edges"
-          fadeSize={0.5}
-          interactive
-          cursorSize={50}
-          cursorStrength={0.6}
-        />
-      </div>
+      {view === 'home' && (
+        <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true">
+          <PatternWaves
+            preset="silk"
+            color="#81c784"
+            backgroundColor="transparent"
+            spacing={13}
+            opacity={0.55}
+            fade="edges"
+            fadeSize={0.5}
+            interactive
+            cursorSize={50}
+            cursorStrength={0.6}
+          />
+        </div>
+      )}
 
       <div className="relative z-[1] mx-auto max-w-[1180px] px-4 pt-6 pb-[72px] md:px-5 md:pt-7">
         <header className="flex flex-wrap items-center justify-between gap-5 px-1 pt-1.5 pb-6">

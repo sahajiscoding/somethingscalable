@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import ThreeDCardDemo from '../components/3d-card-demo';
+import WeirdCardDemo from '../components/weird-card-demo';
 import { ImageGenerationLoader, type ImageGenerationLoaderEffect } from '../components/ui/image-generation-loader';
 import { TextFlippingBoard } from '../components/ui/text-flipping-board';
 import type { View } from '../lib/view';
@@ -242,8 +242,9 @@ export default function Home({ onNavigate, onTryDemo, backendModel, hasKey }: Ho
             <div className="mb-1 text-[11px] font-bold tracking-[.18em] text-white/45 uppercase">CSS Perspective</div>
             <h3 className="mb-2 text-[22px] font-extrabold tracking-tight">Things that float in air</h3>
             <p className="mb-5 text-sm leading-relaxed text-white/70">
-              Hover over the card and move your mouse — the frame tilts in 3D while the title, image and buttons
-              float at different depths, powered by the Aceternity 3D card component running natively in React.
+              Hover over the card and move your mouse — the frame tilts in 3D while the title, placeholder and
+              buttons float at different depths. Featuring a deeply suspicious floating grader that judges your
+              hovering.
             </p>
             <div className="rounded-[10px] border border-white/10 bg-black/25 p-3 text-xs leading-relaxed text-white/45">
               <b className="text-white/70">How it works:</b> the outer container sets <b>perspective: 1000px</b>, the
@@ -251,7 +252,7 @@ export default function Home({ onNavigate, onTryDemo, backendModel, hasKey }: Ho
             </div>
           </div>
           <div className="flex justify-center">
-            <ThreeDCardDemo />
+            <WeirdCardDemo />
           </div>
         </div>
       </section>
