@@ -113,23 +113,26 @@ export default function App() {
       )}
 
       <div className="relative z-[1] mx-auto max-w-[1180px] px-4 pt-6 pb-[72px] md:px-5 md:pt-7">
-        <header className="flex flex-wrap items-center justify-between gap-5 px-1 pt-1.5 pb-6">
-          <button type="button" onClick={() => navigate('home')} className="flex cursor-pointer items-center gap-4 border-none bg-transparent p-0 text-left text-white">
-            <div aria-hidden="true" className="grid h-[52px] w-[52px] flex-none place-items-center rounded-[15px] bg-gradient-to-br from-pine to-[#3b7a53] text-[19px] font-extrabold tracking-wide text-[#0f1a13] shadow-[0_10px_26px_rgba(78,154,106,.35)]">
+        <nav
+          aria-label="Main Navigation"
+          className="sticky top-3.5 z-[90] mx-auto mb-7 flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-full border border-white/10 bg-black/45 p-2 shadow-[0_8px_24px_rgba(0,0,0,.4)] backdrop-blur-md"
+        >
+          <button
+            type="button"
+            onClick={() => navigate('home')}
+            className="flex flex-none cursor-pointer items-center gap-2.5 border-none bg-transparent py-1 pr-2 pl-1 text-left text-white"
+            aria-label="Exam Checker home"
+          >
+            <span
+              aria-hidden="true"
+              className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-pine to-[#3b7a53] text-sm font-extrabold text-[#0f1a13]"
+            >
               EC
-            </div>
-            <div>
-              <h1 className="text-2xl font-extrabold tracking-tight md:text-4xl">Exam Checker</h1>
-              <div className="mt-0.5 text-sm text-white/45">AI-powered grading &amp; correction of student answer sheets</div>
-            </div>
+            </span>
+            <span className="hidden text-[15px] font-bold tracking-tight whitespace-nowrap lg:block">Exam Checker</span>
           </button>
-          <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-[13px] text-white/70">
-            <span aria-hidden="true" className="h-2 w-2 animate-pulse rounded-full bg-mint" /> Kimi-K3 engine ready
-          </div>
-        </header>
-
-        <nav aria-label="Main Navigation" className="sticky top-3.5 z-[90] mb-7 flex items-center justify-between gap-3.5 rounded-2xl border border-white/10 bg-black/25 p-2 shadow-[0_8px_24px_rgba(0,0,0,.18)] backdrop-blur-md">
-          <div role="tablist" className="flex items-center gap-1.5 overflow-x-auto">
+          <span aria-hidden="true" className="h-6 w-px flex-none bg-white/10" />
+          <div role="tablist" className="flex items-center gap-1">
             {NAV.map(t => (
               <button
                 key={t.key}
@@ -137,28 +140,34 @@ export default function App() {
                 aria-selected={view === t.key}
                 type="button"
                 onClick={() => navigate(t.key)}
-                className={`inline-flex cursor-pointer items-center gap-2 rounded-xl border border-transparent px-4 py-2 text-[13.5px] font-semibold whitespace-nowrap transition ${
-                  view === t.key
-                    ? 'border-mint/35 bg-gradient-to-br from-pine/30 to-pine/10 text-mint shadow-[0_4px_14px_rgba(0,0,0,.22)]'
-                    : 'bg-transparent text-white/70 hover:bg-white/5 hover:text-white'
+                className={`inline-flex cursor-pointer items-center gap-2 rounded-full border border-transparent px-3.5 py-2 text-[13.5px] font-semibold whitespace-nowrap transition ${
+                  view === t.key ? 'bg-white/10 text-white' : 'bg-transparent text-white/45 hover:bg-white/5 hover:text-white'
                 }`}
               >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
                   <path d={t.icon} />
                 </svg>
-                <span>{t.label}</span>
+                <span className="hidden md:block">{t.label}</span>
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              onClick={() => navigate('grading')}
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-[11px] border-none bg-gradient-to-br from-pine to-[#3b7a53] px-4 py-2 text-[13px] font-extrabold whitespace-nowrap text-[#0c1a11] shadow-[0_6px_18px_rgba(78,154,106,.30)] transition hover:brightness-110"
-            >
-              ⚡ Start Grading
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => navigate('grading')}
+            className="flex-none cursor-pointer rounded-full border-none bg-white px-4 py-2 text-[13px] font-bold whitespace-nowrap text-black transition hover:brightness-90"
+          >
+            Start grading
+          </button>
         </nav>
 
         <main>
