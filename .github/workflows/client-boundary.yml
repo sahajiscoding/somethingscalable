@@ -1,0 +1,61 @@
+name: Client Boundary
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: client-boundary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+
+      - name: No server-only modules in client components
+        run: |
+          if grep -rln "supabase/server\|payments/uropay\|ai/nvidia\|server/admin-auth" components/; then
+            echo "FAIL: server-only module imported from components/"
+            exit 1
+          fi
+          echo "Component imports OK"
+
+      - name: Only approved NEXT_PUBLIC variables
+        run: |
+          # Only these three may be public (bundled into client JS).
+          vars=$(grep -rhoE "NEXT_PUBLIC_[A-Z_]+" app lib components 2>/dev/null | sort -u || true)
+          echo "$vars"
+          bad=$(echo "$vars" | grep -vxE "NEXT_PUBLIC_SUPABASE_URL|NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY|NEXT_PUBLIC_SITE_URL" || true)
+          if [ -n "$bad" ]; then
+            echo "FAIL: non-approved NEXT_PUBLIC variables: $bad"
+            exit 1
+          fi
+          echo "NEXT_PUBLIC allowlist OK"
+
+      - name: Quiz answer keys stay out of the client graph
+        run: |
+          fail() { echo "FAIL: $1"; exit 1; }
+          if grep -q "correct:" lib/quizzes.ts; then
+            fail "lib/quizzes.ts contains answer keys (must be answer-free)"
+          fi
+          if grep -rn "quiz-answer-keys\|server/course-progress" app components --include='*.ts' --include='*.tsx' | grep -vE "^app/api/"; then
+            fail "server-only grading modules are imported outside API routes"
+          fi
+          echo "Answer-key boundary OK"
+
+      - name: No unsanitized HTML rendering
+        run: |
+          if grep -rn "dangerouslySetInnerHTML\|innerHTML" app components lib --include='*.ts' --include='*.tsx'; then
+            echo "FAIL: raw HTML rendering found (must be sanitized with DOMPurify)"
+            exit 1
+          fi
+          echo "HTML rendering OK"

@@ -1,0 +1,31 @@
+name: Checkout Allowlist
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checkout-allowlist-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  allowlist:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+
+      - name: Payment return URLs confined to UroPay hosts
+        run: |
+          fail() { echo "FAIL: $1"; exit 1; }
+          f="app/api/payments/create-order/route.ts"
+          grep -q "UROPAY_ALLOWED_HOSTS" "$f" || fail "checkout host allowlist is not enforced"
+          grep -q 'ALLOWED_CHECKOUT_HOSTS.includes(url.hostname' "$f" || fail "checkout URL hostname is not validated"
+          grep -q "invalid_request" "$f" || fail "rejected checkout URL lacks a generic error code"
+          echo "Checkout allowlist OK"

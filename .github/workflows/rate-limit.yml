@@ -1,0 +1,48 @@
+name: Rate Limiting
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rate-limit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ratelimit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+
+      - name: Abuse-sensitive endpoints must be rate limited
+        run: |
+          fail() { echo "FAIL: $1"; exit 1; }
+          for f in \
+            app/api/auth/signin/route.ts \
+            app/api/auth/signup/route.ts \
+            app/api/auth/reset-request/route.ts \
+            app/api/auth/reset-password/route.ts \
+            app/api/c8f2x9/login/route.ts \
+            app/api/ai/research/route.ts \
+            app/api/payments/create-order/route.ts \
+            app/api/partner/applications/route.ts \
+            app/api/news/route.ts \
+            app/api/webhooks/uropay/route.ts; do
+            grep -q "checkRateLimit" "$f" || fail "$f is not rate limited"
+          done
+          echo "Endpoint rate limits OK"
+
+      - name: Rate limiter must not trust X-Forwarded-For
+        run: |
+          fail() { echo "FAIL: $1"; exit 1; }
+          grep -q "x-vercel-forwarded-for" lib/server/rate-limit.ts || fail "rate limiter does not prefer platform-controlled IP headers"
+          grep -q "export async function checkRateLimit" lib/server/rate-limit.ts || fail "rate limiting is not DB-backed async"
+          grep -q "getClientIp" app/api/ai/research/route.ts || fail "AI route does not use server-resolved client IP"
+          echo "Limiter implementation OK"

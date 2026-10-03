@@ -1,0 +1,32 @@
+name: Token Lifetimes
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: token-lifetimes-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lifetimes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+
+      - name: Every credential and session expires
+        run: |
+          fail() { echo "FAIL: $1"; exit 1; }
+          grep -q "SESSION_MAX_AGE = 60 \* 60 \* 4" lib/server/admin-auth.ts || fail "admin session is not capped at 4h"
+          grep -q "dashboardTokenExpiryDate" lib/referrals.ts || fail "partner dashboard tokens never expire"
+          grep -q "hashDashboardToken" lib/referrals.ts || fail "partner dashboard tokens are not hashed at rest"
+          grep -q "dashboard_token_expires_at" lib/referrals.ts || fail "dashboard token expiry is not persisted"
+          grep -q "MAX_AGE_SECONDS" lib/payments/uropay.ts || fail "webhook replay window is missing"
+          echo "Token lifetimes OK"

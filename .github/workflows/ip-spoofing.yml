@@ -1,0 +1,31 @@
+name: IP Spoofing
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ip-spoofing-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ip:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+
+      - name: Client IP resolved server-side, never trusted raw
+        run: |
+          fail() { echo "FAIL: $1"; exit 1; }
+          holders=$(git ls-files 'app/**/*.ts' 'lib/**/*.ts' | xargs grep -l "x-forwarded-for" || true)
+          echo "Files touching x-forwarded-for: $holders"
+          [ "$holders" = "lib/server/rate-limit.ts" ] || fail "x-forwarded-for handled outside the hardened limiter"
+          grep -q "getClientIp" app/api/ai/research/route.ts || fail "AI route bypasses server-resolved client IP"
+          echo "IP handling OK"

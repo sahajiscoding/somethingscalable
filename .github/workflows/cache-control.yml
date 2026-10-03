@@ -1,0 +1,31 @@
+name: Cache Control
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cache-control-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cache:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+
+      - name: API responses are private and non-cacheable
+        run: |
+          fail() { echo "FAIL: $1"; exit 1; }
+          grep -q 'private, no-store, max-age=0' proxy.ts || fail "proxy does not set private/no-store on API routes"
+          grep -q 'Vary.*Authorization, Cookie' proxy.ts || fail "proxy does not Vary on Authorization, Cookie"
+          grep -q 'pathname !== "/api/news"' proxy.ts || fail "public /api/news exception is not explicit"
+          grep -q 'private, no-store' app/api/admin/reconcile-payments/route.ts || fail "reconciliation response is not private/no-store"
+          echo "Cache control OK"

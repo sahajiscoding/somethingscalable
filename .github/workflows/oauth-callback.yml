@@ -1,0 +1,33 @@
+name: OAuth Callback
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oauth-callback-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  oauth:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+
+      - name: Safe OAuth code exchange, no open redirects
+        run: |
+          fail() { echo "FAIL: $1"; exit 1; }
+          f="app/auth/callback/route.ts"
+          grep -q "exchangeCodeForSession" "$f" || fail "OAuth callback does not exchange the code server-side"
+          grep -q "getSafeNext" "$f" || fail "OAuth callback lacks same-origin next check"
+          grep -q 'url.origin !== origin' "$f" || fail "getSafeNext does not enforce same origin"
+          grep -q 'startsWith("//")' "$f" || fail "getSafeNext does not reject protocol-relative URLs"
+          grep -q "oauth_callback_failed" "$f" || fail "OAuth callback leaks provider errors instead of a generic code"
+          echo "OAuth callback OK"
