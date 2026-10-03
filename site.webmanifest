@@ -1,0 +1,18 @@
+{
+  "name": "Exam Checker — AI Answer Sheet Grading",
+  "short_name": "Exam Checker",
+  "description": "Upload a question paper, answer key and student answer sheet, then run an AI evaluation with strict mode and penalty criteria.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#363737",
+  "theme_color": "#363737",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

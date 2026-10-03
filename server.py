@@ -142,6 +142,78 @@ def index():
     return Response(html, mimetype="text/html")
 
 
+# ---------------------------------------------------------------------------
+# Standard site files (robots, llms.txt, sitemap, manifest, icons, humans,
+# security contact) — served by Flask so local dev and Vercel behave the same.
+# ---------------------------------------------------------------------------
+
+_SITE_FILES = {
+    "llms.txt": ("llms.txt", "text/markdown"),
+    "humans.txt": ("humans.txt", "text/plain"),
+    "security.txt": ("security.txt", "text/plain"),
+    "site.webmanifest": ("site.webmanifest", "application/manifest+json"),
+    "favicon.svg": ("favicon.svg", "image/svg+xml"),
+}
+
+_CACHE_DAY = {"Cache-Control": "public, max-age=86400"}
+
+
+def _site_file(filename: str, mimetype: str):
+    path = _BASE_DIR / filename
+    if not path.exists():
+        return jsonify({"error": "Not found."}), 404
+    return Response(path.read_bytes(), mimetype=mimetype, headers=_CACHE_DAY)
+
+
+@app.get("/llms.txt")
+def llms_txt():
+    return _site_file(*_SITE_FILES["llms.txt"])
+
+
+@app.get("/humans.txt")
+def humans_txt():
+    return _site_file(*_SITE_FILES["humans.txt"])
+
+
+@app.get("/.well-known/security.txt")
+def security_txt():
+    return _site_file(*_SITE_FILES["security.txt"])
+
+
+@app.get("/site.webmanifest")
+def webmanifest():
+    return _site_file(*_SITE_FILES["site.webmanifest"])
+
+
+@app.get("/favicon.svg")
+def favicon_svg():
+    return _site_file(*_SITE_FILES["favicon.svg"])
+
+
+@app.get("/favicon.ico")
+def favicon_ico():
+    # No .ico asset — browsers accept the SVG here.
+    return _site_file(*_SITE_FILES["favicon.svg"])
+
+
+@app.get("/robots.txt")
+def robots_txt():
+    # Absolute sitemap URL needs the live host, so it is injected per request.
+    text = (_BASE_DIR / "robots.txt").read_text(encoding="utf-8")
+    return Response(text.replace("__HOST__", request.host),
+                    mimetype="text/plain", headers=_CACHE_DAY)
+
+
+@app.get("/sitemap.xml")
+def sitemap_xml():
+    xml = (f'<?xml version="1.0" encoding="UTF-8"?>\n'
+           f'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+           f'  <url><loc>https://{request.host}/</loc>'
+           f'<changefreq>weekly</changefreq><priority>1.0</priority></url>\n'
+           f'</urlset>\n')
+    return Response(xml, mimetype="application/xml", headers=_CACHE_DAY)
+
+
 @app.get("/api/health")
 def api_health():
     return jsonify({"ok": True, "hasApiKey": _has_key(),

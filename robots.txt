@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+
+# AI assistants and crawlers: start with the structured project summary.
+# See: /llms.txt
+
+Sitemap: https://__HOST__/sitemap.xml

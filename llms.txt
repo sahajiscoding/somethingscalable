@@ -1,0 +1,43 @@
+# Exam Checker
+
+Exam Checker is an AI-powered grading app for student answer sheets. Upload a
+question paper, the official answer key / rubric, and a student's answer sheet
+(scan or photo of handwriting), pick strict mode and penalty criteria, and get
+a scoreboard plus a question-by-question report (target vs student answer,
+deductions, reasoning) downloadable as JSON and Markdown.
+
+- Web UI: `/` (works offline as a demo; live grading via the API below)
+- Grading backend: NVIDIA NIM (`minimaxai/minimax-m3` by default)
+- API keys live ONLY in server environment variables — never in the client
+
+## API (split pipeline — every call is ~1 AI request, safe for capped hosts)
+
+- `GET /api/health` → `{ok, hasApiKey, hasNvidiaKey, model}`
+- `POST /api/extract` (multipart: `file`, `role` = paper|key|student,
+  optional `model`) → `{role, filename, kind, pages, warnings,
+  data: {questions|entries|answers}}`
+- `POST /api/align` (JSON: paper/key/student extraction lists, documents) →
+  `{aligned, warnings, documents, model}`
+- `POST /api/grade-one` (JSON: question, strict, penalties, model) → `{record}`
+- `POST /api/report` (JSON: records, documents, strict, penalties, warnings,
+  engine, model) → `{report, markdown}`
+
+If `APP_SECRET` is set on the server, every `/api` call must send it as the
+`X-App-Secret` header.
+
+## Limits
+
+- Uploads: ~4 MB per file on hosted deployments, PDFs up to 15 pages
+- Digital PDF pages are read as text; scanned pages are rendered to images
+- Strict mode + penalty criteria: handwriting, diagrams, unreadable, formatting
+
+## Local development
+
+- Server: `python server.py` (keys in `.env`, see `.env.example`)
+- Streamlit UI: `streamlit run streamlit_app.py`
+- CLI: `python grade_exam.py --paper p.pdf --key k.pdf --student s.pdf`
+- Offline mock (text files, no key): `python grade_exam.py --mock ...`
+
+## Source
+
+https://github.com/sahajiscoding/somethingscalable
