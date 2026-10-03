@@ -223,13 +223,36 @@ def _load_image(path: Path, data: bytes, role: str) -> Document:
     mime, _ = mimetypes.guess_type(path.name)
     if not mime or not mime.startswith("image/"):
         mime = _sniff_image_mime(data) or "image/jpeg"
+    warnings: list[str] = []
+    if len(data) > MAX_INLINE_BYTES:
+        try:
+            import pymupdf
+            img_doc = pymupdf.open(stream=data)
+            page = img_doc[0]
+            w, h = page.rect.width, page.rect.height
+            scale = min(1.0, 2048 / max(w, h))
+            pix = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale))
+            if pix.alpha:
+                pix = pymupdf.Pixmap(pymupdf.csRGB, pix)
+            compressed = pix.tobytes("jpeg", jpg_quality=82)
+            if len(compressed) < len(data):
+                warnings.append(
+                    f"{path.name} was auto-compressed from {len(data) // (1024 * 1024)} MB "
+                    f"to {len(compressed) // (1024 * 1024)} MB for AI ingestion."
+                )
+                data = compressed
+                mime = "image/jpeg"
+        except Exception:
+            pass
+
     if len(data) > MAX_INLINE_BYTES:
         raise IngestError(
             f"[{role}] {path.name} is {len(data) // (1024 * 1024)} MB - larger than "
             "the 19 MB inline limit. Please downscale the scan and retry."
         )
     return Document(role=role, path=str(path), kind="image",
-                    pages=[Page(index=1, mime=mime, data=data)])
+                    pages=[Page(index=1, mime=mime, data=data)],
+                    warnings=warnings)
 
 
 def _sniff_image_mime(data: bytes) -> str | None:

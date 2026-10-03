@@ -244,6 +244,21 @@ class NvidiaEngine:
         import base64
 
         if len(data) > 8 * 1024 * 1024:
+            fitz = _get_pdf_renderer()
+            if fitz is not None:
+                try:
+                    img_doc = fitz.open(stream=data)
+                    page = img_doc[0]
+                    w, h = page.rect.width, page.rect.height
+                    scale = min(1.0, 1920 / max(w, h))
+                    pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale))
+                    if pix.alpha:
+                        pix = fitz.Pixmap(fitz.csRGB, pix)
+                    data = pix.tobytes("jpeg", jpg_quality=80)
+                    mime = "image/jpeg"
+                except Exception:
+                    pass
+        if len(data) > 8 * 1024 * 1024:
             raise EngineError(
                 f"{filename} is {len(data) // 1024} KB — too large to send. "
                 "Compress/downscale the image and retry."

@@ -1,4 +1,5 @@
 /* Live backend client — same-origin Flask /api (split pipeline). */
+import { compressMediaIfNeeded } from './mediaCompressor';
 
 export const APP_SECRET: string = (() => {
   const v = (window as unknown as { __APP_SECRET__?: string }).__APP_SECRET__ || '';
@@ -108,10 +109,18 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
     key: input.key,
     student: input.student,
   };
-  const oversize = Object.entries(files).find(([, f]) => f && f.size > 4_000_000);
+  for (const role of roles) {
+    if (files[role] && files[role].size > 3_500_000) {
+      const res = await compressMediaIfNeeded(files[role]);
+      if (res.compressed) {
+        files[role] = res.file;
+      }
+    }
+  }
+  const oversize = Object.entries(files).find(([, f]) => f && f.size > 4_500_000);
   if (oversize) {
     throw new Error(
-      `"${oversize[1].name}" is ${(oversize[1].size / 1048576).toFixed(1)} MB — too large for the 4.5 MB hosting cap. Compress it and retry, or run the offline demo.`,
+      `"${oversize[1].name}" is ${(oversize[1].size / 1048576).toFixed(1)} MB — exceeds 4.5 MB cap even after compression. Split or resize the file.`,
     );
   }
 

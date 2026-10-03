@@ -12,6 +12,7 @@ import {
 } from './lib/sim';
 import { VIEWS, type View } from './lib/view';
 import Analytics from './views/Analytics';
+import Compressor from './views/Compressor';
 import Generator from './views/Generator';
 import Grading from './views/Grading';
 import Home from './views/Home';
@@ -27,6 +28,11 @@ const NAV: { key: View; label: string; icon: string }[] = [
     key: 'grading',
     label: 'Exam Grading',
     icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2 v6 h6 M16 13 H8 M16 17 H8',
+  },
+  {
+    key: 'compressor',
+    label: 'Media Compressor',
+    icon: 'M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1 M16 8l-4-4-4 4 M12 4v12',
   },
   {
     key: 'generator',
@@ -93,60 +99,85 @@ export default function App() {
     navigate('grading');
   }, [navigate]);
 
+  const handleSendMediaToGrader = useCallback((file: File, role: 'paper' | 'key' | 'sheet') => {
+    setFiles(prev => ({ ...prev, [role]: file }));
+    const labels = { paper: 'Question paper', key: 'Answer key', sheet: 'Student sheet' };
+    setGraderNotice({ id: Date.now(), msg: `✓ Compressed ${labels[role]} loaded into the upload bay — ready to grade.` });
+    navigate('grading');
+  }, [navigate]);
+
   return (
     <>
       {view === 'home' && (
         <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true">
           <PatternWaves
-            preset="silk"
-            color="#81c784"
-            backgroundColor="transparent"
-            spacing={13}
-            opacity={0.55}
-            fade="edges"
-            fadeSize={0.5}
-            interactive
-            cursorSize={50}
-            cursorStrength={0.6}
+            speed={0.4}
+            size={40}
+            strokeWidth={1.2}
+            color="rgba(129, 199, 132, 0.28)"
+            style={{ width: '100%', height: '100%' }}
           />
         </div>
       )}
 
-      <div className="relative z-[1] mx-auto max-w-[1180px] px-4 pt-6 pb-[72px] md:px-5 md:pt-7">
-        <nav
-          aria-label="Main Navigation"
-          className="sticky top-3.5 z-[90] mx-auto mb-7 flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-full border border-white/10 bg-black/45 p-2 shadow-[0_8px_24px_rgba(0,0,0,.4)] backdrop-blur-md"
-        >
+      <div className="relative z-10 mx-auto max-w-[1240px] px-4 pt-4 pb-16">
+        <header className="mb-4 flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
           <button
             type="button"
             onClick={() => navigate('home')}
-            className="flex flex-none cursor-pointer items-center gap-2.5 border-none bg-transparent py-1 pr-2 pl-1 text-left text-white"
-            aria-label="WeHelpTeachers home"
+            className="flex cursor-pointer items-center gap-2.5 border-none bg-transparent p-0 text-left text-inherit"
           >
-            <span
-              aria-hidden="true"
-              className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-pine to-[#3b7a53] text-sm font-extrabold text-[#0f1a13]"
-            >
-              WH
+            <span className="grid h-7 w-7 place-items-center rounded-lg bg-mint text-sm font-black text-[#12211a]">
+              ✓
             </span>
-            <span className="hidden text-[15px] font-bold tracking-tight whitespace-nowrap lg:block">WeHelpTeachers</span>
+            <span className="text-xl font-bold tracking-tight">WeHelpTeachers</span>
+            <span className="rounded-full border border-mint/40 bg-mint/10 px-2 py-0.5 text-[11px] font-semibold text-mint">
+              v2.0
+            </span>
           </button>
-          <span aria-hidden="true" className="h-6 w-px flex-none bg-white/10" />
-          <div role="tablist" className="flex items-center gap-1">
+
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 ${
+                backend.ok
+                  ? 'border border-mint/40 bg-mint/15 text-mint'
+                  : 'border border-white/15 bg-white/5 text-white/50'
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${backend.ok ? 'bg-mint' : 'bg-white/40'}`} />
+              {backend.ok ? 'Server online' : 'Offline demo'}
+            </span>
+            {backend.ok && (
+              <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-white/70">
+                model: <b className="text-white">{backend.model}</b>
+              </span>
+            )}
+            {backend.ok && !backend.hasKey && (
+              <span className="rounded-full border border-crimson/40 bg-crimson/15 px-2.5 py-1 text-[#ffb4ab]">
+                NVIDIA key missing
+              </span>
+            )}
+          </div>
+        </header>
+
+        <nav
+          aria-label="Main Navigation"
+          className="mb-8 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/10 bg-black/60 p-2 shadow-[0_20px_44px_rgba(0,0,0,.32)] backdrop-blur"
+        >
+          <div className="flex flex-wrap items-center gap-1">
             {NAV.map(t => (
               <button
                 key={t.key}
-                role="tab"
-                aria-selected={view === t.key}
                 type="button"
                 onClick={() => navigate(t.key)}
-                className={`inline-flex cursor-pointer items-center gap-2 rounded-full border border-transparent px-3.5 py-2 text-[13.5px] font-semibold whitespace-nowrap transition ${
-                  view === t.key ? 'bg-white/10 text-white' : 'bg-transparent text-white/45 hover:bg-white/5 hover:text-white'
+                className={`flex cursor-pointer items-center gap-2 rounded-xl px-3.5 py-2 text-[13.5px] font-semibold transition ${
+                  view === t.key
+                    ? 'bg-white/10 text-white shadow-sm'
+                    : 'text-white/60 hover:bg-white/5 hover:text-white'
                 }`}
               >
                 <svg
-                  width="15"
-                  height="15"
+                  className="h-4 w-4"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -198,7 +229,11 @@ export default function App() {
               demoRequest={demoRequest}
               notice={graderNotice}
               onRecord={handleRecord}
+              onNavigate={navigate}
             />
+          )}
+          {view === 'compressor' && (
+            <Compressor onNavigate={navigate} onSendToGrader={handleSendMediaToGrader} />
           )}
           {view === 'generator' && <Generator modelOverride={modelOverride} onSendToGrader={handleSendToGrader} />}
           {view === 'rubrics' && <Rubrics />}

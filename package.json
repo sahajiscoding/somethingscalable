@@ -1,0 +1,11 @@
+{
+  "name": "wehelpteachers",
+  "version": "2.0.0",
+  "private": true,
+  "description": "WeHelpTeachers - Automated grading of student exam answer sheets",
+  "scripts": {
+    "build": "npm --prefix frontend ci && npm --prefix frontend run build",
+    "dev": "npm --prefix frontend run dev",
+    "start": "python server.py"
+  }
+}

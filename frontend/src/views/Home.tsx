@@ -288,9 +288,10 @@ export default function Home({ onNavigate, onTryDemo, backendModel, hasKey }: Ho
 
         {/* Feature grid */}
         <Reveal>
-          <div className="mb-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mb-6 grid gap-5 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             {[
               { icon: '📝', t: 'Exam Grading', d: 'Upload a question paper, rubric, and scanned handwriting sheet. Get automated scoring with detailed explanations for every deducted mark.', a: 'Launch Grader →', v: 'grading' as View },
+              { icon: '🗜', t: 'Media Compressor', d: 'Downscale and optimize oversized scans and PDFs client-side so they fit the hosting upload cap with crisp handwriting retention.', a: 'Compress Media →', v: 'compressor' as View },
               { icon: '✨', t: 'Generate Exam', d: 'Create balanced test papers and matching official step-by-step answer keys on any subject with 1-click transfer directly into the grading bay.', a: 'Create Test →', v: 'generator' as View },
               { icon: '🎯', t: 'Rubric Studio', d: 'Explore best practices for designing step marks, mandatory formula keywords, and configuring presentation penalty boundaries.', a: 'Explore Rubrics →', v: 'rubrics' as View },
               { icon: '📊', t: 'Performance Analytics', d: 'Track class-wide averages, pass rates, score distributions, and most common penalty deductions across evaluated papers.', a: 'View Analytics →', v: 'analytics' as View },

@@ -50,7 +50,7 @@ CRITERIA_HELP = {
 }
 
 # ---------------------------------------------------------------------------
-# Page + theme (matches index.html: #363737 canvas, white text, dim borders)
+# Page + theme (#363737 canvas, white text, dim borders)
 # ---------------------------------------------------------------------------
 
 st.set_page_config(page_title="WeHelpTeachers", page_icon=PAGE_ICON,

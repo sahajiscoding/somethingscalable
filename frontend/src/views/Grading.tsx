@@ -6,7 +6,11 @@ import {
   type BackendState,
   type LiveReport,
 } from '../lib/api';
-import { compressImageIfNeeded, UPLOAD_TARGET_BYTES } from '../lib/image';
+import {
+  compressMediaIfNeeded,
+  UPLOAD_TARGET_BYTES,
+} from '../lib/mediaCompressor';
+import type { View } from '../lib/view';
 import {
   CRITERIA,
   evaluateDemo,
@@ -291,10 +295,10 @@ function Dropzone({
           <span className="max-w-[19ch] overflow-hidden text-ellipsis whitespace-nowrap text-white">{file.name}</span>
         </div>
       )}
-      {file && file.type.startsWith('image/') && file.size > UPLOAD_TARGET_BYTES && (
+      {file && file.size > UPLOAD_TARGET_BYTES && (
         <div className="mt-2 rounded-[9px] border border-sand/40 bg-sand/10 px-2.5 py-2 text-left text-xs">
-          <div className="text-[#ffe6c0]">⚠ {(file.size / 1048576).toFixed(1)} MB — over the 4.5 MB hosting cap</div>
-          <div className="mt-1.5 flex items-center gap-2">
+          <div className="text-[#ffe6c0]">⚠ {(file.size / 1048576).toFixed(1)} MB — exceeds 4.5 MB cap</div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={e => {
@@ -302,23 +306,17 @@ function Dropzone({
                 void onCompress(docKey);
               }}
               disabled={compressing}
-              className="cursor-pointer rounded-lg border border-mint/45 bg-mint/10 px-2.5 py-1 text-[11.5px] font-bold text-[#d8f5db] transition hover:bg-mint/20 disabled:cursor-wait disabled:opacity-60"
+              className="cursor-pointer rounded-lg border border-mint/45 bg-mint/15 px-2.5 py-1 text-[11.5px] font-bold text-[#d8f5db] transition hover:bg-mint/25 disabled:cursor-wait disabled:opacity-60"
             >
-              {compressing ? 'Compressing…' : '🗜 Compress to fit'}
+              {compressing ? '🗜 Compressing…' : '🗜 Compress to fit'}
             </button>
             {shrink && !compressing && <span className="text-white/60">{shrink}</span>}
           </div>
         </div>
       )}
-      {file && !file.type.startsWith('image/') && file.size > UPLOAD_TARGET_BYTES && (
-        <div className="mt-2 rounded-[9px] border border-sand/40 bg-sand/10 px-2.5 py-2 text-left text-xs text-[#ffe6c0]">
-          ⚠ {(file.size / 1048576).toFixed(1)} MB — over the 4.5 MB hosting cap. Split the PDF or re-scan at a lower
-          DPI, then re-upload.
-        </div>
-      )}
       {file && shrink && file.size <= UPLOAD_TARGET_BYTES && (
         <div className="mt-2 rounded-[9px] border border-mint/35 bg-mint/10 px-2.5 py-1.5 text-left text-xs text-[#d8f5db]">
-          ✓ Compressed {shrink} — fits the cap, ready to grade
+          ✓ Compressed {shrink} — fits hosting cap, ready to grade
         </div>
       )}
       {file && (
@@ -585,6 +583,7 @@ interface GradingProps {
   demoRequest: number;
   notice: { id: number; msg: string } | null;
   onRecord: (awarded: number, total: number, impact: Record<string, number>) => void;
+  onNavigate?: (v: View) => void;
 }
 
 export default function Grading(props: GradingProps) {
@@ -651,13 +650,20 @@ export default function Grading(props: GradingProps) {
     setAlert(null);
     setVm(null);
     setLiveBlobs(null);
-    setRunLabel('Preparing uploads…');
+    setRunLabel('Optimizing uploads…');
     setLoaderStatus('working');
     setStage({ done: 0, active: 0 });
     const [paperDoc, keyDoc, studentDoc] = await Promise.all(
-      [files.paper!, files.key!, files.sheet!].map(f => compressImageIfNeeded(f)),
+      [files.paper!, files.key!, files.sheet!].map(f => compressMediaIfNeeded(f)),
     );
     const shrunk = [paperDoc, keyDoc, studentDoc].filter(r => r.compressed);
+    if (shrunk.length > 0) {
+      setFiles({
+        paper: paperDoc.file,
+        key: keyDoc.file,
+        sheet: studentDoc.file,
+      });
+    }
     setRunLabel('Grading with live AI…');
     const penalties = Object.keys(criteria).filter(k => criteria[k]);
     try {
@@ -699,7 +705,7 @@ export default function Grading(props: GradingProps) {
         ok: false,
       });
     }
-  }, [running, missingDocs, flagMissing, files, strict, criteria, modelOverride, onRecord]);
+  }, [running, missingDocs, flagMissing, files, strict, criteria, modelOverride, onRecord, setFiles]);
 
   const runEvaluation = useCallback(() => {
     if (!live) {
@@ -751,13 +757,18 @@ export default function Grading(props: GradingProps) {
     if (!f || compressing) return;
     setCompressing(doc);
     try {
-      const r = await compressImageIfNeeded(f);
+      const r = await compressMediaIfNeeded(f);
       if (r.compressed) {
         onFile(doc, r.file);
-        setShrinkInfo(s => ({ ...s, [doc]: `${r.fromMB.toFixed(1)} → ${r.toMB.toFixed(1)} MB` }));
+        setShrinkInfo(s => ({
+          ...s,
+          [doc]: `${r.fromMB.toFixed(1)} → ${r.toMB.toFixed(1)} MB (-${r.savedPercent}%)`,
+        }));
       } else {
-        setShrinkInfo(s => ({ ...s, [doc]: 'could not shrink — resize it manually' }));
+        setShrinkInfo(s => ({ ...s, [doc]: 'Already under hosting cap' }));
       }
+    } catch (err: any) {
+      setShrinkInfo(s => ({ ...s, [doc]: `Error: ${err?.message || 'Failed'}` }));
     } finally {
       setCompressing(null);
     }
@@ -769,7 +780,18 @@ export default function Grading(props: GradingProps) {
         {/* Upload bay */}
         <section aria-labelledby="upload-title" className="rounded-2xl border border-white/10 bg-canvas p-5 shadow-[0_20px_44px_rgba(0,0,0,.32)] md:p-7">
           <div className="mb-5">
-            <div className="mb-1 text-[11px] font-bold tracking-[.18em] text-white/45 uppercase">Step 01</div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-[11px] font-bold tracking-[.18em] text-white/45 uppercase">Step 01</div>
+              {props.onNavigate && (
+                <button
+                  type="button"
+                  onClick={() => props.onNavigate?.('compressor')}
+                  className="cursor-pointer text-xs font-semibold text-mint hover:underline"
+                >
+                  Open Media Compressor →
+                </button>
+              )}
+            </div>
             <h2 id="upload-title" className="text-[19px] font-bold tracking-tight">
               Document Upload Bay
             </h2>

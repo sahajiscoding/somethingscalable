@@ -9,7 +9,7 @@ Split-pipeline endpoints keep every call to ~1 LLM request so capped hosts
 (Vercel's 60 s functions) don't time out mid-grade; the frontend
 orchestrates them and falls back to its offline demo when unreachable::
 
-    GET  /               -> index.html (APP_SECRET injected when set)
+    GET  /               -> frontend/dist/index.html (local dev; Vercel serves it statically)
     GET  /api/health     -> {ok, hasApiKey, model}
     POST /api/extract    -> one document (multipart file+role) -> JSON
     POST /api/align      -> extraction JSON -> aligned questions (pure code)
@@ -68,11 +68,9 @@ app = Flask(__name__)
 # unset = open access. Stops strangers from burning your NVIDIA quota.
 APP_SECRET = os.environ.get("APP_SECRET", "").strip()
 
-_INDEX_HTML = _BASE_DIR / "index.html"
 _SECRET_TOKEN = "__VERCEL_APP_SECRET__"
 
-# React + Tailwind frontend (frontend/dist). When the Vite build exists it is
-# served as the whole website; otherwise the legacy static index.html is used.
+# React + Tailwind frontend (frontend/dist).
 _DIST_DIR = _BASE_DIR / "frontend" / "dist"
 _DIST_INDEX = _DIST_DIR / "index.html"
 
@@ -136,8 +134,13 @@ def index():
     # The page carries APP_SECRET (when set) so the same-origin frontend can
     # attach it to /api calls — direct API abuse without loading the page
     # stays locked out while the app keeps working for real users.
-    page = _DIST_INDEX if _DIST_INDEX.exists() else _INDEX_HTML
-    html = page.read_text(encoding="utf-8")
+    if not _DIST_INDEX.exists():
+        return Response(
+            "Frontend not built. Please run: npm --prefix frontend run build",
+            status=503,
+            mimetype="text/plain",
+        )
+    html = _DIST_INDEX.read_text(encoding="utf-8")
     if _SECRET_TOKEN in html:
         html = html.replace(_SECRET_TOKEN, _js_escape(APP_SECRET))
     return Response(html, mimetype="text/html")
@@ -160,16 +163,16 @@ def frontend_assets(filename: str):
 
 
 # ---------------------------------------------------------------------------
-# Standard site files (robots, llms.txt, sitemap, manifest, icons, humans,
-# security contact) — served by Flask so local dev and Vercel behave the same.
+# Standard site files (robots, llms.txt, sitemap, icons, humans, security
+# contact) — served by Flask so local dev and Vercel behave the same.
 # ---------------------------------------------------------------------------
 
 _SITE_FILES = {
     "llms.txt": ("llms.txt", "text/markdown"),
     "humans.txt": ("humans.txt", "text/plain"),
     "security.txt": ("security.txt", "text/plain"),
-    "site.webmanifest": ("site.webmanifest", "application/manifest+json"),
-    "favicon.svg": ("favicon.svg", "image/svg+xml"),
+    # Same file Vite copies into frontend/dist, so local and Vercel match.
+    "favicon.svg": ("frontend/public/favicon.svg", "image/svg+xml"),
 }
 
 _CACHE_DAY = {"Cache-Control": "public, max-age=86400"}
@@ -197,11 +200,6 @@ def security_txt():
     return _site_file(*_SITE_FILES["security.txt"])
 
 
-@app.get("/site.webmanifest")
-def webmanifest():
-    return _site_file(*_SITE_FILES["site.webmanifest"])
-
-
 @app.get("/favicon.svg")
 def favicon_svg():
     return _site_file(*_SITE_FILES["favicon.svg"])
@@ -211,17 +209,6 @@ def favicon_svg():
 def favicon_ico():
     # No .ico asset — browsers accept the SVG here.
     return _site_file(*_SITE_FILES["favicon.svg"])
-
-
-@app.get("/patternwaves-bg.js")
-def patternwaves_js():
-    # Vanilla-JS port of the React Bits PatternWaves component (ES module,
-    # imports ogl from CDN). Served here so local dev and Vercel behave the same.
-    path = _BASE_DIR / "patternwaves-bg.js"
-    if not path.exists():
-        return jsonify({"error": "Not found."}), 404
-    return Response(path.read_bytes(), mimetype="text/javascript",
-                    headers={"Cache-Control": "public, max-age=3600"})
 
 
 @app.get("/robots.txt")
@@ -254,6 +241,89 @@ def api_health():
 # ---------------------------------------------------------------------------
 
 _EXTRACT_KEYS = {"paper": "questions", "key": "entries", "student": "answers"}
+
+
+@app.post("/api/compress")
+def api_compress():
+    """Server-side media compressor using PyMuPDF.
+    Accepts multipart file with optional quality, dpi, max_dim.
+    Returns compressed file metadata + base64 data, or raw file if download=1.
+    """
+    import base64
+    upload = request.files.get("file")
+    if not upload or not upload.filename:
+        return jsonify({"error": "No file uploaded."}), 400
+    data = upload.read()
+    if not data:
+        return jsonify({"error": "Uploaded file is empty."}), 400
+
+    filename = upload.filename
+    ext = Path(filename).suffix.lower()
+    raw_size = len(data)
+
+    try:
+        quality = int(request.form.get("quality", 75))
+    except ValueError:
+        quality = 75
+    try:
+        max_dim = int(request.form.get("max_dim", 1800))
+    except ValueError:
+        max_dim = 1800
+    try:
+        dpi = int(request.form.get("dpi", 150))
+    except ValueError:
+        dpi = 150
+
+    try:
+        import pymupdf
+
+        is_pdf = ext == ".pdf" or data.startswith(b"%PDF-")
+        if is_pdf:
+            doc = pymupdf.open(stream=data, filetype="pdf")
+            new_doc = pymupdf.open()
+            for page in doc:
+                pix = page.get_pixmap(dpi=dpi)
+                jpg_bytes = pix.tobytes("jpeg", jpg_quality=quality)
+                rect = page.rect
+                new_page = new_doc.new_page(width=rect.width, height=rect.height)
+                new_page.insert_image(rect, stream=jpg_bytes)
+            out_bytes = new_doc.tobytes(deflate=True, garbage=4, deflate_images=True)
+            mime = "application/pdf"
+            clean_name = Path(filename).stem + "_compressed.pdf"
+        else:
+            img_doc = pymupdf.open(stream=data)
+            page = img_doc[0]
+            w, h = page.rect.width, page.rect.height
+            scale = min(1.0, max_dim / max(w, h))
+            pix = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale))
+            if pix.alpha:
+                pix = pymupdf.Pixmap(pymupdf.csRGB, pix)
+            out_bytes = pix.tobytes("jpeg", jpg_quality=quality)
+            mime = "image/jpeg"
+            clean_name = Path(filename).stem + ".jpg"
+
+        saved_bytes = max(0, raw_size - len(out_bytes))
+        saved_pct = round((saved_bytes / raw_size) * 100, 1)
+
+        if request.args.get("download") == "1" or request.form.get("download") == "1":
+            return Response(out_bytes, mimetype=mime, headers={
+                "Content-Disposition": f'attachment; filename="{clean_name}"',
+                "Content-Length": str(len(out_bytes)),
+            })
+
+        b64 = base64.b64encode(out_bytes).decode("ascii")
+        return jsonify({
+            "ok": True,
+            "filename": clean_name,
+            "mime": mime,
+            "original_size": raw_size,
+            "compressed_size": len(out_bytes),
+            "saved_bytes": saved_bytes,
+            "saved_percent": saved_pct,
+            "data_url": f"data:{mime};base64,{b64}",
+        })
+    except Exception as exc:
+        return jsonify({"error": f"Compression failed: {exc}"}), 500
 
 
 @app.post("/api/extract")
