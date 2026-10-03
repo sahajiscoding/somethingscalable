@@ -14,270 +14,7 @@
 <meta name="twitter:card" content="summary" />
 <meta name="twitter:title" content="Exam Checker — AI Answer Sheet Grading" />
 <meta name="twitter:description" content="AI-powered grading and correction of student answer sheets." />
-<script>window.__APP_SECRET__="__VERCEL_APP_SECRET__";
-/* ==========================================================================
-   Navigation & View Routing
-   ========================================================================== */
-function switchView(viewName) {
-  const views = ["home", "grading", "generator", "rubrics", "analytics"];
-  if (!views.includes(viewName)) viewName = "home";
-
-  views.forEach(v => {
-    const el = document.getElementById("view-" + v);
-    if (el) el.style.display = (v === viewName) ? "block" : "none";
-    const tab = document.getElementById("nav-" + v);
-    if (tab) {
-      tab.classList.toggle("active", v === viewName);
-      tab.setAttribute("aria-selected", v === viewName ? "true" : "false");
-    }
-  });
-
-  if (window.location.hash !== "#" + viewName) {
-    history.pushState(null, "", "#" + viewName);
-  }
-  window.scrollTo({ top: 0, behavior: "smooth" });
-}
-
-window.addEventListener("hashchange", () => {
-  const h = window.location.hash.replace("#", "");
-  if (h) switchView(h);
-});
-
-// Update model and key status badges on home
-const origCheckBackend = checkBackend;
-checkBackend = async function() {
-  await origCheckBackend();
-  const modelEl = $("#homeModelVal");
-  const keyEl = $("#homeKeyVal");
-  const topBadge = $("#topEngineBadge");
-  try {
-    const health = await apiJson("/api/health");
-    if (modelEl) modelEl.textContent = health.model || "moonshotai/kimi-k3";
-    if (keyEl) keyEl.textContent = health.hasApiKey ? "● Key Configured" : "○ Key Needed (Set NVIDIA_API_KEY in Vercel)";
-    if (keyEl) keyEl.style.color = health.hasApiKey ? "var(--green)" : "var(--amber)";
-    if (topBadge) {
-      topBadge.innerHTML = `<span class="pulse" aria-hidden="true"></span> ${health.hasApiKey ? "Kimi-K3 live" : "Kimi-K3 key needed"}`;
-    }
-  } catch {
-    if (keyEl) keyEl.textContent = "○ Offline Demo Mode";
-  }
-};
-
-/* ==========================================================================
-   Exam Generator Feature
-   ========================================================================== */
-state.currentExam = null;
-state.genSubtab = "paper";
-
-function setTopic(text) {
-  const el = $("#genTopic");
-  if (el) el.value = text;
-}
-
-function switchGenSubtab(tab) {
-  state.genSubtab = tab;
-  ["paper", "key", "json"].forEach(t => {
-    const btn = $("#subtab" + t.charAt(0).toUpperCase() + t.slice(1));
-    if (btn) btn.classList.toggle("active", t === tab);
-  });
-  renderGeneratedPreview();
-}
-
-async function generateExamAction() {
-  const btn = $("#genBtn"), label = $("#genBtnLabel"), alertEl = $("#genAlert");
-  const topic = ($("#genTopic") || {}).value || "Calculus";
-  const grade = ($("#genGrade") || {}).value || "Senior Secondary";
-  const difficulty = ($("#genDifficulty") || {}).value || "Medium";
-  const count = parseInt(($("#genCount") || {}).value || "5", 10);
-  const marks = parseFloat(($("#genMarks") || {}).value || "25");
-
-  btn.disabled = true;
-  label.textContent = "Synthesizing with Kimi-K3…";
-  alertEl.textContent = "";
-  alertEl.className = "alert";
-
-  try {
-    let examData = null;
-    if (state.backendOk) {
-      const res = await apiJson("/api/generate-exam", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic, grade, difficulty, count, marks })
-      });
-      examData = res.exam;
-    }
-
-    if (!examData || !examData.questions) {
-      // Offline fallback generator
-      examData = createFallbackExam(topic, grade, difficulty, count, marks);
-    }
-
-    state.currentExam = examData;
-    btn.disabled = false;
-    label.textContent = "Generate Exam with Kimi-K3";
-    alertEl.className = "alert success show";
-    alertEl.textContent = `✓ Generated exam "${examData.title || topic}" with ${examData.questions.length} questions.`;
-    $("#genActionsBar").style.display = "flex";
-    renderGeneratedPreview();
-  } catch (err) {
-    btn.disabled = false;
-    label.textContent = "Generate Exam with Kimi-K3";
-    const examData = createFallbackExam(topic, grade, difficulty, count, marks);
-    state.currentExam = examData;
-    $("#genActionsBar").style.display = "flex";
-    renderGeneratedPreview();
-    alertEl.className = "alert success show";
-    alertEl.textContent = `✓ Generated exam "${examData.title}" (${examData.questions.length} questions).`;
-  }
-}
-
-function createFallbackExam(topic, grade, difficulty, count, marks) {
-  const perQ = marks / count;
-  const questions = [];
-  for (let i = 1; i <= count; i++) {
-    questions.push({
-      number: `Q${i}`,
-      text: `Explain and calculate the key principles of ${topic} for scenario ${i}, stating all necessary governing equations, boundary conditions, and intermediate steps.`,
-      max_marks: perQ,
-      expected_answer: `Complete theoretical formulation, formula definition, substitution of values, and correct numerical solution with appropriate units for scenario ${i}.`,
-      marking_scheme: `1. Formula statement & definitions: ${(perQ * 0.4).toFixed(1)} marks. 2. Intermediate calculation: ${(perQ * 0.4).toFixed(1)} marks. 3. Final answer & units: ${(perQ * 0.2).toFixed(1)} marks.`,
-      keywords: [topic.split(" ")[0].toLowerCase(), "equation", "solution", "derivation"]
-    });
-  }
-  return {
-    title: `${topic} Examination`,
-    topic: topic,
-    grade_level: grade,
-    difficulty: difficulty,
-    total_marks: marks,
-    instructions: "Answer all questions. Show complete steps and state formulas before substitution.",
-    questions: questions
-  };
-}
-
-function renderGeneratedPreview() {
-  const box = $("#genPreviewContent");
-  const exam = state.currentExam;
-  if (!exam || !exam.questions) return;
-
-  if (state.genSubtab === "paper") {
-    box.innerHTML = `
-      <div style="border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:16px">
-        <h3 style="font-size:18px;font-weight:800">${esc(exam.title || "Exam Paper")}</h3>
-        <div style="font-size:12.5px;color:var(--ink-dim);margin-top:4px">
-          Topic: ${esc(exam.topic || "")} · Total Marks: ${exam.total_marks || 25} · Instructions: ${esc(exam.instructions || "Answer all questions.")}
-        </div>
-      </div>
-      <div>
-        ${exam.questions.map(q => `
-          <div class="q-gen-item">
-            <div class="q-gen-header">
-              <span class="q-gen-num">${esc(q.number)}</span>
-              <span class="q-gen-marks">${q.max_marks} marks</span>
-            </div>
-            <div class="q-gen-body">${esc(q.text)}</div>
-          </div>`).join("")}
-      </div>
-    `;
-  } else if (state.genSubtab === "key") {
-    box.innerHTML = `
-      <div style="border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:16px">
-        <h3 style="font-size:18px;font-weight:800">Official Rubric &amp; Answer Key</h3>
-        <div style="font-size:12.5px;color:var(--ink-dim);margin-top:4px">
-          Ground-truth solutions and step-marking allocations used by Kimi-K3 for evaluation.
-        </div>
-      </div>
-      <div>
-        ${exam.questions.map(q => `
-          <div class="q-gen-item">
-            <div class="q-gen-header">
-              <span class="q-gen-num">${esc(q.number)} — Target Solution</span>
-              <span class="q-gen-marks">${q.max_marks} marks</span>
-            </div>
-            <div class="q-gen-key"><b>Expected Answer:</b><br/>${esc(q.expected_answer)}</div>
-            <div class="q-gen-key" style="margin-top:8px;border-left:2px solid var(--green)"><b>Marking Scheme:</b><br/>${esc(q.marking_scheme)}</div>
-          </div>`).join("")}
-      </div>
-    `;
-  } else {
-    box.innerHTML = `<pre style="font-size:12px;color:var(--ink-soft);white-space:pre-wrap;line-height:1.5">${esc(JSON.stringify(exam, null, 2))}</pre>`;
-  }
-}
-
-function formatPaperAsText(exam) {
-  let out = `${exam.title || "EXAMINATION"}\n`;
-  out += `Total Marks: ${exam.total_marks || 25}\n`;
-  out += `Instructions: ${exam.instructions || "Answer all questions."}\n`;
-  out += `------------------------------------------------------------\n\n`;
-  (exam.questions || []).forEach(q => {
-    out += `${q.number}. ${q.text} (${q.max_marks} marks)\n\n`;
-  });
-  return out;
-}
-
-function formatKeyAsText(exam) {
-  let out = `OFFICIAL ANSWER KEY & RUBRIC\n`;
-  out += `Subject: ${exam.topic || "Exam"}\n`;
-  out += `------------------------------------------------------------\n\n`;
-  (exam.questions || []).forEach(q => {
-    out += `${q.number} (Total Marks: ${q.max_marks}):\n`;
-    out += `Expected Answer: ${q.expected_answer}\n`;
-    out += `Marking Scheme: ${q.marking_scheme}\n\n`;
-  });
-  return out;
-}
-
-function downloadGenPaper() {
-  if (!state.currentExam) return;
-  downloadText(formatPaperAsText(state.currentExam), "question_paper.txt", "text/plain");
-}
-
-function downloadGenKey() {
-  if (!state.currentExam) return;
-  downloadText(formatKeyAsText(state.currentExam), "answer_key.txt", "text/plain");
-}
-
-function sendGeneratedToGrader() {
-  if (!state.currentExam) return;
-  const paperText = formatPaperAsText(state.currentExam);
-  const keyText = formatKeyAsText(state.currentExam);
-
-  const paperFile = new File([paperText], "generated_question_paper.txt", { type: "text/plain" });
-  const keyFile = new File([keyText], "generated_answer_key.txt", { type: "text/plain" });
-
-  state.files.paper = paperFile;
-  state.files.key = keyFile;
-
-  // Update dropzone UIs
-  [["paper", paperFile], ["key", keyFile]].forEach(([role, file]) => {
-    const z = document.querySelector(`.dropzone[data-doc="${role}"]`);
-    if (z) {
-      z.classList.add("is-ready");
-      const nameEl = z.querySelector(".dz-name");
-      if (nameEl) nameEl.textContent = file.name;
-    }
-  });
-
-  switchView("grading");
-  showAlert("✓ Question paper and answer key transferred from generator! Upload a student sheet to start evaluation.", true);
-}
-
-function resetAnalytics() {
-  $("#anaTotal").textContent = "1";
-  $("#anaAvg").textContent = "62.0%";
-  $("#anaPass").textContent = "100%";
-  $("#anaDeduct").textContent = "9.5 pts";
-}
-
-// Initial view from hash
-const initHash = (window.location.hash || "").replace("#", "");
-if (initHash && ["home", "grading", "generator", "rubrics", "analytics"].includes(initHash)) {
-  switchView(initHash);
-} else {
-  switchView("home");
-}
-
-</script>
+<script>window.__APP_SECRET__="__VERCEL_APP_SECRET__";</script>
 <style>
   /* ==========================================================================
      Design tokens — dark premium dashboard
@@ -1033,6 +770,159 @@ if (initHash && ["home", "grading", "generator", "rubrics", "analytics"].include
   .chart-bar-track{height:8px;background:rgba(0,0,0,.3);border-radius:999px;overflow:hidden}
   .chart-bar-val{height:100%;border-radius:999px;transition:width .4s ease}
 
+
+  /* ==========================================================================
+     Text Flipping Board (Split-Flap)
+     ========================================================================== */
+  .flip-board-wrap{
+    background:rgba(0,0,0,.35);
+    border:1px solid var(--line-strong);
+    border-radius:var(--radius);
+    padding:clamp(16px,2.5vw,26px);
+    box-shadow:0 24px 60px rgba(0,0,0,.5);
+    margin-bottom:28px;
+    position:relative;
+  }
+  .flip-board-header{
+    display:flex;align-items:center;justify-content:space-between;
+    gap:12px;margin-bottom:14px;flex-wrap:wrap;
+  }
+  .flip-board-title{
+    display:flex;align-items:center;gap:10px;
+    font-size:12px;font-weight:700;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ink-soft);
+  }
+  .flip-board-title .indicator{
+    width:8px;height:8px;border-radius:50%;background:var(--green);
+    box-shadow:0 0 10px var(--green);
+    animation:pulse 2s infinite;
+  }
+  .flip-board-controls{display:flex;gap:6px;flex-wrap:wrap}
+  .flip-btn-pill{
+    background:rgba(255,255,255,.07);border:1px solid var(--line);
+    border-radius:999px;padding:4px 12px;font-size:11.5px;font-weight:600;
+    color:var(--ink-soft);cursor:pointer;transition:all .15s ease;
+  }
+  .flip-btn-pill:hover,.flip-btn-pill.active{
+    background:rgba(129,199,132,.18);border-color:rgba(129,199,132,.5);
+    color:var(--green);
+  }
+  .flip-board{
+    display:flex;flex-direction:column;gap:3px;
+    background:#141414;border:2px solid #000;
+    border-radius:12px;padding:12px 14px;
+    box-shadow:inset 0 4px 20px rgba(0,0,0,.8);
+  }
+  .flip-row{
+    display:grid;grid-template-columns:repeat(22, 1fr);gap:2.5px;
+  }
+  .flip-cell{
+    position:relative;aspect-ratio:3/5.5;
+    background:#1e1e1e;border-radius:2px;
+    perspective:400px;user-select:none;
+    overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.6);
+  }
+  .flap-half{
+    position:absolute;left:0;right:0;height:calc(50% - 0.5px);
+    overflow:hidden;background:#242424;color:#f5f5f5;
+    font-family:"Courier New", Courier, monospace;
+    font-weight:900;display:flex;justify-content:center;
+    line-height:1;font-size:clamp(8px, 1.4vw, 20px);
+  }
+  .flap-top{
+    top:0;border-radius:2px 2px 0 0;
+    align-items:flex-end;
+  }
+  .flap-top span{transform:translateY(50%)}
+  .flap-bottom{
+    bottom:0;border-radius:0 0 2px 2px;
+    align-items:flex-start;
+  }
+  .flap-bottom span{transform:translateY(-50%)}
+  .flap-flipper-top{
+    position:absolute;top:0;left:0;right:0;height:calc(50% - 0.5px);
+    border-radius:2px 2px 0 0;background:#242424;color:#f5f5f5;
+    font-family:"Courier New", Courier, monospace;font-weight:900;
+    display:flex;justify-content:center;align-items:flex-end;
+    transform-origin:bottom;z-index:4;backface-visibility:hidden;
+    transition:transform 0.15s ease-in;
+  }
+  .flap-flipper-top span{transform:translateY(50%)}
+  .flap-flipper-bottom{
+    position:absolute;bottom:0;left:0;right:0;height:calc(50% - 0.5px);
+    border-radius:0 0 2px 2px;background:#262626;color:#f5f5f5;
+    font-family:"Courier New", Courier, monospace;font-weight:900;
+    display:flex;justify-content:center;align-items:flex-start;
+    transform-origin:top;z-index:5;backface-visibility:hidden;
+    transform:rotateX(90deg);
+    transition:transform 0.15s cubic-bezier(0.33, 1.55, 0.64, 1) 0.1s;
+  }
+  .flap-flipper-bottom span{transform:translateY(-50%)}
+  .flip-cell.flipping .flap-flipper-top{
+    transform:rotateX(-90deg);
+  }
+  .flip-cell.flipping .flap-flipper-bottom{
+    transform:rotateX(0deg);
+  }
+  .flip-split-line{
+    position:absolute;top:50%;left:0;right:0;height:1px;
+    background:rgba(0,0,0,.7);z-index:10;pointer-events:none;
+  }
+
+  /* ==========================================================================
+     Image Generation Loader (Pixel Wave Scanner Showcase)
+     ========================================================================== */
+  .scanner-showcase{
+    background:rgba(0,0,0,.26);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:clamp(20px,3.5vw,34px);
+    box-shadow:var(--shadow);
+    margin-bottom:28px;
+  }
+  .scanner-layout{
+    display:grid;grid-template-columns:1.2fr 1fr;gap:26px;align-items:center;
+  }
+  @media (max-width:920px){
+    .scanner-layout{grid-template-columns:1fr}
+  }
+  .scanner-viewport{
+    position:relative;width:100%;aspect-ratio:4/3;
+    border-radius:18px;overflow:hidden;
+    background:#111;
+    border:1px solid rgba(255,255,255,.14);
+    box-shadow:0 16px 40px rgba(0,0,0,.5);
+  }
+  .scanner-doc-bg{
+    width:100%;height:100%;object-fit:cover;display:block;
+    filter:contrast(1.05) brightness(0.92);
+  }
+  .scanner-canvas{
+    position:absolute;inset:0;width:100%;height:100%;
+    pointer-events:none;z-index:5;
+  }
+  .scanner-overlay{
+    position:absolute;inset:0;pointer-events:none;
+    z-index:4;will-change:clip-path,opacity;
+  }
+  .scanner-info h3{font-size:22px;font-weight:800;letter-spacing:-.4px;margin-bottom:8px}
+  .scanner-info p{color:var(--ink-soft);font-size:14px;line-height:1.6;margin-bottom:20px}
+  .scanner-chip-group{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .scanner-chip{
+    padding:6px 14px;border-radius:9px;font-size:12.5px;font-weight:600;
+    background:rgba(255,255,255,.07);border:1px solid var(--line);
+    color:var(--ink-soft);cursor:pointer;transition:all .15s ease;
+  }
+  .scanner-chip:hover,.scanner-chip.active{
+    background:rgba(129,199,132,.18);border-color:rgba(129,199,132,.45);
+    color:var(--green);
+  }
+  .scanner-meta{
+    padding:12px 14px;background:rgba(0,0,0,.24);border:1px solid var(--line);
+    border-radius:10px;font-size:12.5px;color:var(--ink-dim);line-height:1.5;
+  }
+  .scanner-meta b{color:var(--ink-soft)}
+
 </style>
 </head>
 <body>
@@ -1130,6 +1020,86 @@ if (initHash && ["home", "grading", "generator", "rubrics", "analytics"].include
           <div>
             <h4>Serverless Speed</h4>
             <p>Split-pipeline architecture (~1 call per question) safe for 60s host limits on Vercel.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= COMPONENT 1: TEXT FLIPPING BOARD ================= -->
+    <div class="flip-board-wrap" aria-label="Split-Flap Status Terminal">
+      <div class="flip-board-header">
+        <div class="flip-board-title">
+          <span class="indicator"></span>
+          <span>Kimi-K3 Mechanical Split-Flap Terminal</span>
+        </div>
+        <div class="flip-board-controls">
+          <button class="flip-btn-pill active" type="button" onclick="setBoardMessage(0)">Active Status</button>
+          <button class="flip-btn-pill" type="button" onclick="setBoardMessage(1)">Vision OCR</button>
+          <button class="flip-btn-pill" type="button" onclick="setBoardMessage(2)">4 Penalties</button>
+          <button class="flip-btn-pill" type="button" onclick="setBoardMessage(3)">Exam Authoring</button>
+        </div>
+      </div>
+      <div class="flip-board" id="splitFlapBoard">
+        <!-- 4 rows x 22 cols generated by JS -->
+      </div>
+    </div>
+
+    <!-- ================= COMPONENT 2: IMAGE GENERATION LOADER (AI VISION SCANNER) ================= -->
+    <div class="scanner-showcase" aria-label="Kimi-K3 Multimodal Handwriting Scanner">
+      <div class="scanner-layout">
+        <!-- Viewport with Answer Sheet Background + Animated Scanner Canvas -->
+        <div class="scanner-viewport" id="scannerViewport">
+          <svg class="scanner-doc-bg" viewBox="0 0 600 450" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="600" height="450" fill="#1b1c1c"/>
+            <!-- Lined paper background -->
+            <path d="M0 50H600 M0 90H600 M0 130H600 M0 170H600 M0 210H600 M0 250H600 M0 290H600 M0 330H600 M0 370H600 M0 410H600" stroke="#2b2d2d" stroke-width="1.2"/>
+            <line x1="80" y1="0" x2="80" y2="450" stroke="#4a3030" stroke-width="1.5"/>
+            <!-- Handwritten notes & math formulas -->
+            <text x="95" y="42" fill="#81c784" font-family="'Courier New', monospace" font-size="14" font-weight="bold">Q1. Solve x² - 3x - 10 = 0</text>
+            <text x="95" y="82" fill="#ffffff" font-family="cursive, 'Comic Sans MS', sans-serif" font-size="16">x = (-b ± √(b² - 4ac)) / 2a</text>
+            <text x="95" y="122" fill="#d1d5db" font-family="cursive, sans-serif" font-size="15">a = 1, b = -3, c = -10</text>
+            <text x="95" y="162" fill="#d1d5db" font-family="cursive, sans-serif" font-size="15">Δ = (-3)² - 4(1)(-10) = 9 + 40 = 49</text>
+            <text x="95" y="202" fill="#81c784" font-family="cursive, sans-serif" font-size="16">x = (3 ± 7) / 2</text>
+            <text x="95" y="242" fill="#e5e7eb" font-family="cursive, sans-serif" font-size="16">Roots: x₁ = 5 , x₂ = -2  [✓ matches key]</text>
+            <!-- Ray Diagram sketch -->
+            <rect x="95" y="275" width="220" height="110" rx="8" fill="#141515" stroke="#374151"/>
+            <line x1="110" y1="330" x2="300" y2="330" stroke="#60a5fa" stroke-width="1.8"/>
+            <path d="M140 290L200 330L260 370" stroke="#f59e0b" stroke-width="2"/>
+            <circle cx="200" cy="330" r="4" fill="#ef4444"/>
+            <text x="210" y="325" fill="#9ca3af" font-size="11">Lens focus F</text>
+            <text x="330" y="300" fill="#a78bfa" font-family="sans-serif" font-size="13">Lenz's Law &amp; Flux Diagram</text>
+            <text x="330" y="325" fill="#9ca3af" font-size="12">Induced current opposes flux ΔΦ</text>
+            <text x="330" y="355" fill="#81c784" font-size="12">✓ Labels complete: +4.0 marks</text>
+          </svg>
+          <div class="scanner-overlay" id="scannerOverlay"></div>
+          <canvas class="scanner-canvas" id="scannerCanvas"></canvas>
+        </div>
+
+        <!-- Controls & Explanation -->
+        <div class="scanner-info">
+          <div class="kicker">Real-time Vision OCR</div>
+          <h3>Multimodal Pixel-Wave Scanner</h3>
+          <p>
+            Watch how Moonshot AI Kimi-K3 scans raw handwriting, diagrams, and formulas. The neural vision layer transcribes symbols into structured JSON before comparing against step rubrics.
+          </p>
+
+          <div style="font-size:12px;font-weight:700;color:var(--ink-dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:.08em">Scanner Text Mode</div>
+          <div class="scanner-chip-group">
+            <button class="scanner-chip active" type="button" onclick="setScannerText('ANALYSING')">ANALYSING</button>
+            <button class="scanner-chip" type="button" onclick="setScannerText('KIMI-K3')">KIMI-K3</button>
+            <button class="scanner-chip" type="button" onclick="setScannerText('GRADING')">GRADING</button>
+            <button class="scanner-chip" type="button" onclick="setScannerText('RUBRIC')">RUBRIC</button>
+          </div>
+
+          <div style="font-size:12px;font-weight:700;color:var(--ink-dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:.08em">Visual Wave Effect</div>
+          <div class="scanner-chip-group">
+            <button class="scanner-chip active" type="button" onclick="setScannerEffect('scale-wave')">Scale Wave</button>
+            <button class="scanner-chip" type="button" onclick="setScannerEffect('wave')">Fluid Wave</button>
+            <button class="scanner-chip" type="button" onclick="setScannerEffect('shimmer')">Shimmer</button>
+          </div>
+
+          <div class="scanner-meta">
+            <b>OCR Noise Immunity:</b> Handwriting smudges or recognition noise are isolated and never cost the student marks unless true mathematical errors occur.
           </div>
         </div>
       </div>
@@ -2374,6 +2344,396 @@ async function runSimulation() {
   await delay(150);
   res.scrollIntoView({ behavior: "smooth", block: "start" });
 }
+
+/* ==========================================================================
+   Navigation & View Routing
+   ========================================================================== */
+function switchView(viewName) {
+  const views = ["home", "grading", "generator", "rubrics", "analytics"];
+  if (!views.includes(viewName)) viewName = "home";
+
+  views.forEach(v => {
+    const el = document.getElementById("view-" + v);
+    if (el) el.style.display = (v === viewName) ? "block" : "none";
+    const tab = document.getElementById("nav-" + v);
+    if (tab) {
+      tab.classList.toggle("active", v === viewName);
+      tab.setAttribute("aria-selected", v === viewName ? "true" : "false");
+    }
+  });
+
+  if (window.location.hash !== "#" + viewName) {
+    history.pushState(null, "", "#" + viewName);
+  }
+  window.scrollTo({ top: 0, behavior: "smooth" });
+
+  if (viewName === "home") {
+    if (window.restartScanner) window.restartScanner();
+  }
+}
+
+window.addEventListener("hashchange", () => {
+  const h = window.location.hash.replace("#", "");
+  if (h) switchView(h);
+});
+
+/* ==========================================================================
+   Component 1: TextFlippingBoard (Split-Flap Mechanical Board)
+   ========================================================================== */
+const FLAP_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$()-+&=;:'"%,./?°";
+const BOARD_ROWS = 4;
+const BOARD_COLS = 22;
+
+const BOARD_MESSAGES = [
+  "KIMI-K3 AI ACTIVE \nAUTOMATED EXAM EVAL \nREADY TO GRADE PAPERS",
+  "MULTIMODAL VISION OCR\nHANDWRITING TO MARKS \n100% FAIR RUBRICS",
+  "4 PENALTY CHECKS     \nDIAGRAMS & STEPS     \nNO MORE MANUAL WORK",
+  "GENERATE TEST PAPERS \nCUSTOM MARKING SCHEME\n1-CLICK PIPELINE"
+];
+
+let currentBoardMsgIdx = 0;
+let boardCells = [];
+let boardTimer = null;
+
+function initTextFlippingBoard() {
+  const container = document.getElementById("splitFlapBoard");
+  if (!container) return;
+  container.innerHTML = "";
+  boardCells = [];
+
+  for (let r = 0; r < BOARD_ROWS; r++) {
+    const rowEl = document.createElement("div");
+    rowEl.className = "flip-row";
+    boardCells[r] = [];
+
+    for (let c = 0; c < BOARD_COLS; c++) {
+      const cell = document.createElement("div");
+      cell.className = "flip-cell";
+      cell.innerHTML = `
+        <div class="flap-half flap-top"><span class="c-char"> </span></div>
+        <div class="flap-half flap-bottom"><span class="c-char"> </span></div>
+        <div class="flap-flipper-top"><span class="p-char"> </span></div>
+        <div class="flap-flipper-bottom"><span class="c-char"> </span></div>
+        <div class="flip-split-line"></div>
+      `;
+      rowEl.appendChild(cell);
+
+      boardCells[r][c] = {
+        el: cell,
+        current: " ",
+        prev: " ",
+        target: " ",
+        timer: null
+      };
+    }
+    container.appendChild(rowEl);
+  }
+
+  setBoardText(BOARD_MESSAGES[0]);
+
+  // Auto rotation every 7s
+  if (boardTimer) clearInterval(boardTimer);
+  boardTimer = setInterval(() => {
+    currentBoardMsgIdx = (currentBoardMsgIdx + 1) % BOARD_MESSAGES.length;
+    setBoardMessage(currentBoardMsgIdx);
+  }, 7000);
+}
+
+function setBoardMessage(idx) {
+  currentBoardMsgIdx = idx;
+  const pills = document.querySelectorAll(".flip-btn-pill");
+  pills.forEach((p, i) => p.classList.toggle("active", i === idx));
+  setBoardText(BOARD_MESSAGES[idx]);
+}
+
+function setBoardText(msg) {
+  if (!boardCells.length) return;
+  const lines = msg.split("\n").map(l => l.toUpperCase().slice(0, BOARD_COLS));
+
+  for (let r = 0; r < BOARD_ROWS; r++) {
+    const line = lines[r] || "";
+    for (let c = 0; c < BOARD_COLS; c++) {
+      const targetChar = line[c] || " ";
+      animateFlapCell(r, c, targetChar);
+    }
+  }
+}
+
+function animateFlapCell(r, c, targetChar) {
+  const cell = boardCells[r][c];
+  if (!cell) return;
+  if (!FLAP_CHARS.includes(targetChar)) targetChar = " ";
+
+  if (cell.timer) clearTimeout(cell.timer);
+
+  const delay = c * 25 + r * 35;
+  const scrambleSteps = targetChar === " " ? 4 + Math.floor(Math.random() * 4) : 8 + Math.floor(Math.random() * 8);
+
+  const step = (i) => {
+    const isLast = i >= scrambleSteps;
+    const nextChar = isLast ? targetChar : FLAP_CHARS[Math.floor(Math.random() * (FLAP_CHARS.length - 1)) + 1];
+
+    cell.prev = cell.current;
+    cell.current = nextChar;
+
+    const el = cell.el;
+    const cSpans = el.querySelectorAll(".c-char");
+    const pSpans = el.querySelectorAll(".p-char");
+
+    pSpans.forEach(s => s.textContent = cell.prev);
+    cSpans.forEach(s => s.textContent = cell.current);
+
+    el.classList.remove("flipping");
+    void el.offsetWidth; // retrigger reflow
+    el.classList.add("flipping");
+
+    if (!isLast) {
+      cell.timer = setTimeout(() => step(i + 1), 50);
+    }
+  };
+
+  cell.timer = setTimeout(() => step(1), delay);
+}
+
+/* ==========================================================================
+   Component 2: ImageGenerationLoader (Pixel Wave AI Scanner)
+   ========================================================================== */
+const PIXEL_FONT = {
+  A: "01110/10001/10001/11111/10001/10001/10001",
+  B: "11110/10001/10001/11110/10001/10001/11110",
+  C: "01111/10000/10000/10000/10000/10000/01111",
+  D: "11110/10001/10001/10001/10001/10001/11110",
+  E: "11111/10000/10000/11110/10000/10000/11111",
+  F: "11111/10000/10000/11110/10000/10000/10000",
+  G: "01111/10000/10000/10111/10001/10001/01111",
+  H: "10001/10001/10001/11111/10001/10001/10001",
+  I: "11111/00100/00100/00100/00100/00100/11111",
+  J: "00111/00010/00010/00010/10010/10010/01100",
+  K: "10001/10010/10100/11000/10100/10010/10001",
+  L: "10000/10000/10000/10000/10000/10000/11111",
+  M: "10001/11011/10101/10101/10001/10001/10001",
+  N: "10001/11001/10101/10011/10001/10001/10001",
+  O: "01110/10001/10001/10001/10001/10001/01110",
+  P: "11110/10001/10001/11110/10000/10000/10000",
+  Q: "01110/10001/10001/10001/10101/10010/01101",
+  R: "11110/10001/10001/11110/10100/10010/10001",
+  S: "01111/10000/10000/01110/00001/00001/11110",
+  T: "11111/00100/00100/00100/00100/00100/00100",
+  U: "10001/10001/10001/10001/10001/10001/01110",
+  V: "10001/10001/10001/10001/10001/01010/00100",
+  W: "10001/10001/10001/10101/10101/10101/01010",
+  X: "10001/10001/01010/00100/01010/10001/10001",
+  Y: "10001/10001/01010/00100/00100/00100/00100",
+  Z: "11111/00001/00010/00100/01000/10000/11111",
+  "0": "01110/10001/10011/10101/11001/10001/01110",
+  "1": "00100/01100/00100/00100/00100/00100/01110",
+  "2": "01110/10001/00001/00010/00100/01000/11111",
+  "3": "11110/00001/00001/01110/00001/00001/11110",
+  "-": "00000/00000/00000/11111/00000/00000/00000",
+  ".": "00000/00000/00000/00000/00000/01100/01100"
+};
+
+let scannerState = {
+  text: "ANALYSING",
+  effect: "scale-wave",
+  cellSize: 4,
+  gap: 1,
+  bandHeight: 46,
+  duration: 4000,
+  colors: [[129, 199, 132], [46, 125, 50]], // Emerald / deep green theme
+  overlayOpacity: 0.28
+};
+
+function setScannerText(t) {
+  scannerState.text = t;
+  const chips = document.querySelectorAll(".scanner-chip");
+  chips.forEach(c => {
+    if (["ANALYSING", "KIMI-K3", "GRADING", "RUBRIC"].includes(c.textContent.trim())) {
+      c.classList.toggle("active", c.textContent.trim() === t);
+    }
+  });
+  if (window.rebuildScannerCells) window.rebuildScannerCells();
+}
+
+function setScannerEffect(eff) {
+  scannerState.effect = eff;
+  const chips = document.querySelectorAll(".scanner-chip");
+  const effLabels = { "scale-wave": "Scale Wave", "wave": "Fluid Wave", "shimmer": "Shimmer" };
+  chips.forEach(c => {
+    if (Object.values(effLabels).includes(c.textContent.trim())) {
+      c.classList.toggle("active", c.textContent.trim() === effLabels[eff]);
+    }
+  });
+}
+
+function initImageGenerationLoader() {
+  const canvas = document.getElementById("scannerCanvas");
+  const overlay = document.getElementById("scannerOverlay");
+  const viewport = document.getElementById("scannerViewport");
+  if (!canvas || !overlay || !viewport) return;
+
+  const ctx = canvas.getContext("2d", { alpha: true });
+  if (!ctx) return;
+
+  let width = 0, height = 0;
+  let cells = [];
+  let frameId = null;
+  let startTime = performance.now();
+  const pitch = scannerState.cellSize + scannerState.gap;
+
+  function easeInOut(t) {
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  }
+
+  function rebuildCells() {
+    const colCount = Math.ceil(width / pitch) + 1;
+    const rowCount = Math.max(1, Math.floor((scannerState.bandHeight + scannerState.gap) / pitch));
+    cells = [];
+    const textCells = new Set();
+
+    if (scannerState.text && rowCount >= 7) {
+      const chars = Array.from(scannerState.text.toUpperCase());
+      const letterGap = 1;
+      const textWidth = chars.length * 5 + (chars.length - 1) * letterGap;
+      const startCol = Math.max(0, Math.floor((colCount - textWidth) / 2));
+      const startRow = Math.floor((rowCount - 7) / 2);
+      let curCol = startCol;
+
+      chars.forEach(ch => {
+        const glyph = (PIXEL_FONT[ch] || PIXEL_FONT["A"]).split("/");
+        for (let r = 0; r < 7; r++) {
+          for (let c = 0; c < 5; c++) {
+            if (glyph[r] && glyph[r][c] === "1") {
+              textCells.add(`${curCol + c}:${startRow + r}`);
+            }
+          }
+        }
+        curCol += 5 + letterGap;
+      });
+    }
+
+    for (let r = 0; r < rowCount; r++) {
+      for (let c = 0; c < colCount; c++) {
+        cells.push({
+          c, r,
+          opacity: 0.4 + Math.random() * 0.6,
+          phase: Math.random() * Math.PI * 2,
+          scaleSeed: Math.random(),
+          isText: textCells.has(`${c}:${r}`)
+        });
+      }
+    }
+  }
+  window.rebuildScannerCells = rebuildCells;
+
+  function resize() {
+    const rect = viewport.getBoundingClientRect();
+    width = Math.max(1, rect.width);
+    height = Math.max(1, rect.height);
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    rebuildCells();
+  }
+
+  function draw(now) {
+    ctx.clearRect(0, 0, width, height);
+
+    const cycle = (now - startTime) % scannerState.duration;
+    const progress = easeInOut(cycle / scannerState.duration);
+    const centerY = -scannerState.bandHeight + progress * (height + scannerState.bandHeight * 2);
+    const bandTop = Math.round(centerY - scannerState.bandHeight / 2);
+    const bandCenter = bandTop + scannerState.bandHeight / 2;
+    const revealEdge = Math.max(0, Math.min(height, bandTop));
+
+    overlay.style.backgroundColor = `rgb(${scannerState.colors[1].join(",")})`;
+    overlay.style.clipPath = `inset(0 0 ${height - revealEdge}px 0)`;
+    overlay.style.opacity = `${scannerState.overlayOpacity}`;
+
+    const waveProgress = ((now - startTime) % 1800) / 1800;
+    const waveX = -100 + waveProgress * (width + 200);
+
+    const getBulge = (x) => {
+      if (scannerState.effect !== "wave") return 0;
+      const dist = x - waveX;
+      return 12 * Math.exp(-(dist * dist) / (2 * 72 * 72));
+    };
+
+    // Background scanning glow
+    const grad = ctx.createLinearGradient(0, bandTop - 10, 0, bandTop + scannerState.bandHeight + 10);
+    grad.addColorStop(0, `rgba(${scannerState.colors[0].join(",")}, 0.02)`);
+    grad.addColorStop(0.5, `rgba(${scannerState.colors[0].join(",")}, 0.16)`);
+    grad.addColorStop(1, `rgba(${scannerState.colors[0].join(",")}, 0.02)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, bandTop, width, scannerState.bandHeight);
+
+    // Draw pixel cells
+    const fromRgb = scannerState.colors[0];
+    const toRgb = scannerState.colors[1];
+
+    for (let i = 0; i < cells.length; i++) {
+      const cell = cells[i];
+      const x = cell.c * pitch;
+      const baseY = bandTop + cell.r * pitch;
+      const distY = baseY + scannerState.cellSize / 2 - bandCenter;
+      const y = bandCenter + distY - scannerState.cellSize / 2;
+
+      if (y + scannerState.cellSize < 0 || y > height) continue;
+
+      let renderedSize = scannerState.cellSize;
+      if (scannerState.effect === "scale-wave" && cell.scaleSeed > 0.4) {
+        const distX = (x + scannerState.cellSize / 2) - (waveX - cell.r * 8);
+        const waveInf = Math.exp(-(distX * distX) / (2 * 50 * 50));
+        renderedSize = scannerState.cellSize * (1 + 0.8 * waveInf);
+      }
+
+      const pulse = 0.3 + (Math.sin(now * 0.003 + cell.phase) + 1) * 0.35;
+
+      if (cell.isText) {
+        ctx.fillStyle = `rgb(${fromRgb.join(",")})`;
+        ctx.globalAlpha = 0.85 + pulse * 0.15;
+        ctx.fillRect(x, y, renderedSize, renderedSize);
+
+        // Core glow
+        ctx.fillStyle = "#ffffff";
+        ctx.globalAlpha = 0.9;
+        ctx.fillRect(x + 1, y + 1, Math.max(1, renderedSize - 2), Math.max(1, renderedSize - 2));
+      } else {
+        ctx.fillStyle = `rgb(${toRgb.join(",")})`;
+        ctx.globalAlpha = pulse * cell.opacity * 0.45;
+        ctx.fillRect(x, y, renderedSize, renderedSize);
+      }
+    }
+
+    ctx.globalAlpha = 1;
+    frameId = requestAnimationFrame(draw);
+  }
+
+  resize();
+  window.addEventListener("resize", resize);
+  startTime = performance.now();
+  frameId = requestAnimationFrame(draw);
+
+  window.restartScanner = () => {
+    cancelAnimationFrame(frameId);
+    resize();
+    startTime = performance.now();
+    frameId = requestAnimationFrame(draw);
+  };
+}
+
+/* Run initializers when DOM is ready */
+document.addEventListener("DOMContentLoaded", () => {
+  initTextFlippingBoard();
+  initImageGenerationLoader();
+});
+setTimeout(() => {
+  initTextFlippingBoard();
+  initImageGenerationLoader();
+}, 200);
+
 </script>
 </body>
 </html>
