@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import WeirdCardDemo from '../components/weird-card-demo';
 import { ImageGenerationLoader, type ImageGenerationLoaderEffect } from '../components/ui/image-generation-loader';
 import { TextFlippingBoard } from '../components/ui/text-flipping-board';
 import type { View } from '../lib/view';
@@ -282,30 +281,6 @@ export default function Home({ onNavigate, onTryDemo, backendModel, hasKey }: Ho
                   <b className="text-white/70">OCR Noise Immunity:</b> Handwriting smudges or recognition noise are
                   isolated and never cost the student marks unless true mathematical errors occur.
                 </div>
-              </div>
-            </div>
-          </section>
-        </Reveal>
-
-        {/* Component 3: 3D card */}
-        <Reveal>
-          <section aria-label="3D perspective card demo" className="mb-7 rounded-2xl border border-white/10 bg-black/60 p-5 shadow-[0_20px_44px_rgba(0,0,0,.32)] backdrop-blur md:p-8">
-            <div className="grid items-center gap-6 lg:grid-cols-[1fr_1.2fr]">
-              <div>
-                <div className="mb-1 text-[11px] font-bold tracking-[.18em] text-white/45 uppercase">CSS Perspective</div>
-                <h3 className="mb-2 text-[22px] font-extrabold tracking-tight">Things that float in air</h3>
-                <p className="mb-5 text-sm leading-relaxed text-white/70">
-                  Hover over the card and move your mouse — the frame tilts in 3D while the title, placeholder and
-                  buttons float at different depths. Featuring a deeply suspicious floating grader that judges your
-                  hovering.
-                </p>
-                <div className="rounded-[10px] border border-white/10 bg-black/25 p-3 text-xs leading-relaxed text-white/45">
-                  <b className="text-white/70">How it works:</b> the outer container sets <b>perspective: 1000px</b>,
-                  the card keeps <b>preserve-3d</b>, and each layer gets its own <b>translateZ</b> depth on hover.
-                </div>
-              </div>
-              <div className="flex justify-center">
-                <WeirdCardDemo />
               </div>
             </div>
           </section>
