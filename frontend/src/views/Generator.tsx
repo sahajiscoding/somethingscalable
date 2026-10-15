@@ -8,6 +8,7 @@ import {
   type GeneratedExam,
   type GeneratedQuestion,
 } from '../lib/api';
+import { downloadPdf, generateAnswerKeyPdf, generateExamPaperPdf } from '../lib/pdfGenerator';
 import { fmt } from '../lib/sim';
 
 type GenTab = 'paper' | 'key' | 'json';
@@ -89,7 +90,7 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
       setExam(data.exam);
       setLoaderStatus('done');
       setAlert({
-        msg: data.note ? `✓ Generated (${data.model}, offline template). ${data.note}` : `✓ Exam generated with ${data.model || 'GLM 5.3 Flash'} (${totalCount} questions) — preview below.`,
+        msg: data.note ? `Generated (${data.model}, offline template). ${data.note}` : `Exam generated with ${data.model || 'GLM 5.3 Flash'} (${totalCount} questions) — preview below.`,
         ok: true,
       });
     } catch (err) {
@@ -97,6 +98,42 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
       setAlert({ msg: `Generation failed (${err instanceof Error ? err.message : String(err)}). Check the live backend and retry.`, ok: false });
     } finally {
       setRunning(false);
+    }
+  };
+
+  const [pdfBusy, setPdfBusy] = useState(false);
+
+  const downloadPaperPdf = async () => {
+    if (!exam || pdfBusy) return;
+    try {
+      setPdfBusy(true);
+      const bytes = await generateExamPaperPdf(exam);
+      const safeName = (exam.title || 'question-paper')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+      downloadPdf(bytes, `${safeName}.pdf`);
+    } catch (err) {
+      setAlert({ msg: `Could not generate PDF: ${err instanceof Error ? err.message : String(err)}`, ok: false });
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
+  const downloadKeyPdf = async () => {
+    if (!exam || pdfBusy) return;
+    try {
+      setPdfBusy(true);
+      const bytes = await generateAnswerKeyPdf(exam);
+      const safeName = (exam.title || 'answer-key')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+      downloadPdf(bytes, `${safeName}-rubric.pdf`);
+    } catch (err) {
+      setAlert({ msg: `Could not generate PDF: ${err instanceof Error ? err.message : String(err)}`, ok: false });
+    } finally {
+      setPdfBusy(false);
     }
   };
 
@@ -120,7 +157,7 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
         <div className="mb-1 text-[11px] font-bold tracking-[.18em] text-white/45 uppercase">Authoring Tool</div>
         <h2 className="text-[19px] font-bold tracking-tight">Exam Paper &amp; Rubric Generator</h2>
         <p className="mt-1 max-w-[52ch] text-[13.5px] text-white/45">
-          Leverage GLM 5.3 Flash or DeepSeek V4.1 Flash to generate balanced examination papers and matching step-by-step marking rubrics.
+          Leverage GLM 5.3 Flash to generate balanced examination papers and matching step-by-step marking rubrics.
         </p>
       </div>
 
@@ -190,63 +227,90 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
           </div>
 
           {setModelOverride && (
-            <div className="mb-4 rounded-xl border border-white/10 bg-black/15 p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-[11px] font-bold tracking-[.14em] text-white/50 uppercase">Generation Model</span>
-                <span className="rounded-full border border-mint/30 bg-mint/10 px-2 py-0.5 text-[10px] font-bold text-mint">
+            <div className="mb-4 rounded-xl border border-white/10 bg-black/20 p-3.5">
+              <div className="flex items-center justify-between">
+                <div className="text-[11px] font-bold tracking-[.14em] text-white/50 uppercase">Generation Model</div>
+                <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[10px] font-medium text-white/40">
                   NVIDIA NIM
                 </span>
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="mt-1 text-xs text-white/45">Select AI model for generating questions &amp; rubric:</div>
+
+              <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 <button
                   type="button"
                   onClick={() => setModelOverride('deepseek-ai/deepseek-v4.1-flash')}
-                  className={`flex cursor-pointer flex-col rounded-lg border p-2.5 text-left transition ${
+                  className={`group flex cursor-pointer flex-col rounded-xl border p-3.5 text-left transition-all duration-200 ${
                     modelOverride.includes('deepseek')
-                      ? 'border-mint bg-mint/15 shadow-[0_0_12px_rgba(129,199,132,.2)]'
-                      : 'border-white/10 bg-black/20 hover:border-white/20'
+                      ? 'border-mint/60 bg-mint/[0.08] shadow-[0_0_24px_rgba(129,199,132,0.12)] ring-1 ring-mint/30'
+                      : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]'
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-white">⚡ DeepSeek V4.1</span>
-                    {modelOverride.includes('deepseek') && (
-                      <span className="rounded bg-mint px-1.5 py-0.2 text-[9px] font-extrabold text-[#0d1a12]">ACTIVE</span>
+                    <span className="text-[13px] font-semibold tracking-tight text-white">
+                      DeepSeek V4.1 Flash
+                    </span>
+                    {modelOverride.includes('deepseek') ? (
+                      <span className="flex items-center gap-1.5 rounded-full border border-mint/40 bg-mint/15 px-2 py-0.5 text-[9.5px] font-semibold tracking-wide text-mint uppercase">
+                        <span className="h-1.5 w-1.5 rounded-full bg-mint shadow-[0_0_6px_var(--color-mint)]" />
+                        Active
+                      </span>
+                    ) : (
+                      <span className="h-1.5 w-1.5 rounded-full bg-white/20 group-hover:bg-white/40" />
                     )}
                   </div>
-                  <span className="mt-0.5 text-[10.5px] text-mint">Ultra-Fast (~1.5s)</span>
+                  <div className="mt-1 text-[11px] font-medium text-mint/90">
+                    Ultra-Fast · ~1.5s response
+                  </div>
+                  <div className="mt-1 text-[11px] text-white/45 leading-relaxed">
+                    MoE architecture. Rapid syllabus generation without timeouts.
+                  </div>
                 </button>
+
                 <button
                   type="button"
                   onClick={() => setModelOverride('z-ai/glm-5.3-flash')}
-                  className={`flex cursor-pointer flex-col rounded-lg border p-2.5 text-left transition ${
+                  className={`group flex cursor-pointer flex-col rounded-xl border p-3.5 text-left transition-all duration-200 ${
                     !modelOverride.includes('deepseek') && (modelOverride.includes('glm') || !modelOverride.trim())
-                      ? 'border-mint bg-mint/15 shadow-[0_0_12px_rgba(129,199,132,.2)]'
-                      : 'border-white/10 bg-black/20 hover:border-white/20'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-white">✨ GLM 5.3 Flash</span>
-                    {!modelOverride.includes('deepseek') && (modelOverride.includes('glm') || !modelOverride.trim()) && (
-                      <span className="rounded bg-mint px-1.5 py-0.2 text-[9px] font-extrabold text-[#0d1a12]">ACTIVE</span>
-                    )}
-                  </div>
-                  <span className="mt-0.5 text-[10.5px] text-sand">Deep Reasoning</span>
-                </button>
-              </div>
+                      ? 'border-mint/60 bg-mint/[0.08] shadow-[0_0_24px_rgba(129,199,132,0.12)] ring-1 ring-mint/30'
+                      : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[13px] font-semibold tracking-tight text-white">
+                    GLM 5.3 Flash
+                  </span>
+                  {!modelOverride.includes('deepseek') && (modelOverride.includes('glm') || !modelOverride.trim()) ? (
+                    <span className="flex items-center gap-1.5 rounded-full border border-mint/40 bg-mint/15 px-2 py-0.5 text-[9.5px] font-semibold tracking-wide text-mint uppercase">
+                      <span className="h-1.5 w-1.5 rounded-full bg-mint shadow-[0_0_6px_var(--color-mint)]" />
+                      Active
+                    </span>
+                  ) : (
+                    <span className="h-1.5 w-1.5 rounded-full bg-white/20 group-hover:bg-white/40" />
+                  )}
+                </div>
+                <div className="mt-1 text-[11px] font-medium text-sand/90">
+                  Deep Reasoning · 320B Parameters
+                </div>
+                <div className="mt-1 text-[11px] text-white/45 leading-relaxed">
+                  Deep pedagogical reasoning with balanced tiered difficulties.
+                </div>
+              </button>
             </div>
+          </div>
           )}
 
           <button
             type="button"
             onClick={() => void onGenerate()}
             disabled={running}
-            className="mt-2.5 flex w-full cursor-pointer items-center justify-center gap-2 rounded-[13px] border-none bg-gradient-to-br from-pine to-[#3b7a53] px-6 py-3 text-[14.5px] font-extrabold text-[#0c1a11] shadow-[0_8px_24px_rgba(78,154,106,.35)] transition hover:brightness-110 disabled:cursor-progress disabled:saturate-50"
+            className="mt-2.5 flex w-full cursor-pointer items-center justify-center gap-2 rounded-[13px] border-none bg-gradient-to-br from-pine to-[#3b7a53] px-6 py-3.5 text-[14.5px] font-bold text-[#0c1a11] shadow-[0_8px_24px_rgba(78,154,106,.32)] transition hover:brightness-110 disabled:cursor-progress disabled:saturate-50"
           >
             {running
               ? `Generating (${exam?.questions.length || 0}/${count} ready)…`
               : modelOverride.includes('deepseek')
-              ? '⚡ Generate Exam with DeepSeek V4.1 Flash'
-              : '✨ Generate Exam with GLM 5.3 Flash'}
+              ? 'Generate Exam with DeepSeek V4.1 Flash'
+              : 'Generate Exam with GLM 5.3 Flash'}
           </button>
 
           {loaderStatus && (
@@ -285,9 +349,9 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
           <div className="mb-4 flex gap-2 border-b border-white/10 pb-3">
             {(
               [
-                ['paper', '📄 Question Paper'],
-                ['key', '🔑 Official Rubric & Key'],
-                ['json', '{ } Raw JSON'],
+                ['paper', 'Question Paper'],
+                ['key', 'Official Rubric & Key'],
+                ['json', 'Raw JSON'],
               ] as [GenTab, string][]
             ).map(([k, label]) => (
               <button
@@ -308,17 +372,26 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
               <div className="px-5 py-12 text-center text-white/45">
                 {running ? (
                   <>
-                    <div className="mb-3 animate-spin text-4xl">⏳</div>
-                    <h4 className="mb-1.5 text-base text-white/70">Generating Questions…</h4>
-                    <p className="mx-auto max-w-[36ch] text-[13px]">
+                    <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-mint/30 bg-mint/10 text-mint">
+                      <svg className="h-6 w-6 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                      </svg>
+                    </div>
+                    <h4 className="mb-1.5 text-base font-semibold text-white/80">Generating Questions…</h4>
+                    <p className="mx-auto max-w-[36ch] text-[13px] text-white/45">
                       Contacting NVIDIA NIM GLM 5.3 Flash. Questions will appear here live as each request completes.
                     </p>
                   </>
                 ) : (
                   <>
-                    <div className="mb-3 text-4xl">📝</div>
-                    <h4 className="mb-1.5 text-base text-white/70">No Exam Generated Yet</h4>
-                    <p className="mx-auto max-w-[36ch] text-[13px]">
+                    <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/40">
+                      <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.75">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                      </svg>
+                    </div>
+                    <h4 className="mb-1.5 text-base font-semibold text-white/80">No Exam Generated Yet</h4>
+                    <p className="mx-auto max-w-[36ch] text-[13px] text-white/45">
                       Select your subject parameters on the left and hit <b>Generate Exam</b> to build an exam paper with
                       GLM 5.3 Flash.
                     </p>
@@ -412,21 +485,39 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
                 title="Send directly to Step 01 Upload Bay"
                 className="cursor-pointer rounded-[13px] border-none bg-gradient-to-br from-pine to-[#3b7a53] px-5 py-2.5 text-sm font-extrabold text-[#0c1a11] transition hover:brightness-110"
               >
-                🚀 Send to Exam Grading (1-Click)
+                Send to Exam Grading
+              </button>
+              <button
+                type="button"
+                onClick={downloadPaperPdf}
+                disabled={pdfBusy}
+                className="flex cursor-pointer items-center gap-2 rounded-[13px] border border-mint/45 bg-mint/15 px-4 py-2.5 text-sm font-extrabold text-[#d8f5db] shadow-[0_4px_16px_rgba(129,199,132,.2)] transition hover:bg-mint/25 disabled:cursor-wait disabled:opacity-50"
+              >
+                {pdfBusy ? 'Generating PDF…' : 'Question Paper (.pdf)'}
+              </button>
+              <button
+                type="button"
+                onClick={downloadKeyPdf}
+                disabled={pdfBusy}
+                className="flex cursor-pointer items-center gap-2 rounded-[13px] border border-mint/45 bg-mint/15 px-4 py-2.5 text-sm font-extrabold text-[#d8f5db] shadow-[0_4px_16px_rgba(129,199,132,.2)] transition hover:bg-mint/25 disabled:cursor-wait disabled:opacity-50"
+              >
+                {pdfBusy ? 'Generating PDF…' : 'Answer Key (.pdf)'}
               </button>
               <button
                 type="button"
                 onClick={() => downloadText(buildGenPaperText(exam), 'question-paper.txt', 'text/plain')}
-                className="cursor-pointer rounded-[13px] border border-white/20 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10"
+                className="cursor-pointer rounded-[13px] border border-white/20 bg-white/5 px-3 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/10"
+                title="Download plain text question paper"
               >
-                ⬇ Question Paper (.txt)
+                Paper (.txt)
               </button>
               <button
                 type="button"
                 onClick={() => downloadText(buildGenKeyText(exam), 'answer-key.txt', 'text/plain')}
-                className="cursor-pointer rounded-[13px] border border-white/20 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10"
+                className="cursor-pointer rounded-[13px] border border-white/20 bg-white/5 px-3 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/10"
+                title="Download plain text answer key"
               >
-                ⬇ Answer Key (.txt)
+                Key (.txt)
               </button>
             </div>
           )}

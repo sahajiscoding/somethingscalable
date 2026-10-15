@@ -11,6 +11,7 @@ import {
   compressMediaIfNeeded,
   UPLOAD_TARGET_BYTES,
 } from '../lib/mediaCompressor';
+import { downloadPdf, generateGradingReportPdf } from '../lib/pdfGenerator';
 import type { View } from '../lib/view';
 import {
   CRITERIA,
@@ -90,6 +91,7 @@ interface ResultsVM {
   downloadJson?: string;
   downloadMd?: string;
   inProgress?: boolean;
+  modelName?: string;
 }
 
 function vmFromDemo(ev: DemoEval, strict: boolean, criteria: CriteriaState, sheetName: string): ResultsVM {
@@ -132,7 +134,7 @@ function vmFromDemo(ev: DemoEval, strict: boolean, criteria: CriteriaState, shee
   });
   return {
     chips: [
-      { text: '⚠ Demo — sample data, not your documents', tone: 'crit' },
+      { text: 'Demo — sample data, not your documents', tone: 'crit' },
       { text: strict ? 'Strict checking' : 'Standard checking', tone: 'plain' },
       { text: sheetName, tone: 'plain' },
       ...(activeCrit.length
@@ -222,7 +224,7 @@ function vmFromPartialLive(
   return {
     chips: [
       {
-        text: inProgress ? `⚡ Checking Live: ${done.length} / ${totalExpected} Evaluated` : `✓ Live AI · ${model}`,
+        text: inProgress ? `Evaluating: ${done.length} / ${totalExpected}` : `Live AI · ${model}`,
         tone: inProgress ? 'warn' : 'plain',
       },
       { text: 'Rate Limit: 39 RPM', tone: 'plain' },
@@ -246,6 +248,7 @@ function vmFromPartialLive(
     impact,
     contentExtra,
     questions,
+    modelName: model,
     inProgress,
   };
 }
@@ -287,6 +290,7 @@ function vmFromLive(report: LiveReport): ResultsVM {
     impact,
     contentExtra,
     questions,
+    modelName: report.model,
     inProgress: false,
   };
 }
@@ -359,10 +363,12 @@ function Dropzone({
     >
       <div
         className={`mx-auto mb-3 grid h-11 w-11 place-items-center rounded-xl border border-white/10 bg-white/5 transition ${
-          file ? 'border-mint/45 text-mint' : 'text-white/70'
+          file ? 'border-mint/45 text-mint' : 'text-white/60'
         }`}
       >
-        📄
+        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.75">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+        </svg>
       </div>
       <div className="text-[14.5px] leading-snug font-bold">{title}</div>
       {!file && <div className="mt-1.5 text-xs text-white/45">{hint}</div>}
@@ -376,7 +382,7 @@ function Dropzone({
       )}
       {file && file.size > UPLOAD_TARGET_BYTES && (
         <div className="mt-2 rounded-[9px] border border-sand/40 bg-sand/10 px-2.5 py-2 text-left text-xs">
-          <div className="text-[#ffe6c0]">⚠ {(file.size / 1048576).toFixed(1)} MB — exceeds 4.5 MB cap</div>
+          <div className="text-[#ffe6c0]">Exceeds 4.5 MB cap ({(file.size / 1048576).toFixed(1)} MB)</div>
           <div className="mt-1.5 flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -387,7 +393,7 @@ function Dropzone({
               disabled={compressing}
               className="cursor-pointer rounded-lg border border-mint/45 bg-mint/15 px-2.5 py-1 text-[11.5px] font-bold text-[#d8f5db] transition hover:bg-mint/25 disabled:cursor-wait disabled:opacity-60"
             >
-              {compressing ? '🗜 Compressing…' : '🗜 Compress to fit'}
+              {compressing ? 'Compressing…' : 'Compress to fit'}
             </button>
             {shrink && !compressing && <span className="text-white/60">{shrink}</span>}
           </div>
@@ -450,7 +456,17 @@ function tagClass(tone: string): string {
   }
 }
 
-function ResultsView({ vm, onDownloadJson, onDownloadMd }: { vm: ResultsVM; onDownloadJson?: () => void; onDownloadMd?: () => void }) {
+function ResultsView({
+  vm,
+  onDownloadJson,
+  onDownloadMd,
+  onDownloadPdf,
+}: {
+  vm: ResultsVM;
+  onDownloadJson?: () => void;
+  onDownloadMd?: () => void;
+  onDownloadPdf?: () => void;
+}) {
   const ref = useRef<HTMLElement>(null);
   useEffect(() => {
     ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -471,7 +487,7 @@ function ResultsView({ vm, onDownloadJson, onDownloadMd }: { vm: ResultsVM; onDo
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-mint opacity-75" />
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-mint" />
               </span>
-              <span>Evaluating with GLM 5.3 Flash · 39 requests/minute limit active · Output streams per question</span>
+              <span>Evaluating with {vm.modelName?.includes('deepseek') ? 'DeepSeek V4.1 Flash' : 'GLM 5.3 Flash'} · 39 requests/minute limit active · Output streams per question</span>
             </div>
             <span className="rounded-full bg-mint/20 px-2.5 py-1 font-extrabold tabular-nums text-white">
               {vm.qCount} question{vm.qCount === 1 ? '' : 's'} ready
@@ -494,24 +510,33 @@ function ResultsView({ vm, onDownloadJson, onDownloadMd }: { vm: ResultsVM; onDo
           ))}
         </div>
 
-        {(onDownloadJson || onDownloadMd) && (
+        {(onDownloadJson || onDownloadMd || onDownloadPdf) && (
           <div className="mb-4 flex flex-wrap gap-2.5">
-            {onDownloadJson && (
+            {onDownloadPdf && (
               <button
                 type="button"
-                onClick={onDownloadJson}
-                className="cursor-pointer rounded-[10px] border border-mint/45 bg-mint/10 px-4 py-2 text-[13.5px] font-bold text-[#d8f5db] hover:bg-mint/20"
+                onClick={onDownloadPdf}
+                className="cursor-pointer rounded-[10px] border border-mint/45 bg-mint/15 px-4 py-2 text-[13.5px] font-extrabold text-[#d8f5db] shadow-[0_2px_12px_rgba(129,199,132,.2)] hover:bg-mint/25"
               >
-                ⬇ report.json
+                Download report.pdf
               </button>
             )}
             {onDownloadMd && (
               <button
                 type="button"
                 onClick={onDownloadMd}
-                className="cursor-pointer rounded-[10px] border border-mint/45 bg-mint/10 px-4 py-2 text-[13.5px] font-bold text-[#d8f5db] hover:bg-mint/20"
+                className="cursor-pointer rounded-[10px] border border-white/20 bg-white/5 px-4 py-2 text-[13.5px] font-semibold text-white/80 hover:bg-white/10"
               >
-                ⬇ report.md
+                Download report.md
+              </button>
+            )}
+            {onDownloadJson && (
+              <button
+                type="button"
+                onClick={onDownloadJson}
+                className="cursor-pointer rounded-[10px] border border-white/20 bg-white/5 px-4 py-2 text-[13.5px] font-semibold text-white/80 hover:bg-white/10"
+              >
+                Download report.json
               </button>
             )}
           </div>
@@ -689,6 +714,7 @@ export default function Grading(props: GradingProps) {
   const [stage, setStage] = useState<{ done: number; active: number } | null>(null);
   const [vm, setVm] = useState<ResultsVM | null>(null);
   const [liveBlobs, setLiveBlobs] = useState<{ json: string; md: string } | null>(null);
+  const [liveReport, setLiveReport] = useState<LiveReport | null>(null);
   const [loaderStatus, setLoaderStatus] = useState<'working' | 'done' | 'error' | null>(null);
   const [compressing, setCompressing] = useState<DocKey | null>(null);
   const [shrinkInfo, setShrinkInfo] = useState<Partial<Record<DocKey, string>>>({});
@@ -715,6 +741,7 @@ export default function Grading(props: GradingProps) {
     setAlert(null);
     setVm(null);
     setLiveBlobs(null);
+    setLiveReport(null);
     setRunLabel('Evaluating…');
     setLoaderStatus('working');
     setStage({ done: 0, active: 0 });
@@ -730,7 +757,7 @@ export default function Grading(props: GradingProps) {
     setRunLabel('Re-run AI Evaluation');
     setStage(null);
     setLoaderStatus('done');
-    setAlert({ msg: '✓ Demo preview complete — sample data below. Turn on live AI grading for your documents.', ok: true });
+    setAlert({ msg: 'Demo preview complete — sample data below. Turn on live AI grading for your documents.', ok: true });
   }, [running, missingDocs, flagMissing, strict, criteria, files.sheet, onRecord]);
 
   const runLiveFlow = useCallback(async () => {
@@ -795,6 +822,7 @@ export default function Grading(props: GradingProps) {
         downloadMd: markdown,
       });
       setLiveBlobs({ json: JSON.stringify(report, null, 2), md: markdown || '# WeHelpTeachers — Grading Report\n' });
+      setLiveReport(report);
       onRecord(s.marks_awarded, s.total_marks, s.deductions_by_category || {});
       setRunning(false);
       setRunLabel('Re-run AI Evaluation');
@@ -803,7 +831,7 @@ export default function Grading(props: GradingProps) {
       const shrinkNote = shrunk.length
         ? ` (auto-compressed uploads: ${shrunk.map(r => `${r.file.name} ${r.fromMB.toFixed(1)}→${r.toMB.toFixed(1)} MB`).join(', ')})`
         : '';
-      setAlert({ msg: `✓ Live AI evaluation complete — report generated below.${shrinkNote}`, ok: true });
+      setAlert({ msg: `Live AI evaluation complete — report generated below.${shrinkNote}`, ok: true });
     } catch (err) {
       setRunning(false);
       setRunLabel('Run AI Evaluation');
@@ -1014,58 +1042,64 @@ export default function Grading(props: GradingProps) {
             </div>
             <div className="mt-1 text-xs text-white/45">Select AI model for checking papers:</div>
 
-            <div className="mt-2.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               <button
                 type="button"
                 onClick={() => setModelOverride('deepseek-ai/deepseek-v4.1-flash')}
-                className={`flex cursor-pointer flex-col rounded-xl border p-3 text-left transition ${
+                className={`group flex cursor-pointer flex-col rounded-xl border p-3.5 text-left transition-all duration-200 ${
                   modelOverride.includes('deepseek')
-                    ? 'border-mint bg-mint/15 shadow-[0_0_15px_rgba(129,199,132,.2)]'
-                    : 'border-white/10 bg-black/20 hover:border-white/25 hover:bg-black/30'
+                    ? 'border-mint/60 bg-mint/[0.08] shadow-[0_0_24px_rgba(129,199,132,0.12)] ring-1 ring-mint/30'
+                    : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]'
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-1.5 text-xs font-bold text-white">
-                    ⚡ DeepSeek V4.1 Flash
+                  <span className="text-[13px] font-semibold tracking-tight text-white">
+                    DeepSeek V4.1 Flash
                   </span>
-                  {modelOverride.includes('deepseek') && (
-                    <span className="rounded-md bg-mint px-1.5 py-0.5 text-[9.5px] font-extrabold text-[#0d1a12]">
-                      ACTIVE
+                  {modelOverride.includes('deepseek') ? (
+                    <span className="flex items-center gap-1.5 rounded-full border border-mint/40 bg-mint/15 px-2 py-0.5 text-[9.5px] font-semibold tracking-wide text-mint uppercase">
+                      <span className="h-1.5 w-1.5 rounded-full bg-mint shadow-[0_0_6px_var(--color-mint)]" />
+                      Active
                     </span>
+                  ) : (
+                    <span className="h-1.5 w-1.5 rounded-full bg-white/20 group-hover:bg-white/40" />
                   )}
                 </div>
-                <div className="mt-1 text-[11px] font-semibold text-mint">
-                  Ultra-Fast (~1.5s) · No Timeouts
+                <div className="mt-1 text-[11px] font-medium text-mint/90">
+                  Ultra-Fast · ~1.5s per question
                 </div>
-                <div className="mt-0.5 text-[10.5px] text-white/50 leading-tight">
-                  552B MoE activating 8B. Fast vision OCR &amp; strict schema output.
+                <div className="mt-1 text-[11px] text-white/45 leading-relaxed">
+                  552B MoE activating 8B/16B. High-throughput OCR &amp; strict schema adherence.
                 </div>
               </button>
 
               <button
                 type="button"
                 onClick={() => setModelOverride('z-ai/glm-5.3-flash')}
-                className={`flex cursor-pointer flex-col rounded-xl border p-3 text-left transition ${
+                className={`group flex cursor-pointer flex-col rounded-xl border p-3.5 text-left transition-all duration-200 ${
                   !modelOverride.includes('deepseek') && (modelOverride.includes('glm') || !modelOverride.trim())
-                    ? 'border-mint bg-mint/15 shadow-[0_0_15px_rgba(129,199,132,.2)]'
-                    : 'border-white/10 bg-black/20 hover:border-white/25 hover:bg-black/30'
+                    ? 'border-mint/60 bg-mint/[0.08] shadow-[0_0_24px_rgba(129,199,132,0.12)] ring-1 ring-mint/30'
+                    : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]'
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-1.5 text-xs font-bold text-white">
-                    ✨ GLM 5.3 Flash
+                  <span className="text-[13px] font-semibold tracking-tight text-white">
+                    GLM 5.3 Flash
                   </span>
-                  {!modelOverride.includes('deepseek') && (modelOverride.includes('glm') || !modelOverride.trim()) && (
-                    <span className="rounded-md bg-mint px-1.5 py-0.5 text-[9.5px] font-extrabold text-[#0d1a12]">
-                      ACTIVE
+                  {!modelOverride.includes('deepseek') && (modelOverride.includes('glm') || !modelOverride.trim()) ? (
+                    <span className="flex items-center gap-1.5 rounded-full border border-mint/40 bg-mint/15 px-2 py-0.5 text-[9.5px] font-semibold tracking-wide text-mint uppercase">
+                      <span className="h-1.5 w-1.5 rounded-full bg-mint shadow-[0_0_6px_var(--color-mint)]" />
+                      Active
                     </span>
+                  ) : (
+                    <span className="h-1.5 w-1.5 rounded-full bg-white/20 group-hover:bg-white/40" />
                   )}
                 </div>
-                <div className="mt-1 text-[11px] font-semibold text-sand">
+                <div className="mt-1 text-[11px] font-medium text-sand/90">
                   Deep Reasoning · 320B Parameters
                 </div>
-                <div className="mt-0.5 text-[10.5px] text-white/50 leading-tight">
-                  Detailed step-by-step partial credit. Cascades to DeepSeek if queued.
+                <div className="mt-1 text-[11px] text-white/45 leading-relaxed">
+                  Comprehensive handwriting analysis with granular step-by-step partial credit.
                 </div>
               </button>
             </div>
@@ -1123,7 +1157,7 @@ export default function Grading(props: GradingProps) {
             {running && (
               <span className="h-4 w-4 flex-none animate-spin rounded-full border-2 border-[#0d1a12]/30 border-t-[#0d1a12]" />
             )}
-            ⚡ {runLabel}
+            {runLabel}
           </button>
 
           {loaderStatus && (
@@ -1179,6 +1213,10 @@ export default function Grading(props: GradingProps) {
       {vm && (
         <ResultsView
           vm={vm}
+          onDownloadPdf={liveReport ? async () => {
+            const bytes = await generateGradingReportPdf(liveReport);
+            downloadPdf(bytes, 'grading-report.pdf');
+          } : undefined}
           onDownloadJson={liveBlobs ? () => downloadText(liveBlobs.json, 'report.json', 'application/json') : undefined}
           onDownloadMd={liveBlobs ? () => downloadText(liveBlobs.md, 'report.md', 'text/markdown') : undefined}
         />
