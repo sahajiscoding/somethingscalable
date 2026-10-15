@@ -486,6 +486,48 @@ def api_generate_exam():
         generated = engine.generate_json("generate_exam", instruction=instruction, max_tokens=2048, max_attempts=2)
     except Exception as exc:  # noqa: BLE001
         per_q = round(marks / count, 1)
+        FALLBACK_TYPES = [
+            (
+                f"Define the key terms associated with '{topic}'. State two fundamental laws or primary characteristics governing it in {grade} curriculum.",
+                f"Accurate definitions with two correct governing characteristics for {topic}.",
+                f"Definitions: {round(per_q*0.5, 1)}m; Characteristics: {round(per_q*0.5, 1)}m."
+            ),
+            (
+                f"Explain the primary mechanism or sequence of stages involved in '{topic}'. Illustrate with a clear step-by-step explanation.",
+                f"Sequential step-by-step explanation covering all primary stages of {topic}.",
+                f"Step sequence: {round(per_q*0.6, 1)}m; Detail and clarity: {round(per_q*0.4, 1)}m."
+            ),
+            (
+                f"Differentiate between two main types or classifications observed in '{topic}'. Provide one relevant example or case for each.",
+                f"Comparative table or clear contrasting points with two valid examples in {topic}.",
+                f"Distinction points: {round(per_q*0.6, 1)}m; Examples: {round(per_q*0.4, 1)}m."
+            ),
+            (
+                f"Describe the structural components or schematic layout essential to '{topic}'. Explain the specific function of each part.",
+                f"Structural description with precise functional mapping for each component of {topic}.",
+                f"Structure: {round(per_q*0.5, 1)}m; Functions: {round(per_q*0.5, 1)}m."
+            ),
+            (
+                f"Describe a real-world scenario, practical application, or experimental setup that demonstrates '{topic}' in action.",
+                f"Realistic practical scenario with correct application of {topic} principles.",
+                f"Scenario setup: {round(per_q*0.4, 1)}m; Scientific explanation: {round(per_q*0.6, 1)}m."
+            ),
+            (
+                f"Provide a quantitative calculation or rigorous derivation demonstrating the mathematical/empirical relationships in '{topic}'.",
+                f"Step-by-step derivation or calculation with appropriate units and final value for {topic}.",
+                f"Formula: {round(per_q*0.3, 1)}m; Steps: {round(per_q*0.5, 1)}m; Final result: {round(per_q*0.2, 1)}m."
+            ),
+            (
+                f"Explain why specific conditions or triggers are necessary for '{topic}' to function effectively. What happens if these conditions are altered?",
+                f"Scientific justification of prerequisites and consequences of variation in {topic}.",
+                f"Prerequisites: {round(per_q*0.5, 1)}m; Consequence analysis: {round(per_q*0.5, 1)}m."
+            ),
+            (
+                f"Evaluate the significance of '{topic}' in broader scientific systems and summarize its overarching outcomes or impact.",
+                f"Comprehensive summary and critical evaluation of {topic}'s significance.",
+                f"Significance: {round(per_q*0.5, 1)}m; Outcomes summary: {round(per_q*0.5, 1)}m."
+            ),
+        ]
         generated = {
             "title": f"{topic} Examination",
             "topic": topic,
@@ -494,11 +536,11 @@ def api_generate_exam():
             "questions": [
                 {
                     "number": f"Q{i}",
-                    "text": f"Explain the core principles of {topic} for problem {i}, detailing all necessary equations and steps.",
+                    "text": FALLBACK_TYPES[(i - 1) % len(FALLBACK_TYPES)][0],
                     "max_marks": per_q,
-                    "expected_answer": f"Model theoretical formulation and calculation for {topic} problem {i}.",
-                    "marking_scheme": f"Formula & definitions: {round(per_q*0.4, 1)}m; Calculation: {round(per_q*0.4, 1)}m; Final: {round(per_q*0.2, 1)}m.",
-                    "keywords": [topic.split()[0].lower(), "derivation", "formula"]
+                    "expected_answer": FALLBACK_TYPES[(i - 1) % len(FALLBACK_TYPES)][1],
+                    "marking_scheme": FALLBACK_TYPES[(i - 1) % len(FALLBACK_TYPES)][2],
+                    "keywords": [topic.split()[0].lower(), "solution"]
                 }
                 for i in range(1, count + 1)
             ]
@@ -545,18 +587,33 @@ def api_generate_exam_question():
     difficulty = (body.get("difficulty") or "Medium").strip()
     subtopic = (body.get("subtopic") or "").strip()
 
-    context_hint = f"Focus on aspect: {subtopic}. " if subtopic else ""
+    ASPECTS = [
+        "Core definitions, terminology, and foundational concepts",
+        "Mechanisms, biological/physical processes, and stepwise execution",
+        "Comparative analysis, distinctions, and contrasting two core mechanisms",
+        "Diagrammatic, schematic, or structural analysis and labeling",
+        "Real-world application, experimental scenario, or observation-based question",
+        "Calculations, formulas, quantitative assessment, or step-by-step derivation",
+        "Cause-and-effect reasoning, 'Explain why...', and scientific justification",
+        "Critical analysis, synthesis of concepts, and problem solving",
+    ]
+    aspect = ASPECTS[(index - 1) % len(ASPECTS)]
+    context_hint = f"Focus on aspect: {subtopic}. " if subtopic else f"Question pedagogical focus: {aspect}. "
 
     instruction = (
-        f"You are an expert exam author. Generate question {number} (problem {index} of {total}) on '{topic}' "
-        f"for grade/level: '{grade}'. Total question marks: {marks:g}. Difficulty: {difficulty}. {context_hint}\n"
-        "Be direct, concise, and return STRICT JSON only with no commentary, matching this schema:\n"
+        f"You are an expert school examiner setting an official exam paper for {grade}.\n"
+        f"Topic: '{topic}'.\n"
+        f"Generate Question {number} (Question {index} of {total} in the paper).\n"
+        f"Specific focus for this question: {aspect}.\n"
+        f"Difficulty: {difficulty}. Marks: {marks:g}.\n"
+        "Create an authentic, high-quality, syllabus-accurate question specifically about this topic and focus. "
+        "Do NOT write generic placeholders. Output strictly valid JSON matching this schema:\n"
         "{\n"
         f'  "number": "{number}",\n'
-        '  "text": "Clear, rigorous question text with all required formulas or context",\n'
+        '  "text": "The full, self-contained question text",\n'
         f'  "max_marks": {marks:g},\n'
-        '  "expected_answer": "Complete target model answer with all working steps",\n'
-        '  "marking_scheme": "Step-by-step marking breakdown (e.g. 2 marks for formula, 3 marks for calculation)",\n'
+        '  "expected_answer": "Detailed model answer and solution steps",\n'
+        '  "marking_scheme": "Point-by-point marking rubric (e.g. 1m for definition, 2m for explanation)",\n'
         '  "keywords": ["keyword1", "keyword2"]\n'
         "}\n"
     )
@@ -580,13 +637,56 @@ def api_generate_exam_question():
         if not isinstance(generated.get("keywords"), list):
             generated["keywords"] = [topic.split()[0].lower(), "solution"]
     except Exception as exc:  # noqa: BLE001
+        FALLBACK_TYPES = [
+            (
+                f"Define the key terms associated with '{topic}'. State two fundamental laws or primary characteristics governing it in {grade} curriculum.",
+                f"Accurate definitions with two correct governing characteristics for {topic}.",
+                f"Definitions: {round(marks*0.5, 1)}m; Characteristics: {round(marks*0.5, 1)}m."
+            ),
+            (
+                f"Explain the primary mechanism or sequence of stages involved in '{topic}'. Illustrate with a clear step-by-step explanation.",
+                f"Sequential step-by-step explanation covering all primary stages of {topic}.",
+                f"Step sequence: {round(marks*0.6, 1)}m; Detail and clarity: {round(marks*0.4, 1)}m."
+            ),
+            (
+                f"Differentiate between two main types or classifications observed in '{topic}'. Provide one relevant example or case for each.",
+                f"Comparative table or clear contrasting points with two valid examples in {topic}.",
+                f"Distinction points: {round(marks*0.6, 1)}m; Examples: {round(marks*0.4, 1)}m."
+            ),
+            (
+                f"Describe the structural components or schematic layout essential to '{topic}'. Explain the specific function of each part.",
+                f"Structural description with precise functional mapping for each component of {topic}.",
+                f"Structure: {round(marks*0.5, 1)}m; Functions: {round(marks*0.5, 1)}m."
+            ),
+            (
+                f"Describe a real-world scenario, practical application, or experimental setup that demonstrates '{topic}' in action.",
+                f"Realistic practical scenario with correct application of {topic} principles.",
+                f"Scenario setup: {round(marks*0.4, 1)}m; Scientific explanation: {round(marks*0.6, 1)}m."
+            ),
+            (
+                f"Provide a quantitative calculation or rigorous derivation demonstrating the mathematical/empirical relationships in '{topic}'.",
+                f"Step-by-step derivation or calculation with appropriate units and final value for {topic}.",
+                f"Formula: {round(marks*0.3, 1)}m; Steps: {round(marks*0.5, 1)}m; Final result: {round(marks*0.2, 1)}m."
+            ),
+            (
+                f"Explain why specific conditions or triggers are necessary for '{topic}' to function effectively. What happens if these conditions are altered?",
+                f"Scientific justification of prerequisites and consequences of variation in {topic}.",
+                f"Prerequisites: {round(marks*0.5, 1)}m; Consequence analysis: {round(marks*0.5, 1)}m."
+            ),
+            (
+                f"Evaluate the significance of '{topic}' in broader scientific systems and summarize its overarching outcomes or impact.",
+                f"Comprehensive summary and critical evaluation of {topic}'s significance.",
+                f"Significance: {round(marks*0.5, 1)}m; Outcomes summary: {round(marks*0.5, 1)}m."
+            ),
+        ]
+        fb_text, fb_ans, fb_scheme = FALLBACK_TYPES[(index - 1) % len(FALLBACK_TYPES)]
         generated = {
             "number": number,
-            "text": f"Explain the core principles and solve problem {index} for {topic} ({grade}), detailing all necessary equations and steps.",
+            "text": fb_text,
             "max_marks": marks,
-            "expected_answer": f"Model theoretical formulation and calculation for {topic} problem {index}.",
-            "marking_scheme": f"Formula & definitions: {round(marks*0.4, 1)}m; Steps: {round(marks*0.4, 1)}m; Final: {round(marks*0.2, 1)}m.",
-            "keywords": [topic.split()[0].lower(), "derivation", "formula"]
+            "expected_answer": fb_ans,
+            "marking_scheme": fb_scheme,
+            "keywords": [topic.split()[0].lower(), "solution"]
         }
         note = (f"Generated with fallback template ({exc}); check NVIDIA NIM status."
                 if _has_key() else

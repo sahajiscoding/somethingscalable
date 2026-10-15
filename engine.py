@@ -37,7 +37,7 @@ NIM_ENDPOINT = os.environ.get(
 NVIDIA_DEFAULT_MODEL = os.environ.get("NVIDIA_MODEL", "z-ai/glm-5.3-flash")
 # Per-request HTTP timeout; Vercel kills functions at 60 s wall time, so this
 # stays just under it and failures come back as clean errors, not hangs.
-_NIM_TIMEOUT = 25
+_NIM_TIMEOUT = 35
 # Rendered-PDF page cap (same as the reference project).
 _NVIDIA_MAX_PDF_PAGES = 15
 
@@ -319,6 +319,7 @@ class NvidiaEngine:
         return blocks
 
     def _chat(self, messages: list[Any], temperature: float, max_tokens: int = 4096) -> str:
+        import json
         import time
 
         try:
@@ -333,27 +334,33 @@ class NvidiaEngine:
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
-            "top_p": 0.7,
+            "top_p": 1.0,
             "max_tokens": max_tokens,
-            "stream": False,
+            "stream": True,
         }
-        if "glm" in self.model.lower():
-            payload["reasoning_effort"] = "low"
 
-        headers = {"Authorization": f"Bearer {self.key}",
-                   "Accept": "application/json"}
+        headers = {
+            "Authorization": f"Bearer {self.key}",
+            "Accept": "text/event-stream",
+            "Content-Type": "application/json",
+        }
         _acquire_nvidia_token()
         last = "no response"
         for attempt in range(2):
             try:
-                resp = requests.post(NIM_ENDPOINT, headers=headers,
-                                     json=payload, timeout=_NIM_TIMEOUT)
+                resp = requests.post(
+                    NIM_ENDPOINT,
+                    headers=headers,
+                    json=payload,
+                    timeout=(10, _NIM_TIMEOUT),
+                    stream=True,
+                )
             except requests.Timeout as exc:
                 if attempt == 0:
                     time.sleep(1)
                     _acquire_nvidia_token()
                     continue
-                raise EngineError(f"NVIDIA API timed out after {_NIM_TIMEOUT}s: {exc}") from exc
+                raise EngineError(f"NVIDIA API timed out: {exc}") from exc
             except requests.RequestException as exc:
                 if attempt == 0:
                     time.sleep(2)
@@ -361,23 +368,38 @@ class NvidiaEngine:
                     continue
                 raise EngineError(f"NVIDIA API unreachable: {exc}") from exc
             if resp.status_code == 200:
+                content_parts: list[str] = []
+                reasoning_parts: list[str] = []
+                start_read = time.monotonic()
                 try:
-                    choice_msg = resp.json()["choices"][0]["message"]
-                    return (choice_msg.get("content") or choice_msg.get("reasoning_content") or "")
-                except (KeyError, IndexError, TypeError) as exc:
-                    raise EngineError(
-                        "NVIDIA API returned an unexpected payload: "
-                        f"{exc}") from exc
-            if resp.status_code in (400, 422) and "reasoning_effort" in payload:
-                del payload["reasoning_effort"]
-                try:
-                    _acquire_nvidia_token()
-                    resp = requests.post(NIM_ENDPOINT, headers=headers, json=payload, timeout=_NIM_TIMEOUT)
-                    if resp.status_code == 200:
-                        choice_msg = resp.json()["choices"][0]["message"]
-                        return (choice_msg.get("content") or choice_msg.get("reasoning_content") or "")
-                except Exception:
-                    pass
+                    for raw_line in resp.iter_lines():
+                        if (time.monotonic() - start_read) > 45:
+                            break
+                        if not raw_line:
+                            continue
+                        line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+                        if line.startswith("data: "):
+                            data_content = line[6:].strip()
+                            if data_content == "[DONE]":
+                                break
+                            try:
+                                chunk = json.loads(data_content)
+                                delta = chunk["choices"][0].get("delta", {})
+                                if delta.get("content"):
+                                    content_parts.append(delta["content"])
+                                if delta.get("reasoning_content"):
+                                    reasoning_parts.append(delta["reasoning_content"])
+                            except Exception:
+                                continue
+                except Exception as exc:
+                    if not content_parts and not reasoning_parts:
+                        raise EngineError(f"Error streaming response from NVIDIA NIM: {exc}") from exc
+
+                text = "".join(content_parts).strip() or "".join(reasoning_parts).strip()
+                if text:
+                    return text
+                raise EngineError("NVIDIA API returned an empty stream response.")
+
             if resp.status_code in (401, 403):
                 raise EngineError(
                     f"NVIDIA API rejected the key (HTTP {resp.status_code}). "
