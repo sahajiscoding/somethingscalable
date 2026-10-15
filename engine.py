@@ -333,10 +333,12 @@ class NvidiaEngine:
             "Content-Type": "application/json",
         }
 
-        # Try user's requested model first; if it takes >14s or fails, fall back to ultra-fast DeepSeek V4.1 Flash
+        # Try user's requested model first; if it takes >14s or fails, fall back to alternate model
         models_to_try = [self.model]
         if self.model == "z-ai/glm-5.3-flash":
             models_to_try.append("deepseek-ai/deepseek-v4.1-flash")
+        elif self.model == "deepseek-ai/deepseek-v4.1-flash":
+            models_to_try.append("z-ai/glm-5.3-flash")
 
         last = "no response"
         for candidate_model in models_to_try:
@@ -768,4 +770,6 @@ def make_engine(api_key: str | None = None,
         model = NVIDIA_DEFAULT_MODEL
     elif model in ("glm-5.3-flash", "z-ai/glm-5-3-flash", "glm-5-3-flash"):
         model = "z-ai/glm-5.3-flash"
+    elif model in ("deepseek-v4.1-flash", "deepseek-v4.1", "deepseek-flash", "deepseek", "deepseek-ai/deepseek-v4.1-flash"):
+        model = "deepseek-ai/deepseek-v4.1-flash"
     return NvidiaEngine(api_key=api_key, model=model)

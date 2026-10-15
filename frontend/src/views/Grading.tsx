@@ -1006,21 +1006,86 @@ export default function Grading(props: GradingProps) {
           </fieldset>
 
           <div aria-label="Live backend settings" className="mt-4 rounded-xl border border-white/10 bg-black/10 p-3.5">
-            <div className="mb-2.5 text-[11px] font-bold tracking-[.16em] text-white/45 uppercase">Live AI backend</div>
-            <div className="mb-1 text-xs text-white/45">API keys live on the server — nothing secret is typed here.</div>
-            <label htmlFor="modelId" className="mt-2.5 block text-[13px] text-white/70">
-              Model override <span className="text-white/45">(optional — server default is GLM 5.3 Flash)</span>
-            </label>
-            <input
-              type="text"
-              id="modelId"
-              value={modelOverride}
-              onChange={e => setModelOverride(e.target.value)}
-              placeholder="e.g. z-ai/glm-5.3-flash"
-              autoComplete="off"
-              aria-label="Model id override"
-              className="mt-1.5 w-full rounded-[9px] border border-white/20 bg-black/30 px-3 py-2.5 text-[13px] text-white outline-none focus:border-mint focus:shadow-[0_0_0_3px_rgba(129,199,132,.25)]"
-            />
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] font-bold tracking-[.16em] text-white/45 uppercase">Live AI Engine &amp; Model</div>
+              <span className="rounded-full border border-mint/30 bg-mint/10 px-2 py-0.5 text-[10px] font-bold text-mint">
+                39 RPM Rate Limited
+              </span>
+            </div>
+            <div className="mt-1 text-xs text-white/45">Select AI model for checking papers:</div>
+
+            <div className="mt-2.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setModelOverride('deepseek-ai/deepseek-v4.1-flash')}
+                className={`flex cursor-pointer flex-col rounded-xl border p-3 text-left transition ${
+                  modelOverride.includes('deepseek')
+                    ? 'border-mint bg-mint/15 shadow-[0_0_15px_rgba(129,199,132,.2)]'
+                    : 'border-white/10 bg-black/20 hover:border-white/25 hover:bg-black/30'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-xs font-bold text-white">
+                    ⚡ DeepSeek V4.1 Flash
+                  </span>
+                  {modelOverride.includes('deepseek') && (
+                    <span className="rounded-md bg-mint px-1.5 py-0.5 text-[9.5px] font-extrabold text-[#0d1a12]">
+                      ACTIVE
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 text-[11px] font-semibold text-mint">
+                  Ultra-Fast (~1.5s) · No Timeouts
+                </div>
+                <div className="mt-0.5 text-[10.5px] text-white/50 leading-tight">
+                  552B MoE activating 8B. Fast vision OCR &amp; strict schema output.
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setModelOverride('z-ai/glm-5.3-flash')}
+                className={`flex cursor-pointer flex-col rounded-xl border p-3 text-left transition ${
+                  !modelOverride.includes('deepseek') && (modelOverride.includes('glm') || !modelOverride.trim())
+                    ? 'border-mint bg-mint/15 shadow-[0_0_15px_rgba(129,199,132,.2)]'
+                    : 'border-white/10 bg-black/20 hover:border-white/25 hover:bg-black/30'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-xs font-bold text-white">
+                    ✨ GLM 5.3 Flash
+                  </span>
+                  {!modelOverride.includes('deepseek') && (modelOverride.includes('glm') || !modelOverride.trim()) && (
+                    <span className="rounded-md bg-mint px-1.5 py-0.5 text-[9.5px] font-extrabold text-[#0d1a12]">
+                      ACTIVE
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 text-[11px] font-semibold text-sand">
+                  Deep Reasoning · 320B Parameters
+                </div>
+                <div className="mt-0.5 text-[10.5px] text-white/50 leading-tight">
+                  Detailed step-by-step partial credit. Cascades to DeepSeek if queued.
+                </div>
+              </button>
+            </div>
+
+            <div className="mt-3">
+              <label htmlFor="modelId" className="block text-[11.5px] text-white/60">
+                Custom NIM Model ID <span className="text-white/35">(or edit active model)</span>:
+              </label>
+              <input
+                type="text"
+                id="modelId"
+                value={modelOverride}
+                onChange={e => setModelOverride(e.target.value)}
+                placeholder="e.g. deepseek-ai/deepseek-v4.1-flash or z-ai/glm-5.3-flash"
+                autoComplete="off"
+                aria-label="Model id override"
+                className="mt-1 w-full rounded-[8px] border border-white/20 bg-black/30 px-3 py-2 text-xs text-white outline-none focus:border-mint focus:shadow-[0_0_0_3px_rgba(129,199,132,.25)]"
+              />
+            </div>
+
             <div className="mt-2.5 flex items-center gap-2.5 text-[13px]">
               <label
                 className={`flex flex-1 cursor-pointer items-center gap-2.5 rounded-xl border bg-black/10 p-3 transition ${
@@ -1044,7 +1109,7 @@ export default function Grading(props: GradingProps) {
             </div>
             <div className={`mt-2 text-xs ${backend.ok ? 'text-mint' : 'text-crimson'}`}>
               {backend.ok
-                ? `● Live backend connected (AI model ${backend.model}).`
+                ? `● Live backend connected (Active: ${modelOverride.trim() || backend.model || 'z-ai/glm-5.3-flash'}).`
                 : '○ No live backend (offline demo mode). Deploy with `vercel` to enable AI grading.'}
             </div>
           </div>

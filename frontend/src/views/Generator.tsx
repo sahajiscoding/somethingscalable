@@ -30,10 +30,11 @@ const TAG_SHORT: Record<string, string> = {
 
 interface GeneratorProps {
   modelOverride: string;
+  setModelOverride?: (m: string) => void;
   onSendToGrader: (paper: File, key: File) => void;
 }
 
-export default function Generator({ modelOverride, onSendToGrader }: GeneratorProps) {
+export default function Generator({ modelOverride, setModelOverride, onSendToGrader }: GeneratorProps) {
   const [topic, setTopic] = useState('Calculus — Quadratic Equations & Derivatives');
   const [grade, setGrade] = useState('Senior Secondary (Grade 11-12)');
   const [difficulty, setDifficulty] = useState('Medium');
@@ -119,7 +120,7 @@ export default function Generator({ modelOverride, onSendToGrader }: GeneratorPr
         <div className="mb-1 text-[11px] font-bold tracking-[.18em] text-white/45 uppercase">Authoring Tool</div>
         <h2 className="text-[19px] font-bold tracking-tight">Exam Paper &amp; Rubric Generator</h2>
         <p className="mt-1 max-w-[52ch] text-[13.5px] text-white/45">
-          Leverage GLM 5.3 Flash to generate balanced examination papers and matching step-by-step marking rubrics.
+          Leverage GLM 5.3 Flash or DeepSeek V4.1 Flash to generate balanced examination papers and matching step-by-step marking rubrics.
         </p>
       </div>
 
@@ -188,13 +189,64 @@ export default function Generator({ modelOverride, onSendToGrader }: GeneratorPr
             </div>
           </div>
 
+          {setModelOverride && (
+            <div className="mb-4 rounded-xl border border-white/10 bg-black/15 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[11px] font-bold tracking-[.14em] text-white/50 uppercase">Generation Model</span>
+                <span className="rounded-full border border-mint/30 bg-mint/10 px-2 py-0.5 text-[10px] font-bold text-mint">
+                  NVIDIA NIM
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModelOverride('deepseek-ai/deepseek-v4.1-flash')}
+                  className={`flex cursor-pointer flex-col rounded-lg border p-2.5 text-left transition ${
+                    modelOverride.includes('deepseek')
+                      ? 'border-mint bg-mint/15 shadow-[0_0_12px_rgba(129,199,132,.2)]'
+                      : 'border-white/10 bg-black/20 hover:border-white/20'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-white">⚡ DeepSeek V4.1</span>
+                    {modelOverride.includes('deepseek') && (
+                      <span className="rounded bg-mint px-1.5 py-0.2 text-[9px] font-extrabold text-[#0d1a12]">ACTIVE</span>
+                    )}
+                  </div>
+                  <span className="mt-0.5 text-[10.5px] text-mint">Ultra-Fast (~1.5s)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModelOverride('z-ai/glm-5.3-flash')}
+                  className={`flex cursor-pointer flex-col rounded-lg border p-2.5 text-left transition ${
+                    !modelOverride.includes('deepseek') && (modelOverride.includes('glm') || !modelOverride.trim())
+                      ? 'border-mint bg-mint/15 shadow-[0_0_12px_rgba(129,199,132,.2)]'
+                      : 'border-white/10 bg-black/20 hover:border-white/20'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-white">✨ GLM 5.3 Flash</span>
+                    {!modelOverride.includes('deepseek') && (modelOverride.includes('glm') || !modelOverride.trim()) && (
+                      <span className="rounded bg-mint px-1.5 py-0.2 text-[9px] font-extrabold text-[#0d1a12]">ACTIVE</span>
+                    )}
+                  </div>
+                  <span className="mt-0.5 text-[10.5px] text-sand">Deep Reasoning</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           <button
             type="button"
             onClick={() => void onGenerate()}
             disabled={running}
             className="mt-2.5 flex w-full cursor-pointer items-center justify-center gap-2 rounded-[13px] border-none bg-gradient-to-br from-pine to-[#3b7a53] px-6 py-3 text-[14.5px] font-extrabold text-[#0c1a11] shadow-[0_8px_24px_rgba(78,154,106,.35)] transition hover:brightness-110 disabled:cursor-progress disabled:saturate-50"
           >
-            ✨ {running ? `Generating (${exam?.questions.length || 0}/${count} ready)…` : 'Generate Exam with GLM 5.3 Flash'}
+            {running
+              ? `Generating (${exam?.questions.length || 0}/${count} ready)…`
+              : modelOverride.includes('deepseek')
+              ? '⚡ Generate Exam with DeepSeek V4.1 Flash'
+              : '✨ Generate Exam with GLM 5.3 Flash'}
           </button>
 
           {loaderStatus && (

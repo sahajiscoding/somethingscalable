@@ -61,7 +61,7 @@ export default function App() {
   const [criteria, setCriteria] = useState<CriteriaState>(EMPTY_CRITERIA);
   const [modelOverride, setModelOverride] = useState('');
   const [live, setLive] = useState(true);
-  const [backend, setBackend] = useState<BackendState>({ ok: false, model: 'moonshotai/kimi-k3', hasKey: false });
+  const [backend, setBackend] = useState<BackendState>({ ok: false, model: 'z-ai/glm-5.3-flash', hasKey: false });
   const [demoRequest, setDemoRequest] = useState(0);
   const [analytics, setAnalytics] = useState<AnalyticsState>(EMPTY_ANALYTICS);
   const [graderNotice, setGraderNotice] = useState<{ id: number; msg: string } | null>(null);
@@ -216,7 +216,13 @@ export default function App() {
           {view === 'compressor' && (
             <Compressor onNavigate={navigate} onSendToGrader={handleSendMediaToGrader} />
           )}
-          {view === 'generator' && <Generator modelOverride={modelOverride} onSendToGrader={handleSendToGrader} />}
+          {view === 'generator' && (
+            <Generator
+              modelOverride={modelOverride}
+              setModelOverride={setModelOverride}
+              onSendToGrader={handleSendToGrader}
+            />
+          )}
           {view === 'rubrics' && <Rubrics />}
           {view === 'analytics' && <Analytics a={analytics} onReset={() => setAnalytics(EMPTY_ANALYTICS)} />}
         </main>
