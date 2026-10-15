@@ -256,8 +256,11 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
         lastErr = err;
         const msg = String(err?.message || err);
         const is429 = msg.includes('429') || msg.toLowerCase().includes('rate');
-        if (attempts < 3) {
-          await new Promise(r => setTimeout(r, is429 ? 5000 : 2000));
+        if (msg.includes('504')) {
+          break;
+        }
+        if (attempts < 2) {
+          await new Promise(r => setTimeout(r, is429 ? 3000 : 1000));
           await rateLimiter.acquire();
         }
       }
@@ -341,7 +344,7 @@ export async function generateExam(
     let attempts = 0;
     let lastErr: unknown;
 
-    while (attempts < 3) {
+    while (attempts < 2) {
       try {
         attempts++;
         const data = await apiJson<{
@@ -374,8 +377,11 @@ export async function generateExam(
         lastErr = err;
         const msg = String(err?.message || err);
         const is429 = msg.includes('429') || msg.toLowerCase().includes('rate');
-        if (attempts < 3) {
-          await new Promise(r => setTimeout(r, is429 ? 5000 : 2000));
+        if (msg.includes('504')) {
+          break;
+        }
+        if (attempts < 2) {
+          await new Promise(r => setTimeout(r, is429 ? 3000 : 1000));
           await rateLimiter.acquire();
         }
       }

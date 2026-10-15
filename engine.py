@@ -37,7 +37,7 @@ NIM_ENDPOINT = os.environ.get(
 NVIDIA_DEFAULT_MODEL = os.environ.get("NVIDIA_MODEL", "z-ai/glm-5.3-flash")
 # Per-request HTTP timeout; Vercel kills functions at 60 s wall time, so this
 # stays just under it and failures come back as clean errors, not hangs.
-_NIM_TIMEOUT = 55
+_NIM_TIMEOUT = 25
 # Rendered-PDF page cap (same as the reference project).
 _NVIDIA_MAX_PDF_PAGES = 15
 
@@ -187,12 +187,17 @@ class NvidiaEngine:
                       data: Any = None,
                       instruction: str = "",
                       temperature: float = 0.15,
-                      max_attempts: int = 3) -> Any:
+                      max_tokens: int = 4096,
+                      max_attempts: int = 2) -> Any:
+        import time
         messages = self._build_messages(instruction, document, data)
+        start_t = time.monotonic()
 
         last_error = "unknown parse error"
-        for _ in range(max_attempts):
-            text = self._chat(messages, temperature)  # raises on HTTP failure
+        for attempt in range(max_attempts):
+            if attempt > 0 and (time.monotonic() - start_t) > 35:
+                break
+            text = self._chat(messages, temperature, max_tokens=max_tokens)  # raises on HTTP failure
             if not (text or "").strip():
                 last_error = "empty response"
             else:
@@ -215,6 +220,10 @@ class NvidiaEngine:
         messages: list[Any] = [
             {"role": "system", "content": SYSTEM_INSTRUCTION}
         ]
+        if document is None and data is None:
+            messages.append({"role": "user", "content": instruction})
+            return messages
+
         content: list[Any] = [{"type": "text", "text": instruction}]
 
         if document is not None:
@@ -309,7 +318,7 @@ class NvidiaEngine:
             raise EngineError(f"No pages found in {document.filename}.")
         return blocks
 
-    def _chat(self, messages: list[Any], temperature: float) -> str:
+    def _chat(self, messages: list[Any], temperature: float, max_tokens: int = 4096) -> str:
         import time
 
         try:
@@ -320,14 +329,17 @@ class NvidiaEngine:
                 "Install dependencies with: pip install -r requirements.txt"
             ) from exc
 
-        payload = {
+        payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
             "top_p": 0.7,
-            "max_tokens": 4096,
+            "max_tokens": max_tokens,
             "stream": False,
         }
+        if "glm" in self.model.lower():
+            payload["reasoning_effort"] = "low"
+
         headers = {"Authorization": f"Bearer {self.key}",
                    "Accept": "application/json"}
         _acquire_nvidia_token()
@@ -336,9 +348,15 @@ class NvidiaEngine:
             try:
                 resp = requests.post(NIM_ENDPOINT, headers=headers,
                                      json=payload, timeout=_NIM_TIMEOUT)
+            except requests.Timeout as exc:
+                if attempt == 0:
+                    time.sleep(1)
+                    _acquire_nvidia_token()
+                    continue
+                raise EngineError(f"NVIDIA API timed out after {_NIM_TIMEOUT}s: {exc}") from exc
             except requests.RequestException as exc:
                 if attempt == 0:
-                    time.sleep(3)
+                    time.sleep(2)
                     _acquire_nvidia_token()
                     continue
                 raise EngineError(f"NVIDIA API unreachable: {exc}") from exc
@@ -350,6 +368,16 @@ class NvidiaEngine:
                     raise EngineError(
                         "NVIDIA API returned an unexpected payload: "
                         f"{exc}") from exc
+            if resp.status_code in (400, 422) and "reasoning_effort" in payload:
+                del payload["reasoning_effort"]
+                try:
+                    _acquire_nvidia_token()
+                    resp = requests.post(NIM_ENDPOINT, headers=headers, json=payload, timeout=_NIM_TIMEOUT)
+                    if resp.status_code == 200:
+                        choice_msg = resp.json()["choices"][0]["message"]
+                        return (choice_msg.get("content") or choice_msg.get("reasoning_content") or "")
+                except Exception:
+                    pass
             if resp.status_code in (401, 403):
                 raise EngineError(
                     f"NVIDIA API rejected the key (HTTP {resp.status_code}). "
@@ -362,7 +390,7 @@ class NvidiaEngine:
                 )
             last = f"HTTP {resp.status_code}: {resp.text[:300]}"
             if resp.status_code in (429, 500, 502, 503, 504) and attempt == 0:
-                time.sleep(5)
+                time.sleep(3)
                 _acquire_nvidia_token()
                 continue
             if resp.status_code == 429:

@@ -483,34 +483,35 @@ def api_generate_exam():
     )
     try:
         engine = make_engine(model=_model(body), backend=_backend(body))
-        generated = engine.generate_json("generate_exam", instruction=instruction)
+        generated = engine.generate_json("generate_exam", instruction=instruction, max_tokens=2048, max_attempts=2)
     except Exception as exc:  # noqa: BLE001
-        if not _has_key():
-            per_q = round(marks / count, 1)
-            generated = {
-                "title": f"{topic} Examination",
-                "topic": topic,
-                "instructions": "Answer all questions. Show complete working steps.",
-                "total_marks": marks,
-                "questions": [
-                    {
-                        "number": f"Q{i}",
-                        "text": f"Explain the core principles of {topic} for problem {i}, detailing all necessary equations and steps.",
-                        "max_marks": per_q,
-                        "expected_answer": f"Model theoretical formulation and calculation for {topic} problem {i}.",
-                        "marking_scheme": f"Formula & definitions: {round(per_q*0.4, 1)}m; Calculation: {round(per_q*0.4, 1)}m; Final: {round(per_q*0.2, 1)}m.",
-                        "keywords": [topic.split()[0].lower(), "derivation", "formula"]
-                    }
-                    for i in range(1, count + 1)
-                ]
-            }
-            return jsonify({
-                "ok": True,
-                "exam": generated,
-                "model": "offline-template",
-                "note": "Generated with offline template; set NVIDIA_API_KEY in Vercel for live GLM 5.3 Flash generation."
-            })
-        return _api_error(exc)
+        per_q = round(marks / count, 1)
+        generated = {
+            "title": f"{topic} Examination",
+            "topic": topic,
+            "instructions": "Answer all questions. Show complete working steps.",
+            "total_marks": marks,
+            "questions": [
+                {
+                    "number": f"Q{i}",
+                    "text": f"Explain the core principles of {topic} for problem {i}, detailing all necessary equations and steps.",
+                    "max_marks": per_q,
+                    "expected_answer": f"Model theoretical formulation and calculation for {topic} problem {i}.",
+                    "marking_scheme": f"Formula & definitions: {round(per_q*0.4, 1)}m; Calculation: {round(per_q*0.4, 1)}m; Final: {round(per_q*0.2, 1)}m.",
+                    "keywords": [topic.split()[0].lower(), "derivation", "formula"]
+                }
+                for i in range(1, count + 1)
+            ]
+        }
+        note = (f"Generated with fallback template ({exc}); check NVIDIA NIM status."
+                if _has_key() else
+                "Generated with offline template; set NVIDIA_API_KEY in Vercel for live GLM 5.3 Flash generation.")
+        return jsonify({
+            "ok": True,
+            "exam": generated,
+            "model": "fallback-template" if _has_key() else "offline-template",
+            "note": note
+        })
     return jsonify({
         "ok": True,
         "exam": generated,
@@ -549,7 +550,7 @@ def api_generate_exam_question():
     instruction = (
         f"You are an expert exam author. Generate question {number} (problem {index} of {total}) on '{topic}' "
         f"for grade/level: '{grade}'. Total question marks: {marks:g}. Difficulty: {difficulty}. {context_hint}\n"
-        "Return STRICT JSON only matching this schema:\n"
+        "Be direct, concise, and return STRICT JSON only with no commentary, matching this schema:\n"
         "{\n"
         f'  "number": "{number}",\n'
         '  "text": "Clear, rigorous question text with all required formulas or context",\n'
@@ -561,7 +562,13 @@ def api_generate_exam_question():
     )
     try:
         engine = make_engine(model=_model(body), backend=_backend(body))
-        generated = engine.generate_json("generate_exam_question", instruction=instruction, temperature=0.6)
+        generated = engine.generate_json(
+            "generate_exam_question",
+            instruction=instruction,
+            temperature=0.6,
+            max_tokens=1024,
+            max_attempts=2,
+        )
         if isinstance(generated, dict) and "question" in generated and isinstance(generated["question"], dict):
             generated = generated["question"]
         if isinstance(generated, list) and generated and isinstance(generated[0], dict):
@@ -573,22 +580,23 @@ def api_generate_exam_question():
         if not isinstance(generated.get("keywords"), list):
             generated["keywords"] = [topic.split()[0].lower(), "solution"]
     except Exception as exc:  # noqa: BLE001
-        if not _has_key():
-            generated = {
-                "number": number,
-                "text": f"Explain the core principles of {topic} for problem {index}, detailing all necessary equations and steps.",
-                "max_marks": marks,
-                "expected_answer": f"Model theoretical formulation and calculation for {topic} problem {index}.",
-                "marking_scheme": f"Formula: {round(marks*0.4, 1)}m; Steps: {round(marks*0.4, 1)}m; Final: {round(marks*0.2, 1)}m.",
-                "keywords": [topic.split()[0].lower(), "derivation", "formula"]
-            }
-            return jsonify({
-                "ok": True,
-                "question": generated,
-                "model": "offline-template",
-                "note": "Generated with offline template; set NVIDIA_API_KEY in Vercel for live GLM 5.3 Flash generation."
-            })
-        return _api_error(exc)
+        generated = {
+            "number": number,
+            "text": f"Explain the core principles and solve problem {index} for {topic} ({grade}), detailing all necessary equations and steps.",
+            "max_marks": marks,
+            "expected_answer": f"Model theoretical formulation and calculation for {topic} problem {index}.",
+            "marking_scheme": f"Formula & definitions: {round(marks*0.4, 1)}m; Steps: {round(marks*0.4, 1)}m; Final: {round(marks*0.2, 1)}m.",
+            "keywords": [topic.split()[0].lower(), "derivation", "formula"]
+        }
+        note = (f"Generated with fallback template ({exc}); check NVIDIA NIM status."
+                if _has_key() else
+                "Generated with offline template; set NVIDIA_API_KEY in Vercel for live GLM 5.3 Flash generation.")
+        return jsonify({
+            "ok": True,
+            "question": generated,
+            "model": "fallback-template" if _has_key() else "offline-template",
+            "note": note
+        })
     return jsonify({
         "ok": True,
         "question": generated,
