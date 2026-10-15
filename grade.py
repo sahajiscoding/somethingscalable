@@ -176,7 +176,7 @@ def grade_answers(engine, aligned: list[AlignedQuestion],
     }
     raw = engine.generate_json("grade", data=payload,
                                instruction=build_prompt(params),
-                               temperature=0.1)
+                               temperature=0.1, max_tokens=1500)
 
     if isinstance(raw, dict):
         raw = raw.get("questions") or raw.get("results") or raw.get("grades")
@@ -208,15 +208,61 @@ _ALIGNED_FIELDS = ("number", "question", "max_marks", "expected_answer",
                    "uncertain_spans", "keywords", "page", "warnings")
 
 
-def grade_one_record(engine, aligned: dict,
-                     params: GradeParams | None = None) -> dict:
-    """Grade a single aligned question (split-pipeline server endpoint).
+def grade_batch(engine, aligned_list: list[AlignedQuestion],
+                params: GradeParams | None = None) -> list[dict]:
+    """Grade several aligned questions in ONE engine call.
 
-    ``aligned`` is one :meth:`AlignedQuestion.to_payload` dict, as returned
-    by ``/api/align``. Reuses :func:`grade_answers` so single-question and
-    full-batch grading stay identical.
+    Batching amortises the per-request overhead (TLS + Vercel cold start +
+    NVIDIA queueing) across questions: one 5-question call generating
+    ~2500 tokens is far quicker than five separate calls, and far fewer
+    concurrent requests means no 429s and no NVIDIA-side timeouts.
+    Output shape and normalisation are identical to :func:`grade_answers`.
     """
     params = params or GradeParams()
+    if not aligned_list:
+        return []
+    payload = {
+        "strict": params.strict,
+        "keyword_mode": params.keyword_mode,
+        "penalty_criteria": params.penalty_list,
+        "questions": [q.to_payload() for q in aligned_list],
+    }
+    # ~500 output tokens per question is generous; cap keeps generation
+    # short so the upstream server never idles into a read timeout.
+    max_tokens = min(1500 * max(1, len(aligned_list)), 6000)
+    raw = engine.generate_json("grade", data=payload,
+                               instruction=build_prompt(params),
+                               temperature=0.1, max_tokens=max_tokens)
+
+    if isinstance(raw, dict):
+        raw = raw.get("questions") or raw.get("results") or raw.get("grades")
+    if not isinstance(raw, list) or not raw:
+        raise GradingError("Grading engine returned no question records.")
+
+    by_number: dict[str, dict] = {}
+    for item in raw:
+        if isinstance(item, dict) and item.get("number") is not None:
+            by_number[str(item["number"]).strip()] = item
+
+    records: list[dict] = []
+    for q in aligned_list:
+        item = by_number.get(q.number)
+        if item is None:
+            item = next(
+                (v for k, v in by_number.items()
+                 if _loose(k) == _loose(q.number)),
+                None,
+            )
+        records.append(normalise_record(item, q, params))
+    return records
+
+
+def aligned_from_dict(aligned: dict) -> AlignedQuestion:
+    """Coerce one ``/api/align`` payload dict into an :class:`AlignedQuestion`.
+
+    Shared by :func:`grade_one_record` and the ``/api/grade-batch`` endpoint
+    so single-question and batched grading stay identical.
+    """
     question = {k: aligned.get(k) for k in _ALIGNED_FIELDS if k in aligned}
     question["number"] = str(question.get("number") or "?")
     if not isinstance(question.get("marking_scheme"), list):
@@ -227,7 +273,19 @@ def grade_one_record(engine, aligned: dict,
         question["keywords"] = []
     if not isinstance(question.get("warnings"), list):
         question["warnings"] = []
-    return grade_answers(engine, [AlignedQuestion(**question)], params)[0]
+    return AlignedQuestion(**question)
+
+
+def grade_one_record(engine, aligned: dict,
+                     params: GradeParams | None = None) -> dict:
+    """Grade a single aligned question (split-pipeline server endpoint).
+
+    ``aligned`` is one :meth:`AlignedQuestion.to_payload` dict, as returned
+    by ``/api/align``. Reuses :func:`grade_answers` so single-question and
+    full-batch grading stay identical.
+    """
+    params = params or GradeParams()
+    return grade_answers(engine, [aligned_from_dict(aligned)], params)[0]
 
 
 def normalise_record(item: dict | None, q: AlignedQuestion,

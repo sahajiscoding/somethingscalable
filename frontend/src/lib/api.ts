@@ -232,24 +232,24 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
   input.onStage?.(3);
   input.onQuestionsAligned?.(aligned.aligned);
 
-  // Stage 3 — grade one question per call (short enough for capped hosts, bypasses Vercel 60s timeout).
-  // Strictly rate-limited to 39 requests per minute.
-  // Initial burst allows 39 questions to start concurrently; subsequent questions wait for 60s rolling window.
-  // As each question request returns from the server, its output is streamed immediately.
+  // Stage 3 — grade in small batches (up to 5 questions per LLM call).
+  // One batched call replaces up to 5 round trips (TLS + server + NVIDIA
+  // overhead each), and only 3 batches run at once, so full papers finish
+  // in a fraction of the time with no 429 storms and no NVIDIA-side
+  // timeouts. A batch that fails twice falls back to /api/grade-one per
+  // question, so progress is never lost.
   const totalQuestions = aligned.aligned.length;
   const records: GradeRecord[] = new Array(totalQuestions);
   const completedRecords: (GradeRecord | null)[] = new Array(totalQuestions).fill(null);
   const rateLimiter = new RateLimiter(39, 60_000);
+  const BATCH_SIZE = 5;
+  const BATCH_CONCURRENCY = 3;
 
-  const gradingPromises = aligned.aligned.map(async (q, idx) => {
+  async function gradeSingle(q: AlignedQuestion, idx: number): Promise<GradeRecord> {
     await rateLimiter.acquire();
-    input.onQuestionStart?.(q.number, idx, totalQuestions);
-
-    let attempts = 0;
     let lastErr: unknown;
-    while (attempts < 3) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        attempts++;
         const data = await apiJson<{ record: GradeRecord }>('/api/grade-one', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -264,23 +264,78 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
         completedRecords[idx] = data.record;
         input.onQuestionDone?.(data.record, idx, totalQuestions, completedRecords);
         return data.record;
-      } catch (err: any) {
+      } catch (err: unknown) {
         lastErr = err;
-        const msg = String(err?.message || err);
+        const msg = String((err as Error)?.message || err);
+        if (msg.includes('504')) break;
         const is429 = msg.includes('429') || msg.toLowerCase().includes('rate');
-        if (msg.includes('504')) {
-          break;
-        }
-        if (attempts < 2) {
+        if (attempt < 2) {
           await new Promise(r => setTimeout(r, is429 ? 3000 : 1000));
           await rateLimiter.acquire();
         }
       }
     }
     throw lastErr;
-  });
+  }
 
-  await Promise.all(gradingPromises);
+  async function gradeBatch(batch: AlignedQuestion[], baseIdx: number): Promise<void> {
+    batch.forEach((q, i) => input.onQuestionStart?.(q.number, baseIdx + i, totalQuestions));
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await rateLimiter.acquire();
+        const data = await apiJson<{ records: GradeRecord[] }>('/api/grade-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            questions: batch,
+            strict: input.strict,
+            penalties: input.penalties,
+            model: usedModel,
+          }),
+        });
+        if (!Array.isArray(data.records) || data.records.length !== batch.length) {
+          throw new Error('batch returned an unexpected shape');
+        }
+        data.records.forEach((rec, i) => {
+          records[baseIdx + i] = rec;
+          completedRecords[baseIdx + i] = rec;
+          input.onQuestionDone?.(rec, baseIdx + i, totalQuestions, completedRecords);
+        });
+        return;
+      } catch (err: unknown) {
+        lastErr = err;
+        const msg = String((err as Error)?.message || err);
+        if (msg.includes('504')) break;
+        const is429 = msg.includes('429') || msg.toLowerCase().includes('rate');
+        await new Promise(r => setTimeout(r, is429 ? 3000 : 1000));
+      }
+    }
+    // Batch failed twice — grade its questions one by one so a single bad
+    // batch never loses marks.
+    try {
+      for (let i = 0; i < batch.length; i++) {
+        await gradeSingle(batch[i], baseIdx + i);
+      }
+    } catch (err: unknown) {
+      throw lastErr ?? err;
+    }
+  }
+
+  // Bounded worker pool: at most BATCH_CONCURRENCY batches in flight.
+  const batches: { batch: AlignedQuestion[]; baseIdx: number }[] = [];
+  for (let i = 0; i < totalQuestions; i += BATCH_SIZE) {
+    batches.push({ batch: aligned.aligned.slice(i, i + BATCH_SIZE), baseIdx: i });
+  }
+  let nextBatch = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(BATCH_CONCURRENCY, batches.length) }, async () => {
+      while (nextBatch < batches.length) {
+        const job = batches[nextBatch++];
+        await gradeBatch(job.batch, job.baseIdx);
+      }
+    }),
+  );
   input.onStage?.(4);
 
   // Stage 4 — assemble the canonical report (instant, no AI).

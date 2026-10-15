@@ -243,7 +243,7 @@ function vmFromPartialLive(
     mode: strict ? 'Strict' : 'Standard',
     critCountText: `${activeCrit.length} penalty criteria active`,
     sub: inProgress
-      ? `Live evaluation in progress with GLM 5.3 Flash — ${done.length} of ${totalExpected} questions evaluated (39 RPM limit active). Outputs appear below in real time as requests return from server.`
+      ? `Live evaluation in progress with GLM 5.3 Flash — ${done.length} of ${totalExpected} questions evaluated (batched checking, 5 per request). Outputs appear below in real time as batches return from server.`
       : `Live AI evaluation complete — ${fmt(awarded)} of ${fmt(total)} marks across ${done.length} questions.`,
     impact,
     contentExtra,
@@ -800,7 +800,7 @@ export default function Grading(props: GradingProps) {
           else setStage({ done: s, active: s });
         },
         onQuestionsAligned: qs => {
-          setRunLabel(`Checking ${Math.min(39, qs.length)} of ${qs.length} questions at once (39 RPM limit)…`);
+          setRunLabel(`Checking ${qs.length} questions in batches of 5 (3 at a time)…`);
         },
         onQuestionDone: (_record, _idx, total, allGraded) => {
           const completedCount = allGraded.filter(Boolean).length;

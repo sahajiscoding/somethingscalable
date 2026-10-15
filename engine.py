@@ -35,8 +35,15 @@ from typing import Any
 NIM_ENDPOINT = os.environ.get(
     "NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
 NVIDIA_DEFAULT_MODEL = os.environ.get("NVIDIA_MODEL", "z-ai/glm-5.3-flash")
-# Per-request HTTP timeout: None (completely removed, wait indefinitely)
-_NIM_TIMEOUT = None
+# Per-request HTTP timeout (seconds): fail fast instead of hanging until the
+# host kills the function. A hung NVIDIA call is retried against the fallback
+# model / next attempt rather than blocking grading for minutes. Override
+# with NVIDIA_TIMEOUT (read timeout). Connect timeout stays short (10 s).
+try:
+    _NIM_TIMEOUT = int(float(str(os.environ.get("NVIDIA_TIMEOUT", "55"))))
+except ValueError:
+    _NIM_TIMEOUT = 55
+_NIM_CONNECT_TIMEOUT = 10
 # Rendered-PDF page cap — supports real-world exam papers with 20, 30, 50+ pages.
 _NVIDIA_MAX_PDF_PAGES = int(os.environ.get("MAX_PDF_PAGES", "80"))
 
@@ -369,8 +376,12 @@ class NvidiaEngine:
                     NIM_ENDPOINT,
                     headers=headers,
                     json=payload,
-                    timeout=None,
+                    timeout=(_NIM_CONNECT_TIMEOUT, _NIM_TIMEOUT),
                 )
+            except requests.Timeout as exc:
+                last = (f"Timed out after {_NIM_TIMEOUT}s on {candidate_model} "
+                        f"(NVIDIA took too long): {exc}")
+                continue
             except requests.RequestException as exc:
                 last = f"Network error on {candidate_model}: {exc}"
                 continue

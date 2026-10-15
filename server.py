@@ -14,6 +14,8 @@ orchestrates them and falls back to its offline demo when unreachable::
     POST /api/extract    -> one document (multipart file+role) -> JSON
     POST /api/align      -> extraction JSON -> aligned questions (pure code)
     POST /api/grade-one  -> one aligned question -> one graded record
+    POST /api/grade-batch -> up to 10 aligned questions -> graded records
+                          (one LLM call; preferred - far fewer requests)
     POST /api/report     -> records + meta -> full report + markdown
 
 Local dev: put keys in ``.env``, then ``python server.py``.
@@ -57,7 +59,13 @@ from extract import (  # noqa: E402
     extract_paper,
     extract_student,
 )
-from grade import GradeParams, grade_one_record, summarise  # noqa: E402
+from grade import (  # noqa: E402
+    GradeParams,
+    aligned_from_dict,
+    grade_batch,
+    grade_one_record,
+    summarise,
+)
 from ingest import IngestError, load_document  # noqa: E402
 from report import build_report, render_markdown  # noqa: E402
 
@@ -424,6 +432,36 @@ def api_grade_one():
     except Exception as exc:  # noqa: BLE001 - mapped to JSON below
         return _api_error(exc)
     return jsonify({"record": record})
+
+
+@app.post("/api/grade-batch")
+def api_grade_batch():
+    """Grade a small batch of aligned questions in ONE LLM call.
+
+    Preferred over repeated ``/api/grade-one`` calls: one batched request
+    replaces up to 10 round trips (TLS + Vercel + NVIDIA overhead each),
+    so full papers finish in a fraction of the time with far less
+    rate-limit / timeout pressure. Falls back to ``/api/grade-one``
+    per question if a batch ever fails.
+    """
+    body = request.get_json(silent=True) or {}
+    questions = body.get("questions") or []
+    if not isinstance(questions, list) or not questions:
+        return jsonify({"error": "questions (non-empty list) is required."}), 400
+    if len(questions) > 10:
+        return jsonify({
+            "error": "Batch too large - send at most 10 questions per batch."}), 400
+    for q in questions:
+        if not isinstance(q, dict) or not q.get("number"):
+            return jsonify(
+                {"error": "Every batched question needs a number."}), 400
+    try:
+        engine = make_engine(model=_model(body), backend=_backend(body))
+        aligned = [aligned_from_dict(q) for q in questions]
+        records = grade_batch(engine, aligned, _params(body))
+    except Exception as exc:  # noqa: BLE001 - mapped to JSON below
+        return _api_error(exc)
+    return jsonify({"records": records})
 
 
 @app.post("/api/report")

@@ -18,6 +18,7 @@ deductions, reasoning) downloadable as JSON and Markdown.
   data: {questions|entries|answers}}`
 - `POST /api/align` (JSON: paper/key/student extraction lists, documents) →
   `{aligned, warnings, documents, model}`
+- `POST /api/grade-batch` (JSON: questions[<=10], strict, penalties, model)
 - `POST /api/grade-one` (JSON: question, strict, penalties, model) → `{record}`
 - `POST /api/report` (JSON: records, documents, strict, penalties, warnings,
   engine, model) → `{report, markdown}`
