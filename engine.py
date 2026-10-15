@@ -319,9 +319,6 @@ class NvidiaEngine:
         return blocks
 
     def _chat(self, messages: list[Any], temperature: float, max_tokens: int = 4096) -> str:
-        import json
-        import time
-
         try:
             import requests
         except ImportError as exc:
@@ -330,98 +327,64 @@ class NvidiaEngine:
                 "Install dependencies with: pip install -r requirements.txt"
             ) from exc
 
-        payload: dict[str, Any] = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": temperature,
-            "top_p": 1.0,
-            "max_tokens": max_tokens,
-            "stream": True,
-        }
-
         headers = {
             "Authorization": f"Bearer {self.key}",
-            "Accept": "text/event-stream",
+            "Accept": "application/json",
             "Content-Type": "application/json",
         }
-        _acquire_nvidia_token()
+
+        # Try user's requested model first; if it takes >14s or fails, fall back to ultra-fast DeepSeek V4.1 Flash
+        models_to_try = [self.model]
+        if self.model == "z-ai/glm-5.3-flash":
+            models_to_try.append("deepseek-ai/deepseek-v4.1-flash")
+
         last = "no response"
-        for attempt in range(2):
+        for candidate_model in models_to_try:
+            payload: dict[str, Any] = {
+                "model": candidate_model,
+                "messages": messages,
+                "temperature": temperature,
+                "top_p": 0.7,
+                "max_tokens": max_tokens,
+                "stream": False,
+            }
+            _acquire_nvidia_token()
+            timeout_sec = 14 if candidate_model == self.model else 8
             try:
                 resp = requests.post(
                     NIM_ENDPOINT,
                     headers=headers,
                     json=payload,
-                    timeout=(10, _NIM_TIMEOUT),
-                    stream=True,
+                    timeout=timeout_sec,
                 )
             except requests.Timeout as exc:
-                if attempt == 0:
-                    time.sleep(1)
-                    _acquire_nvidia_token()
-                    continue
-                raise EngineError(f"NVIDIA API timed out: {exc}") from exc
+                last = f"Timeout ({timeout_sec}s) on {candidate_model}: {exc}"
+                continue
             except requests.RequestException as exc:
-                if attempt == 0:
-                    time.sleep(2)
-                    _acquire_nvidia_token()
-                    continue
-                raise EngineError(f"NVIDIA API unreachable: {exc}") from exc
+                last = f"Network error on {candidate_model}: {exc}"
+                continue
+
             if resp.status_code == 200:
-                content_parts: list[str] = []
-                reasoning_parts: list[str] = []
-                start_read = time.monotonic()
                 try:
-                    for raw_line in resp.iter_lines():
-                        if (time.monotonic() - start_read) > 45:
-                            break
-                        if not raw_line:
-                            continue
-                        line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
-                        if line.startswith("data: "):
-                            data_content = line[6:].strip()
-                            if data_content == "[DONE]":
-                                break
-                            try:
-                                chunk = json.loads(data_content)
-                                delta = chunk["choices"][0].get("delta", {})
-                                if delta.get("content"):
-                                    content_parts.append(delta["content"])
-                                if delta.get("reasoning_content"):
-                                    reasoning_parts.append(delta["reasoning_content"])
-                            except Exception:
-                                continue
-                except Exception as exc:
-                    if not content_parts and not reasoning_parts:
-                        raise EngineError(f"Error streaming response from NVIDIA NIM: {exc}") from exc
-
-                text = "".join(content_parts).strip() or "".join(reasoning_parts).strip()
-                if text:
-                    return text
-                raise EngineError("NVIDIA API returned an empty stream response.")
-
-            if resp.status_code in (401, 403):
+                    choice_msg = resp.json()["choices"][0]["message"]
+                    text = choice_msg.get("content") or choice_msg.get("reasoning_content") or ""
+                    if text.strip():
+                        return text
+                except (KeyError, IndexError, TypeError):
+                    pass
+            elif resp.status_code in (401, 403):
                 raise EngineError(
                     f"NVIDIA API rejected the key (HTTP {resp.status_code}). "
                     "Check NVIDIA_API_KEY."
                 )
-            if resp.status_code == 404:
-                raise EngineError(
-                    f"NVIDIA API has no model '{self.model}' (HTTP 404). "
-                    "Set NVIDIA_MODEL to a hosted NIM id."
-                )
-            last = f"HTTP {resp.status_code}: {resp.text[:300]}"
-            if resp.status_code in (429, 500, 502, 503, 504) and attempt == 0:
-                time.sleep(3)
-                _acquire_nvidia_token()
-                continue
-            if resp.status_code == 429:
+            elif resp.status_code == 429:
                 raise EngineError(
                     "NVIDIA API rate limit (HTTP 429) — the free tier allows "
                     "~40 req/min. Wait a moment and retry."
                 )
-            raise EngineError(f"NVIDIA API call failed: {last}")
-        raise EngineError(f"NVIDIA API call failed after retry: {last}")
+            last = f"HTTP {resp.status_code} on {candidate_model}: {resp.text[:200]}"
+
+        raise EngineError(f"NVIDIA API call failed: {last}")
 
 
 # ---------------------------------------------------------------------------
