@@ -308,12 +308,12 @@ export function getAdaptivePdfProfile(numPages: number, targetBytes: number) {
     return { dpi: 105, quality: 0.65, maxDim: 1250, perPageBudget };
   }
   if (safePages <= 30) {
-    return { dpi: 92, quality: 0.60, maxDim: 1100, perPageBudget };
+    return { dpi: 88, quality: 0.58, maxDim: 1050, perPageBudget };
   }
   if (safePages <= 45) {
-    return { dpi: 80, quality: 0.52, maxDim: 950, perPageBudget };
+    return { dpi: 78, quality: 0.50, maxDim: 920, perPageBudget };
   }
-  return { dpi: 70, quality: 0.46, maxDim: 850, perPageBudget };
+  return { dpi: 68, quality: 0.44, maxDim: 820, perPageBudget };
 }
 
 /** Compress a PDF file with adaptive page scaling to guarantee fitting upload caps */
@@ -351,56 +351,66 @@ export async function compressPdf(file: File, options?: CompressOptions): Promis
         onProgress?.(20, `Optimizing ${numPages} page${numPages > 1 ? 's' : ''} (adaptive ${targetDpi} DPI, ~${Math.round(profile.perPageBudget / 1024)} KB/page)…`);
         const newPdfDoc = await PDFDocument.create();
 
-        for (let i = 1; i <= numPages; i++) {
-          const page = await pdfDoc.getPage(i);
-          // Scale from DPI (72 pt per inch)
-          let scale = targetDpi / 72;
-          let viewport = page.getViewport({ scale });
-          const maxDimCur = Math.max(viewport.width, viewport.height);
-          if (maxDimCur > maxDim) {
-            scale = scale * (maxDim / maxDimCur);
-            viewport = page.getViewport({ scale });
+        const CHUNK_SIZE = 3;
+        for (let chunkStart = 1; chunkStart <= numPages; chunkStart += CHUNK_SIZE) {
+          const pageNumbers: number[] = [];
+          for (let p = chunkStart; p < Math.min(numPages + 1, chunkStart + CHUNK_SIZE); p++) {
+            pageNumbers.push(p);
           }
 
-          const canvas = document.createElement('canvas');
-          canvas.width = Math.round(viewport.width);
-          canvas.height = Math.round(viewport.height);
-          const ctx = canvas.getContext('2d', { alpha: false });
-
-          if (ctx) {
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-            ctx.fillStyle = '#FFFFFF';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            await page.render({ canvasContext: ctx, viewport }).promise;
-
-            let curQuality = targetQuality;
-            let blob = await canvasToBlob(canvas, 'image/jpeg', curQuality);
-
-            // If page is larger than perPageBudget * 1.25, step down quality
-            if (blob && blob.size > profile.perPageBudget * 1.25 && curQuality > 0.45) {
-              curQuality = Math.max(0.40, curQuality - 0.14);
-              blob = await canvasToBlob(canvas, 'image/jpeg', curQuality);
-            }
-
-            // If still over budget, downscale canvas slightly
-            if (blob && blob.size > profile.perPageBudget * 1.3 && Math.max(canvas.width, canvas.height) > 650) {
-              const halfCanvas = document.createElement('canvas');
-              halfCanvas.width = Math.round(canvas.width * 0.8);
-              halfCanvas.height = Math.round(canvas.height * 0.8);
-              const hCtx = halfCanvas.getContext('2d', { alpha: false });
-              if (hCtx) {
-                hCtx.fillStyle = '#FFFFFF';
-                hCtx.fillRect(0, 0, halfCanvas.width, halfCanvas.height);
-                hCtx.drawImage(canvas, 0, 0, halfCanvas.width, halfCanvas.height);
-                blob = await canvasToBlob(halfCanvas, 'image/jpeg', Math.max(0.38, curQuality - 0.05));
+          const renderedPages = await Promise.all(
+            pageNumbers.map(async (pageNum) => {
+              const page = await pdfDoc.getPage(pageNum);
+              let scale = targetDpi / 72;
+              let viewport = page.getViewport({ scale });
+              const maxDimCur = Math.max(viewport.width, viewport.height);
+              if (maxDimCur > maxDim) {
+                scale = scale * (maxDim / maxDimCur);
+                viewport = page.getViewport({ scale });
               }
-            }
 
-            if (blob) {
-              const jpgBytes = new Uint8Array(await blob.arrayBuffer());
+              const canvas = document.createElement('canvas');
+              canvas.width = Math.round(viewport.width);
+              canvas.height = Math.round(viewport.height);
+              const ctx = canvas.getContext('2d', { alpha: false });
+              if (!ctx) return { pageNum, blob: null, view: page.view };
+
+              ctx.imageSmoothingEnabled = true;
+              ctx.imageSmoothingQuality = numPages > 8 ? 'medium' : 'high';
+              ctx.fillStyle = '#FFFFFF';
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+              await page.render({ canvasContext: ctx, viewport }).promise;
+
+              let curQuality = targetQuality;
+              let blob = await canvasToBlob(canvas, 'image/jpeg', curQuality);
+
+              if (blob && blob.size > profile.perPageBudget * 1.25 && curQuality > 0.45) {
+                curQuality = Math.max(0.40, curQuality - 0.14);
+                blob = await canvasToBlob(canvas, 'image/jpeg', curQuality);
+              }
+
+              if (blob && blob.size > profile.perPageBudget * 1.3 && Math.max(canvas.width, canvas.height) > 650) {
+                const halfCanvas = document.createElement('canvas');
+                halfCanvas.width = Math.round(canvas.width * 0.8);
+                halfCanvas.height = Math.round(canvas.height * 0.8);
+                const hCtx = halfCanvas.getContext('2d', { alpha: false });
+                if (hCtx) {
+                  hCtx.fillStyle = '#FFFFFF';
+                  hCtx.fillRect(0, 0, halfCanvas.width, halfCanvas.height);
+                  hCtx.drawImage(canvas, 0, 0, halfCanvas.width, halfCanvas.height);
+                  blob = await canvasToBlob(halfCanvas, 'image/jpeg', Math.max(0.38, curQuality - 0.05));
+                }
+              }
+
+              return { pageNum, blob, view: page.view };
+            })
+          );
+
+          for (const item of renderedPages) {
+            if (item.blob) {
+              const jpgBytes = new Uint8Array(await item.blob.arrayBuffer());
               const embeddedJpg = await newPdfDoc.embedJpg(jpgBytes);
-              const pdfPage = newPdfDoc.addPage([page.view[2] || embeddedJpg.width, page.view[3] || embeddedJpg.height]);
+              const pdfPage = newPdfDoc.addPage([item.view[2] || embeddedJpg.width, item.view[3] || embeddedJpg.height]);
               pdfPage.drawImage(embeddedJpg, {
                 x: 0,
                 y: 0,
@@ -410,8 +420,9 @@ export async function compressPdf(file: File, options?: CompressOptions): Promis
             }
           }
 
-          const pct = 20 + Math.round((i / numPages) * 70);
-          onProgress?.(pct, `Processed page ${i} of ${numPages}…`);
+          const processedCount = Math.min(chunkStart + CHUNK_SIZE - 1, numPages);
+          const pct = 20 + Math.round((processedCount / numPages) * 70);
+          onProgress?.(pct, `Processed page ${processedCount} of ${numPages}…`);
         }
 
         onProgress?.(92, 'Packaging optimized PDF…');

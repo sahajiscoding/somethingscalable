@@ -59,13 +59,7 @@ from extract import (  # noqa: E402
     extract_paper,
     extract_student,
 )
-from grade import (  # noqa: E402
-    GradeParams,
-    aligned_from_dict,
-    grade_batch,
-    grade_one_record,
-    summarise,
-)
+from grade import GradeParams, grade_batch_records, grade_one_record, summarise  # noqa: E402
 from ingest import IngestError, load_document  # noqa: E402
 from report import build_report, render_markdown  # noqa: E402
 
@@ -439,10 +433,9 @@ def api_grade_batch():
     """Grade a small batch of aligned questions in ONE LLM call.
 
     Preferred over repeated ``/api/grade-one`` calls: one batched request
-    replaces up to 10 round trips (TLS + Vercel + NVIDIA overhead each),
-    so full papers finish in a fraction of the time with far less
-    rate-limit / timeout pressure. Falls back to ``/api/grade-one``
-    per question if a batch ever fails.
+    replaces up to 10 round trips, so full papers finish in a fraction of
+    the time with far less rate-limit / timeout pressure. A failed batch
+    falls back to ``/api/grade-one`` per question.
     """
     body = request.get_json(silent=True) or {}
     questions = body.get("questions") or []
@@ -457,8 +450,7 @@ def api_grade_batch():
                 {"error": "Every batched question needs a number."}), 400
     try:
         engine = make_engine(model=_model(body), backend=_backend(body))
-        aligned = [aligned_from_dict(q) for q in questions]
-        records = grade_batch(engine, aligned, _params(body))
+        records = grade_batch_records(engine, questions, _params(body))
     except Exception as exc:  # noqa: BLE001 - mapped to JSON below
         return _api_error(exc)
     return jsonify({"records": records})

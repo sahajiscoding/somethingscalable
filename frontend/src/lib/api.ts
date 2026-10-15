@@ -150,21 +150,28 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
     typeof window !== 'undefined' &&
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
-  for (const role of roles) {
-    if (files[role] && files[role].size > 3_500_000) {
-      const res = await compressMediaIfNeeded(files[role]);
-      if (res.compressed) {
-        files[role] = res.file;
-      }
-      // If still oversize on hosted Vercel, attempt aggressive pass targeted for multi-page documents
-      if (!isLocal && files[role] && files[role].size > 4_200_000) {
-        const fallback = await compressMediaIfNeeded(files[role], 3_000_000);
-        if (fallback.compressed) {
-          files[role] = fallback.file;
+  // Compress in parallel across documents if needed
+  await Promise.all(
+    roles.map(async role => {
+      if (!files[role]) return;
+      // On localhost, Flask accepts up to 25 MB directly, so don't compress unless > 20 MB.
+      // On remote/Vercel hosts, compress if > 3.5 MB to stay comfortably under the 4.5 MB gateway limit.
+      const threshold = isLocal ? 20_000_000 : 3_500_000;
+      if (files[role].size > threshold) {
+        const res = await compressMediaIfNeeded(files[role]);
+        if (res.compressed) {
+          files[role] = res.file;
+        }
+        // If still oversize on hosted Vercel, attempt aggressive pass targeted for multi-page documents
+        if (!isLocal && files[role] && files[role].size > 4_200_000) {
+          const fallback = await compressMediaIfNeeded(files[role], 3_000_000);
+          if (fallback.compressed) {
+            files[role] = fallback.file;
+          }
         }
       }
-    }
-  }
+    })
+  );
   const maxBytes = isLocal ? 25_000_000 : 4_500_000;
   const oversize = Object.entries(files).find(([, f]) => f && f.size > maxBytes);
   if (oversize) {
@@ -231,19 +238,20 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
   const usedModel = aligned.model;
   input.onStage?.(3);
   input.onQuestionsAligned?.(aligned.aligned);
-
-  // Stage 3 — grade in small batches (up to 5 questions per LLM call).
-  // One batched call replaces up to 5 round trips (TLS + server + NVIDIA
-  // overhead each), and only 3 batches run at once, so full papers finish
-  // in a fraction of the time with no 429 storms and no NVIDIA-side
-  // timeouts. A batch that fails twice falls back to /api/grade-one per
-  // question, so progress is never lost.
+  // Stage 3 — grade in small batches (4 questions per LLM call, 2 batches
+  // at a time). One batched call replaces 4 round trips (TLS + server +
+  // NVIDIA overhead each), so papers finish in seconds with no 429 storms
+  // and no NVIDIA-side timeouts. Results stream in as each batch returns;
+  // a batch that fails falls back to /api/grade-one per question, so
+  // progress is never lost.
   const totalQuestions = aligned.aligned.length;
   const records: GradeRecord[] = new Array(totalQuestions);
   const completedRecords: (GradeRecord | null)[] = new Array(totalQuestions).fill(null);
   const rateLimiter = new RateLimiter(39, 60_000);
-  const BATCH_SIZE = 5;
-  const BATCH_CONCURRENCY = 3;
+  const BATCH_SIZE = 4;
+  const BATCH_CONCURRENCY = 2;
+
+  const normKey = (v: unknown) => String(v ?? '').trim().toLowerCase();
 
   async function gradeSingle(q: AlignedQuestion, idx: number): Promise<GradeRecord> {
     await rateLimiter.acquire();
@@ -294,14 +302,30 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
             model: usedModel,
           }),
         });
-        if (!Array.isArray(data.records) || data.records.length !== batch.length) {
+        if (!Array.isArray(data.records) || data.records.length === 0) {
           throw new Error('batch returned an unexpected shape');
         }
-        data.records.forEach((rec, i) => {
-          records[baseIdx + i] = rec;
-          completedRecords[baseIdx + i] = rec;
-          input.onQuestionDone?.(rec, baseIdx + i, totalQuestions, completedRecords);
+        // Tolerant matching: the model may reorder or restyle numbers, so
+        // match by normalised number first and position second. Anything
+        // still unmatched is graded individually below.
+        const byNumber = new Map<string, GradeRecord>();
+        data.records.forEach(r => {
+          if (r && r.number != null) byNumber.set(normKey(r.number), r);
         });
+        const missing: number[] = [];
+        batch.forEach((q, i) => {
+          const rec = byNumber.get(normKey(q.number)) ?? data.records[i];
+          if (rec) {
+            records[baseIdx + i] = rec;
+            completedRecords[baseIdx + i] = rec;
+            input.onQuestionDone?.(rec, baseIdx + i, totalQuestions, completedRecords);
+          } else {
+            missing.push(i);
+          }
+        });
+        for (const i of missing) {
+          await gradeSingle(batch[i], baseIdx + i);
+        }
         return;
       } catch (err: unknown) {
         lastErr = err;
@@ -315,7 +339,9 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
     // batch never loses marks.
     try {
       for (let i = 0; i < batch.length; i++) {
-        await gradeSingle(batch[i], baseIdx + i);
+        if (!completedRecords[baseIdx + i]) {
+          await gradeSingle(batch[i], baseIdx + i);
+        }
       }
     } catch (err: unknown) {
       throw lastErr ?? err;

@@ -174,9 +174,12 @@ def grade_answers(engine, aligned: list[AlignedQuestion],
         "penalty_criteria": params.penalty_list,
         "questions": [q.to_payload() for q in aligned],
     }
+    # Scale the output budget with batch size: one question needs ~1500
+    # tokens; the CLI whole-paper path keeps its historic headroom.
+    max_tokens = min(1500 * max(1, len(aligned)), 8192)
     raw = engine.generate_json("grade", data=payload,
                                instruction=build_prompt(params),
-                               temperature=0.1, max_tokens=1500)
+                               temperature=0.1, max_tokens=max_tokens)
 
     if isinstance(raw, dict):
         raw = raw.get("questions") or raw.get("results") or raw.get("grades")
@@ -286,6 +289,22 @@ def grade_one_record(engine, aligned: dict,
     """
     params = params or GradeParams()
     return grade_answers(engine, [aligned_from_dict(aligned)], params)[0]
+
+
+def grade_batch_records(engine, aligned_list: list[dict],
+                        params: GradeParams | None = None) -> list[dict]:
+    """Grade a batch of aligned questions in a single LLM call.
+
+    ``aligned_list`` is a list of :meth:`AlignedQuestion.to_payload` dicts,
+    as returned by ``/api/align``. Thin wrapper over :func:`grade_batch`
+    so the endpoint accepts raw payloads while sharing one code path.
+    """
+    params = params or GradeParams()
+    questions = [aligned_from_dict(a) for a in aligned_list
+                 if isinstance(a, dict)]
+    if not questions:
+        return []
+    return grade_batch(engine, questions, params)
 
 
 def normalise_record(item: dict | None, q: AlignedQuestion,

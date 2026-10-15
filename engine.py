@@ -780,7 +780,7 @@ def make_engine(api_key: str | None = None,
     using the API key configured in Vercel/environment (``NVIDIA_API_KEY``)
     or provided explicitly.
     """
-    if mock:
+    if mock or backend == "mock":
         return MockEngine(model=model)
     if backend not in (None, "nvidia"):
         raise EngineError(

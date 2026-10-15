@@ -800,7 +800,7 @@ export default function Grading(props: GradingProps) {
           else setStage({ done: s, active: s });
         },
         onQuestionsAligned: qs => {
-          setRunLabel(`Checking ${qs.length} questions in batches of 5 (3 at a time)…`);
+          setRunLabel(`Checking ${qs.length} questions in batches of 4 (2 at a time)\u2026`);
         },
         onQuestionDone: (_record, _idx, total, allGraded) => {
           const completedCount = allGraded.filter(Boolean).length;
