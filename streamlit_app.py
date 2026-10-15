@@ -34,7 +34,7 @@ from pipeline import SessionError, run_session, write_reports
 
 PAGE_ICON = "📝"
 MODEL_OPTIONS = [
-    "moonshotai/kimi-k3",                  # NVIDIA NIM (default Kimi model, needs nvapi- key)
+    "z-ai/glm-5.3-flash",                  # NVIDIA NIM (default GLM 5.3 Flash model, needs nvapi- key)
     "meta/llama-3.2-11b-vision-instruct",  # NVIDIA NIM
     "meta/llama-3.2-90b-vision-instruct",  # NVIDIA NIM, larger + slower
 ]

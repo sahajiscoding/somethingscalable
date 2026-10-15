@@ -30,11 +30,11 @@ from typing import Any
 # (Model default lives below as NVIDIA_DEFAULT_MODEL.)
 
 # NVIDIA NIM (OpenAI-compatible chat-completions endpoint) —
-# Kimi-K3 (moonshotai/kimi-k3) reads the pages and grades (native vision + JSON).
+# GLM 5.3 Flash (z-ai/glm-5.3-flash) reads the pages and grades (native vision + JSON).
 # Override the model with NVIDIA_MODEL; any vision-capable NIM id works.
 NIM_ENDPOINT = os.environ.get(
     "NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
-NVIDIA_DEFAULT_MODEL = os.environ.get("NVIDIA_MODEL", "moonshotai/kimi-k3")
+NVIDIA_DEFAULT_MODEL = os.environ.get("NVIDIA_MODEL", "z-ai/glm-5.3-flash")
 # Per-request HTTP timeout; Vercel kills functions at 60 s wall time, so this
 # stays just under it and failures come back as clean errors, not hangs.
 _NIM_TIMEOUT = 55
@@ -157,9 +157,9 @@ class EngineError(RuntimeError):
 class NvidiaEngine:
     """Vision + grading through NVIDIA NIM (api.nvidia.com).
 
-    Kimi-K3 (moonshotai/kimi-k3) reads the pages and grades (native vision + JSON),
+    GLM 5.3 Flash (z-ai/glm-5.3-flash) reads the pages and grades (native vision + JSON),
     HTTP via ``requests``. The key comes from ``NVIDIA_API_KEY`` (or aliases
-    like MOONSHOT_API_KEY / KIMI_API_KEY) configured in Vercel or environment.
+    like NIM_API_KEY / NV_API_KEY) configured in Vercel or environment.
 
     Images go over as base64 data-URL blocks. PDF pages are rendered to PNG
     with PyMuPDF (digital pages with enough embedded text ride along as
@@ -640,7 +640,7 @@ class MockEngine:
 def _parse_json(text: str) -> tuple[Any | None, str]:
     """Parse JSON from a model reply, tolerating reasoning tokens (<think>), fences, and prose."""
     candidate = text.strip()
-    # Strip reasoning tags often output by reasoning models like Kimi-K3
+    # Strip reasoning tags often output by reasoning models like GLM 5.3 Flash
     candidate = re.sub(r"<think>[\s\S]*?</think>", "", candidate).strip()
 
     # Try direct parse
@@ -736,7 +736,7 @@ def make_engine(api_key: str | None = None,
                 backend: str | None = None):
     """Factory used by the CLI, test runners, Streamlit app and API.
 
-    NVIDIA NIM only (``moonshotai/kimi-k3``) for checking papers,
+    NVIDIA NIM only (``z-ai/glm-5.3-flash``) for checking papers,
     using the API key configured in Vercel/environment (``NVIDIA_API_KEY``)
     or provided explicitly.
     """
@@ -746,6 +746,8 @@ def make_engine(api_key: str | None = None,
         raise EngineError(
             f"Unknown backend {backend!r}: this build supports NVIDIA NIM only."
         )
-    if not model or model.startswith("gemini-"):
+    if not model or model.startswith("gemini-") or model in ("moonshotai/kimi-k3", "kimi-k3"):
         model = NVIDIA_DEFAULT_MODEL
+    elif model in ("glm-5.3-flash", "z-ai/glm-5-3-flash", "glm-5-3-flash"):
+        model = "z-ai/glm-5.3-flash"
     return NvidiaEngine(api_key=api_key, model=model)

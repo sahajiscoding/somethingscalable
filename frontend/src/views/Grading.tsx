@@ -4,6 +4,7 @@ import {
   downloadText,
   runLiveEvaluation,
   type BackendState,
+  type GradeRecord,
   type LiveReport,
 } from '../lib/api';
 import {
@@ -88,6 +89,7 @@ interface ResultsVM {
   questions: QVM[];
   downloadJson?: string;
   downloadMd?: string;
+  inProgress?: boolean;
 }
 
 function vmFromDemo(ev: DemoEval, strict: boolean, criteria: CriteriaState, sheetName: string): ResultsVM {
@@ -153,6 +155,101 @@ function vmFromDemo(ev: DemoEval, strict: boolean, criteria: CriteriaState, shee
   };
 }
 
+function recordToQVM(r: GradeRecord): QVM {
+  const good = r.marks_deducted <= 0;
+  const tags: QTag[] = (r.deductions || []).map(d => ({
+    label: d.category === 'content' ? 'Content' : CRITERIA[d.category]?.label || d.category,
+    amount: d.marks,
+    tone: d.category === 'content' ? 'content' : d.category,
+  }));
+  if (!tags.length) tags.push({ label: `${fmt(r.max_marks)} awarded`, amount: 0, tone: 'awarded' });
+  return {
+    no: `Q${r.number}`,
+    awarded: r.marks_awarded,
+    total: r.max_marks,
+    target: r.expected_answer,
+    student: r.student_answer,
+    tags,
+    good,
+    title: good ? 'Full marks awarded:' : `Deducted ${fmt(r.marks_deducted)} marks:`,
+    body: r.feedback,
+    ocrNote: r.ocr_note,
+  };
+}
+
+function vmFromPartialLive(
+  completedRecords: (GradeRecord | null)[],
+  totalExpected: number,
+  strict: boolean,
+  criteria: CriteriaState,
+  model: string,
+  inProgress: boolean,
+): ResultsVM {
+  const done = completedRecords.filter((r): r is GradeRecord => r !== null);
+  const activeCrit = Object.keys(criteria).filter(k => criteria[k]);
+
+  let awarded = 0;
+  let total = 0;
+  let deducted = 0;
+  const byCat: Record<string, number> = {};
+
+  for (const r of done) {
+    awarded += r.marks_awarded;
+    total += r.max_marks;
+    deducted += r.marks_deducted;
+    for (const d of r.deductions || []) {
+      byCat[d.category] = (byCat[d.category] || 0) + d.marks;
+    }
+  }
+
+  awarded = Math.round(awarded * 100) / 100;
+  total = Math.round(total * 100) / 100;
+  deducted = Math.round(deducted * 100) / 100;
+  const pct = total > 0 ? (awarded / total) * 100 : 0;
+
+  const impact: ImpactItem[] = Object.keys(byCat)
+    .filter(k => k !== 'content' && k !== 'strict')
+    .map(k => ({
+      key: k,
+      label: CRITERIA[k]?.label || k,
+      color: CRITERIA[k]?.color || 'var(--color-crimson)',
+      amount: byCat[k],
+    }));
+  const contentExtra = (byCat.content || 0) + (byCat.strict || 0);
+
+  const questions: QVM[] = done.map(recordToQVM);
+
+  return {
+    chips: [
+      {
+        text: inProgress ? `⚡ Checking Live: ${done.length} / ${totalExpected} Evaluated` : `✓ Live AI · ${model}`,
+        tone: inProgress ? 'warn' : 'plain',
+      },
+      { text: 'Rate Limit: 39 RPM', tone: 'plain' },
+      { text: strict ? 'Strict checking' : 'Standard checking', tone: 'plain' },
+      ...(activeCrit.length
+        ? activeCrit.map(k => ({ text: `Penalty: ${CRITERIA[k]?.label || k}`, tone: 'crit' as const }))
+        : [{ text: 'No penalty criteria selected', tone: 'plain' as const }]),
+    ],
+    awarded,
+    total,
+    pct,
+    grade: gradeLetter(pct),
+    pass: pct >= 60,
+    qCount: done.length,
+    deducted,
+    mode: strict ? 'Strict' : 'Standard',
+    critCountText: `${activeCrit.length} penalty criteria active`,
+    sub: inProgress
+      ? `Live evaluation in progress with GLM 5.3 Flash — ${done.length} of ${totalExpected} questions evaluated (39 RPM limit active). Outputs appear below in real time as requests return from server.`
+      : `Live AI evaluation complete — ${fmt(awarded)} of ${fmt(total)} marks across ${done.length} questions.`,
+    impact,
+    contentExtra,
+    questions,
+    inProgress,
+  };
+}
+
 function vmFromLive(report: LiveReport): ResultsVM {
   const s = report.summary;
   const pct = s.total_marks ? (s.marks_awarded / s.total_marks) * 100 : 0;
@@ -167,30 +264,11 @@ function vmFromLive(report: LiveReport): ResultsVM {
       amount: byCat[k],
     }));
   const contentExtra = (byCat.content || 0) + (byCat.strict || 0);
-  const questions: QVM[] = report.questions.map(r => {
-    const good = r.marks_deducted <= 0;
-    const tags: QTag[] = (r.deductions || []).map(d => ({
-      label: d.category === 'content' ? 'Content' : CRITERIA[d.category]?.label || d.category,
-      amount: d.marks,
-      tone: d.category === 'content' ? 'content' : d.category,
-    }));
-    if (!tags.length) tags.push({ label: `${fmt(r.max_marks)} awarded`, amount: 0, tone: 'awarded' });
-    return {
-      no: `Q${r.number}`,
-      awarded: r.marks_awarded,
-      total: r.max_marks,
-      target: r.expected_answer,
-      student: r.student_answer,
-      tags,
-      good,
-      title: good ? 'Full marks awarded:' : `Deducted ${fmt(r.marks_deducted)} marks:`,
-      body: r.feedback,
-      ocrNote: r.ocr_note,
-    };
-  });
+  const questions: QVM[] = report.questions.map(recordToQVM);
   return {
     chips: [
       { text: `Live AI · ${report.engine} ${report.model}`, tone: 'plain' },
+      { text: 'Rate Limit: 39 RPM', tone: 'plain' },
       { text: report.mode.strict ? 'Strict checking' : 'Standard checking', tone: 'plain' },
       ...(activeCrit.length
         ? activeCrit.map(k => ({ text: `Penalty: ${CRITERIA[k]?.label || k}`, tone: 'crit' as const }))
@@ -205,10 +283,11 @@ function vmFromLive(report: LiveReport): ResultsVM {
     deducted: s.marks_deducted,
     mode: report.mode.strict ? 'Strict' : 'Standard',
     critCountText: `${activeCrit.length} penalty criteria active`,
-    sub: `Live AI evaluation — ${fmt(s.marks_awarded)} of ${fmt(s.total_marks)} marks across ${s.questions_graded} questions.`,
+    sub: `Live AI evaluation complete — ${fmt(s.marks_awarded)} of ${fmt(s.total_marks)} marks across ${s.questions_graded} questions.`,
     impact,
     contentExtra,
     questions,
+    inProgress: false,
   };
 }
 
@@ -384,6 +463,21 @@ function ResultsView({ vm, onDownloadJson, onDownloadMd }: { vm: ResultsVM; onDo
           <h2 className="text-[19px] font-bold tracking-tight">Detailed Evaluation Summary</h2>
           <p className="mt-1 max-w-[52ch] text-[13.5px] text-white/45">{vm.sub}</p>
         </div>
+
+        {vm.inProgress && (
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-mint/40 bg-mint/10 p-3.5 text-xs text-mint">
+            <div className="flex items-center gap-2.5 font-bold">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-mint opacity-75" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-mint" />
+              </span>
+              <span>Evaluating with GLM 5.3 Flash · 39 requests/minute limit active · Output streams per question</span>
+            </div>
+            <span className="rounded-full bg-mint/20 px-2.5 py-1 font-extrabold tabular-nums text-white">
+              {vm.qCount} question{vm.qCount === 1 ? '' : 's'} ready
+            </span>
+          </div>
+        )}
 
         <div className="mb-4 flex flex-wrap items-center gap-2">
           {vm.chips.map((c, i) => (
@@ -678,6 +772,21 @@ export default function Grading(props: GradingProps) {
           if (s >= 5) setStage({ done: 5, active: -1 });
           else setStage({ done: s, active: s });
         },
+        onQuestionsAligned: qs => {
+          setRunLabel(`Checking ${Math.min(39, qs.length)} of ${qs.length} questions at once (39 RPM limit)…`);
+        },
+        onQuestionDone: (_record, _idx, total, allGraded) => {
+          const completedCount = allGraded.filter(Boolean).length;
+          setVm(vmFromPartialLive(
+            allGraded,
+            total,
+            strict,
+            criteria,
+            modelOverride.trim() || backend.model || 'z-ai/glm-5.3-flash',
+            completedCount < total,
+          ));
+          setRunLabel(`Grading (${completedCount}/${total} done)`);
+        },
       });
       const s = report.summary;
       setVm({
@@ -900,14 +1009,14 @@ export default function Grading(props: GradingProps) {
             <div className="mb-2.5 text-[11px] font-bold tracking-[.16em] text-white/45 uppercase">Live AI backend</div>
             <div className="mb-1 text-xs text-white/45">API keys live on the server — nothing secret is typed here.</div>
             <label htmlFor="modelId" className="mt-2.5 block text-[13px] text-white/70">
-              Model override <span className="text-white/45">(optional — server default is Kimi-K3)</span>
+              Model override <span className="text-white/45">(optional — server default is GLM 5.3 Flash)</span>
             </label>
             <input
               type="text"
               id="modelId"
               value={modelOverride}
               onChange={e => setModelOverride(e.target.value)}
-              placeholder="e.g. moonshotai/kimi-k3"
+              placeholder="e.g. z-ai/glm-5.3-flash"
               autoComplete="off"
               aria-label="Model id override"
               className="mt-1.5 w-full rounded-[9px] border border-white/20 bg-black/30 px-3 py-2.5 text-[13px] text-white outline-none focus:border-mint focus:shadow-[0_0_0_3px_rgba(129,199,132,.25)]"

@@ -78,18 +78,47 @@ export interface AlignedQuestion {
   [key: string]: unknown;
 }
 
-async function pool<T, R>(items: T[], n: number, fn: (item: T, idx: number) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length);
-  let i = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(n, items.length || 1) }, async () => {
-      while (i < items.length) {
-        const k = i++;
-        out[k] = await fn(items[k], k);
+/**
+ * Strict Rate Limiter enforcing maximum requests in a rolling time window.
+ * Default: 39 requests per 60,000 ms window (NVIDIA NIM safe limit).
+ * Supports an initial burst of 39 requests.
+ */
+export class RateLimiter {
+  private readonly maxRequests: number;
+  private readonly windowMs: number;
+  private timestamps: number[] = [];
+
+  constructor(maxRequests: number = 39, windowMs: number = 60_000) {
+    this.maxRequests = maxRequests;
+    this.windowMs = windowMs;
+  }
+
+  private prune(now: number) {
+    const cutoff = now - this.windowMs;
+    while (this.timestamps.length > 0 && this.timestamps[0] <= cutoff) {
+      this.timestamps.shift();
+    }
+  }
+
+  async acquire(): Promise<void> {
+    while (true) {
+      const now = Date.now();
+      this.prune(now);
+      if (this.timestamps.length < this.maxRequests) {
+        this.timestamps.push(Date.now());
+        return;
       }
-    }),
-  );
-  return out;
+      // Window full (39 requests in last 60s). Wait until oldest request timestamp expires.
+      const oldest = this.timestamps[0];
+      const wait = Math.max(50, oldest + this.windowMs - now + 50);
+      await new Promise(resolve => setTimeout(resolve, wait));
+    }
+  }
+
+  get activeInWindow(): number {
+    this.prune(Date.now());
+    return this.timestamps.length;
+  }
 }
 
 export interface LiveEvalInput {
@@ -100,6 +129,14 @@ export interface LiveEvalInput {
   penalties: string[];
   model?: string;
   onStage?: (stage: number) => void;
+  onQuestionsAligned?: (questions: AlignedQuestion[]) => void;
+  onQuestionStart?: (questionNumber: string | number, index: number, total: number) => void;
+  onQuestionDone?: (
+    record: GradeRecord,
+    index: number,
+    total: number,
+    allGraded: (GradeRecord | null)[]
+  ) => void;
 }
 
 export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report: LiveReport; markdown: string }> {
@@ -181,21 +218,54 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
   });
   const usedModel = aligned.model;
   input.onStage?.(3);
+  input.onQuestionsAligned?.(aligned.aligned);
 
-  // Stage 3 — grade one question per call (short enough for capped hosts).
-  const records = await pool(aligned.aligned, 3, async q => {
-    const data = await apiJson<{ record: GradeRecord }>('/api/grade-one', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        question: q,
-        strict: input.strict,
-        penalties: input.penalties,
-        model: usedModel,
-      }),
-    });
-    return data.record;
+  // Stage 3 — grade one question per call (short enough for capped hosts, bypasses Vercel 60s timeout).
+  // Strictly rate-limited to 39 requests per minute.
+  // Initial burst allows 39 questions to start concurrently; subsequent questions wait for 60s rolling window.
+  // As each question request returns from the server, its output is streamed immediately.
+  const totalQuestions = aligned.aligned.length;
+  const records: GradeRecord[] = new Array(totalQuestions);
+  const completedRecords: (GradeRecord | null)[] = new Array(totalQuestions).fill(null);
+  const rateLimiter = new RateLimiter(39, 60_000);
+
+  const gradingPromises = aligned.aligned.map(async (q, idx) => {
+    await rateLimiter.acquire();
+    input.onQuestionStart?.(q.number, idx, totalQuestions);
+
+    let attempts = 0;
+    let lastErr: unknown;
+    while (attempts < 3) {
+      try {
+        attempts++;
+        const data = await apiJson<{ record: GradeRecord }>('/api/grade-one', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            question: q,
+            strict: input.strict,
+            penalties: input.penalties,
+            model: usedModel,
+          }),
+        });
+        records[idx] = data.record;
+        completedRecords[idx] = data.record;
+        input.onQuestionDone?.(data.record, idx, totalQuestions, completedRecords);
+        return data.record;
+      } catch (err: any) {
+        lastErr = err;
+        const msg = String(err?.message || err);
+        const is429 = msg.includes('429') || msg.toLowerCase().includes('rate');
+        if (attempts < 3) {
+          await new Promise(r => setTimeout(r, is429 ? 5000 : 2000));
+          await rateLimiter.acquire();
+        }
+      }
+    }
+    throw lastErr;
   });
+
+  await Promise.all(gradingPromises);
   input.onStage?.(4);
 
   // Stage 4 — assemble the canonical report (instant, no AI).

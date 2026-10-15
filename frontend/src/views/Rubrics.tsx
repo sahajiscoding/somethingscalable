@@ -48,7 +48,7 @@ export default function Rubrics() {
         <div className="mb-1 text-[11px] font-bold tracking-[.18em] text-white/45 uppercase">Scoring Reference</div>
         <h2 className="text-[19px] font-bold tracking-tight">Rubric Studio &amp; Penalty Architecture</h2>
         <p className="mt-1 max-w-[52ch] text-[13.5px] text-white/45">
-          Understand how Kimi-K3 applies step marks, keyword checkpoints, and optional penalty criteria.
+          Understand how GLM 5.3 Flash applies step marks, keyword checkpoints, and optional penalty criteria.
         </p>
       </div>
 

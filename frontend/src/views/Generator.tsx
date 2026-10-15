@@ -66,7 +66,7 @@ export default function Generator({ modelOverride, onSendToGrader }: GeneratorPr
       setTab('paper');
       setLoaderStatus('done');
       setAlert({
-        msg: data.note ? `✓ Generated (${data.model}, offline template). ${data.note}` : `✓ Exam generated with ${data.model || 'Kimi-K3'} — preview below.`,
+        msg: data.note ? `✓ Generated (${data.model}, offline template). ${data.note}` : `✓ Exam generated with ${data.model || 'GLM 5.3 Flash'} — preview below.`,
         ok: true,
       });
     } catch (err) {
@@ -97,7 +97,7 @@ export default function Generator({ modelOverride, onSendToGrader }: GeneratorPr
         <div className="mb-1 text-[11px] font-bold tracking-[.18em] text-white/45 uppercase">Authoring Tool</div>
         <h2 className="text-[19px] font-bold tracking-tight">Exam Paper &amp; Rubric Generator</h2>
         <p className="mt-1 max-w-[52ch] text-[13.5px] text-white/45">
-          Leverage Moonshot AI Kimi-K3 to generate balanced examination papers and matching step-by-step marking rubrics.
+          Leverage GLM 5.3 Flash to generate balanced examination papers and matching step-by-step marking rubrics.
         </p>
       </div>
 
@@ -172,7 +172,7 @@ export default function Generator({ modelOverride, onSendToGrader }: GeneratorPr
             disabled={running}
             className="mt-2.5 flex w-full cursor-pointer items-center justify-center gap-2 rounded-[13px] border-none bg-gradient-to-br from-pine to-[#3b7a53] px-6 py-3 text-[14.5px] font-extrabold text-[#0c1a11] shadow-[0_8px_24px_rgba(78,154,106,.35)] transition hover:brightness-110 disabled:cursor-progress disabled:saturate-50"
           >
-            ✨ {running ? 'Generating…' : 'Generate Exam with Kimi-K3'}
+            ✨ {running ? 'Generating…' : 'Generate Exam with GLM 5.3 Flash'}
           </button>
 
           {loaderStatus && (
@@ -222,7 +222,7 @@ export default function Generator({ modelOverride, onSendToGrader }: GeneratorPr
                 <h4 className="mb-1.5 text-base text-white/70">No Exam Generated Yet</h4>
                 <p className="mx-auto max-w-[36ch] text-[13px]">
                   Select your subject parameters on the left and hit <b>Generate Exam</b> to build an exam paper with
-                  Kimi-K3.
+                  GLM 5.3 Flash.
                 </p>
               </div>
             ) : tab === 'json' ? (

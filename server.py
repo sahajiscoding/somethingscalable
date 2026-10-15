@@ -445,7 +445,7 @@ def api_report():
 
 @app.post("/api/generate-exam")
 def api_generate_exam():
-    """Generate a question paper and matching answer key using Kimi-K3."""
+    """Generate a question paper and matching answer key using GLM 5.3 Flash."""
     body = request.get_json(silent=True) or {}
     topic = (body.get("topic") or "Mathematics & Physics").strip()
     grade = (body.get("grade") or "High School").strip()
@@ -508,7 +508,7 @@ def api_generate_exam():
                 "ok": True,
                 "exam": generated,
                 "model": "offline-template",
-                "note": "Generated with offline template; set NVIDIA_API_KEY in Vercel for live Kimi-K3 generation."
+                "note": "Generated with offline template; set NVIDIA_API_KEY in Vercel for live GLM 5.3 Flash generation."
             })
         return _api_error(exc)
     return jsonify({
