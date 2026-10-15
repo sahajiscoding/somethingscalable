@@ -280,10 +280,20 @@ def api_compress():
         is_pdf = ext == ".pdf" or data.startswith(b"%PDF-")
         if is_pdf:
             doc = pymupdf.open(stream=data, filetype="pdf")
+            num_pages = len(doc)
+            eff_dpi = dpi
+            eff_quality = quality
+            if num_pages > 30:
+                eff_dpi = min(dpi, 90)
+                eff_quality = min(quality, 65)
+            elif num_pages > 15:
+                eff_dpi = min(dpi, 105)
+                eff_quality = min(quality, 70)
+
             new_doc = pymupdf.open()
             for page in doc:
-                pix = page.get_pixmap(dpi=dpi)
-                jpg_bytes = pix.tobytes("jpeg", jpg_quality=quality)
+                pix = page.get_pixmap(dpi=eff_dpi)
+                jpg_bytes = pix.tobytes("jpeg", jpg_quality=eff_quality)
                 rect = page.rect
                 new_page = new_doc.new_page(width=rect.width, height=rect.height)
                 new_page.insert_image(rect, stream=jpg_bytes)
@@ -338,8 +348,8 @@ def api_extract():
     data = upload.read()
     if not data:
         return jsonify({"error": f"{upload.filename} arrived empty — retry the upload."}), 400
-    if len(data) > 10 * 1024 * 1024:
-        return jsonify({"error": f"{upload.filename} exceeds 10 MB."}), 400
+    if len(data) > 25 * 1024 * 1024:
+        return jsonify({"error": f"{upload.filename} exceeds 25 MB."}), 400
 
     try:
         with tempfile.TemporaryDirectory(prefix="examcheck_") as tmp:

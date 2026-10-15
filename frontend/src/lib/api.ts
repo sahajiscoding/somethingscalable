@@ -146,18 +146,30 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
     key: input.key,
     student: input.student,
   };
+  const isLocal =
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
   for (const role of roles) {
     if (files[role] && files[role].size > 3_500_000) {
       const res = await compressMediaIfNeeded(files[role]);
       if (res.compressed) {
         files[role] = res.file;
       }
+      // If still oversize on hosted Vercel, attempt aggressive pass targeted for multi-page documents
+      if (!isLocal && files[role] && files[role].size > 4_200_000) {
+        const fallback = await compressMediaIfNeeded(files[role], 3_000_000);
+        if (fallback.compressed) {
+          files[role] = fallback.file;
+        }
+      }
     }
   }
-  const oversize = Object.entries(files).find(([, f]) => f && f.size > 4_500_000);
+  const maxBytes = isLocal ? 25_000_000 : 4_500_000;
+  const oversize = Object.entries(files).find(([, f]) => f && f.size > maxBytes);
   if (oversize) {
     throw new Error(
-      `"${oversize[1].name}" is ${(oversize[1].size / 1048576).toFixed(1)} MB — exceeds 4.5 MB cap even after compression. Split or resize the file.`,
+      `"${oversize[1].name}" is ${(oversize[1].size / 1048576).toFixed(1)} MB — exceeds the ${isLocal ? '25' : '4.5'} MB upload cap even after compression.`,
     );
   }
 

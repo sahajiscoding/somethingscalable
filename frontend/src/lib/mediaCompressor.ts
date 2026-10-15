@@ -99,7 +99,7 @@ function canvasToBlob(canvas: HTMLCanvasElement, mime: string, quality: number):
   });
 }
 
-/** Dynamically load PDF.js from cdnjs if not already present on window */
+/** Dynamically load PDF.js from cdnjs/jsdelivr with fallback */
 let pdfjsPromise: Promise<any> | null = null;
 async function getPdfJs(): Promise<any> {
   if (typeof window === 'undefined') return null;
@@ -107,24 +107,49 @@ async function getPdfJs(): Promise<any> {
   if (w.pdfjsLib) return w.pdfjsLib;
   if (pdfjsPromise) return pdfjsPromise;
 
+  const CDNS = [
+    {
+      src: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
+      worker: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',
+    },
+    {
+      src: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js',
+      worker: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js',
+    },
+    {
+      src: 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js',
+      worker: 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js',
+    },
+  ];
+
   pdfjsPromise = new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-    script.async = true;
-    script.onload = () => {
-      const lib = (window as any).pdfjsLib;
-      if (lib) {
-        lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-        resolve(lib);
-      } else {
-        reject(new Error('PDF.js library failed to initialize.'));
+    let index = 0;
+    const tryNext = () => {
+      if (index >= CDNS.length) {
+        pdfjsPromise = null;
+        reject(new Error('Unable to load PDF.js from CDNs.'));
+        return;
       }
+      const cdn = CDNS[index++];
+      const script = document.createElement('script');
+      script.src = cdn.src;
+      script.async = true;
+      script.onload = () => {
+        const lib = (window as any).pdfjsLib;
+        if (lib) {
+          lib.GlobalWorkerOptions.workerSrc = cdn.worker;
+          resolve(lib);
+        } else {
+          tryNext();
+        }
+      };
+      script.onerror = () => {
+        script.remove();
+        tryNext();
+      };
+      document.head.appendChild(script);
     };
-    script.onerror = () => {
-      pdfjsPromise = null;
-      reject(new Error('Unable to load PDF.js from CDN.'));
-    };
-    document.head.appendChild(script);
+    tryNext();
   });
 
   return pdfjsPromise;
@@ -261,14 +286,43 @@ export async function compressImage(file: File, options?: CompressOptions): Prom
   }
 }
 
-/** Compress a PDF file by rendering each page to high-res JPEG and repacking with pdf-lib */
+/** Calculate optimal rendering parameters based on page count so multi-page PDFs
+    (including 20, 30, 50+ page exam papers) always fit comfortably under the upload cap. */
+export function getAdaptivePdfProfile(numPages: number, targetBytes: number) {
+  const safePages = Math.max(1, numPages);
+  // Estimate PDF structure overhead (~1200 bytes per page + 40KB catalog/fonts/xref)
+  const overhead = Math.min(180_000, safePages * 1200 + 40_000);
+  const availableImageBytes = Math.max(80_000, targetBytes - overhead);
+  const perPageBudget = Math.floor(availableImageBytes / safePages);
+
+  if (safePages <= 3) {
+    return { dpi: 150, quality: 0.82, maxDim: 1920, perPageBudget };
+  }
+  if (safePages <= 6) {
+    return { dpi: 135, quality: 0.78, maxDim: 1650, perPageBudget };
+  }
+  if (safePages <= 12) {
+    return { dpi: 120, quality: 0.72, maxDim: 1450, perPageBudget };
+  }
+  if (safePages <= 20) {
+    return { dpi: 105, quality: 0.65, maxDim: 1250, perPageBudget };
+  }
+  if (safePages <= 30) {
+    return { dpi: 92, quality: 0.60, maxDim: 1100, perPageBudget };
+  }
+  if (safePages <= 45) {
+    return { dpi: 80, quality: 0.52, maxDim: 950, perPageBudget };
+  }
+  return { dpi: 70, quality: 0.46, maxDim: 850, perPageBudget };
+}
+
+/** Compress a PDF file with adaptive page scaling to guarantee fitting upload caps */
 export async function compressPdf(file: File, options?: CompressOptions): Promise<MediaCompressResult> {
   const origSize = file.size;
   const onProgress = options?.onProgress;
   const presetKey = options?.preset ?? 'exam';
   const cfg = PRESET_CONFIGS[presetKey] || PRESET_CONFIGS.exam;
-  const targetQuality = options?.quality ?? cfg.quality;
-  const targetDpi = options?.pdfDpi ?? cfg.pdfDpi;
+  const targetBytes = options?.targetBytes ?? cfg.target;
 
   onProgress?.(5, 'Loading PDF parser…');
 
@@ -282,21 +336,31 @@ export async function compressPdf(file: File, options?: CompressOptions): Promis
 
   if (pdfjs) {
     try {
-      onProgress?.(15, 'Parsing PDF document…');
+      onProgress?.(12, 'Parsing PDF document…');
       const arrayBuffer = await file.arrayBuffer();
       const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
       const pdfDoc = await loadingTask.promise;
       const numPages = pdfDoc.numPages;
 
       if (numPages > 0) {
-        onProgress?.(25, `Rendering ${numPages} page${numPages > 1 ? 's' : ''}…`);
+        const profile = getAdaptivePdfProfile(numPages, targetBytes);
+        const targetDpi = options?.pdfDpi ? Math.min(options.pdfDpi, profile.dpi * 1.25) : profile.dpi;
+        const targetQuality = options?.quality ? Math.min(options.quality, profile.quality) : profile.quality;
+        const maxDim = options?.maxDimension ? Math.min(options.maxDimension, profile.maxDim) : profile.maxDim;
+
+        onProgress?.(20, `Optimizing ${numPages} page${numPages > 1 ? 's' : ''} (adaptive ${targetDpi} DPI, ~${Math.round(profile.perPageBudget / 1024)} KB/page)…`);
         const newPdfDoc = await PDFDocument.create();
 
         for (let i = 1; i <= numPages; i++) {
           const page = await pdfDoc.getPage(i);
-          // Scale: 72 points per inch in PDF. scale = targetDpi / 72
-          const standardScale = targetDpi / 72;
-          const viewport = page.getViewport({ scale: standardScale });
+          // Scale from DPI (72 pt per inch)
+          let scale = targetDpi / 72;
+          let viewport = page.getViewport({ scale });
+          const maxDimCur = Math.max(viewport.width, viewport.height);
+          if (maxDimCur > maxDim) {
+            scale = scale * (maxDim / maxDimCur);
+            viewport = page.getViewport({ scale });
+          }
 
           const canvas = document.createElement('canvas');
           canvas.width = Math.round(viewport.width);
@@ -304,15 +368,38 @@ export async function compressPdf(file: File, options?: CompressOptions): Promis
           const ctx = canvas.getContext('2d', { alpha: false });
 
           if (ctx) {
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
             ctx.fillStyle = '#FFFFFF';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             await page.render({ canvasContext: ctx, viewport }).promise;
 
-            const blob = await canvasToBlob(canvas, 'image/jpeg', targetQuality);
+            let curQuality = targetQuality;
+            let blob = await canvasToBlob(canvas, 'image/jpeg', curQuality);
+
+            // If page is larger than perPageBudget * 1.25, step down quality
+            if (blob && blob.size > profile.perPageBudget * 1.25 && curQuality > 0.45) {
+              curQuality = Math.max(0.40, curQuality - 0.14);
+              blob = await canvasToBlob(canvas, 'image/jpeg', curQuality);
+            }
+
+            // If still over budget, downscale canvas slightly
+            if (blob && blob.size > profile.perPageBudget * 1.3 && Math.max(canvas.width, canvas.height) > 650) {
+              const halfCanvas = document.createElement('canvas');
+              halfCanvas.width = Math.round(canvas.width * 0.8);
+              halfCanvas.height = Math.round(canvas.height * 0.8);
+              const hCtx = halfCanvas.getContext('2d', { alpha: false });
+              if (hCtx) {
+                hCtx.fillStyle = '#FFFFFF';
+                hCtx.fillRect(0, 0, halfCanvas.width, halfCanvas.height);
+                hCtx.drawImage(canvas, 0, 0, halfCanvas.width, halfCanvas.height);
+                blob = await canvasToBlob(halfCanvas, 'image/jpeg', Math.max(0.38, curQuality - 0.05));
+              }
+            }
+
             if (blob) {
               const jpgBytes = new Uint8Array(await blob.arrayBuffer());
               const embeddedJpg = await newPdfDoc.embedJpg(jpgBytes);
-              // Use standard PDF points for page dimension
               const pdfPage = newPdfDoc.addPage([page.view[2] || embeddedJpg.width, page.view[3] || embeddedJpg.height]);
               pdfPage.drawImage(embeddedJpg, {
                 x: 0,
@@ -323,14 +410,14 @@ export async function compressPdf(file: File, options?: CompressOptions): Promis
             }
           }
 
-          const pct = 25 + Math.round((i / numPages) * 60);
+          const pct = 20 + Math.round((i / numPages) * 70);
           onProgress?.(pct, `Processed page ${i} of ${numPages}…`);
         }
 
-        onProgress?.(90, 'Packaging optimized PDF…');
+        onProgress?.(92, 'Packaging optimized PDF…');
         const compressedPdfBytes = await newPdfDoc.save({ useObjectStreams: true });
 
-        if (compressedPdfBytes.length < origSize || origSize > (options?.targetBytes ?? cfg.target)) {
+        if (compressedPdfBytes.length <= targetBytes || compressedPdfBytes.length < origSize) {
           const cleanName = file.name.replace(/\.pdf$/i, '') + '_compressed.pdf';
           const outPdf = new File([compressedPdfBytes as any], cleanName, { type: 'application/pdf' });
           const saved = Math.max(0, origSize - outPdf.size);
@@ -338,7 +425,7 @@ export async function compressPdf(file: File, options?: CompressOptions): Promis
           onProgress?.(100, 'Complete');
           return {
             file: outPdf,
-            compressed: true,
+            compressed: outPdf.size < origSize,
             originalBytes: origSize,
             compressedBytes: outPdf.size,
             fromMB: origSize / 1048576,

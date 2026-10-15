@@ -36,10 +36,10 @@ NIM_ENDPOINT = os.environ.get(
     "NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
 NVIDIA_DEFAULT_MODEL = os.environ.get("NVIDIA_MODEL", "z-ai/glm-5.3-flash")
 # Per-request HTTP timeout; Vercel kills functions at 60 s wall time, so this
-# stays just under it and failures come back as clean errors, not hangs.
-_NIM_TIMEOUT = 35
-# Rendered-PDF page cap (same as the reference project).
-_NVIDIA_MAX_PDF_PAGES = 15
+# stays just under it on hosted environments (55s) and defaults to 120s locally.
+_NIM_TIMEOUT = int(os.environ.get("NIM_TIMEOUT", "55" if os.environ.get("VERCEL") else "120"))
+# Rendered-PDF page cap — supports real-world exam papers with 20, 30, 50+ pages.
+_NVIDIA_MAX_PDF_PAGES = int(os.environ.get("MAX_PDF_PAGES", "80"))
 
 _NVIDIA_KEY_NAMES = (
     "NVIDIA_API_KEY",
@@ -187,7 +187,7 @@ class NvidiaEngine:
                       data: Any = None,
                       instruction: str = "",
                       temperature: float = 0.15,
-                      max_tokens: int = 4096,
+                      max_tokens: int = 8192,
                       max_attempts: int = 2) -> Any:
         import time
         messages = self._build_messages(instruction, document, data)
@@ -195,7 +195,7 @@ class NvidiaEngine:
 
         last_error = "unknown parse error"
         for attempt in range(max_attempts):
-            if attempt > 0 and (time.monotonic() - start_t) > 35:
+            if attempt > 0 and (time.monotonic() - start_t) > (_NIM_TIMEOUT * 1.5):
                 break
             text = self._chat(messages, temperature, max_tokens=max_tokens)  # raises on HTTP failure
             if not (text or "").strip():
@@ -279,13 +279,26 @@ class NvidiaEngine:
     @staticmethod
     def _pdf_blocks(document) -> list[dict]:
         """One content block per PDF page: embedded text for digital pages,
-        a rendered PNG for scanned ones (handwriting lives here)."""
+        a rendered JPEG for scanned ones (handwriting lives here)."""
         fitz = _get_pdf_renderer()
         if fitz is None:
             return [{"type": "text", "text": _pdf_text_fallback(document)}]
 
         blocks: list[dict] = []
         page_no = 0
+        total_pages = max(1, getattr(document, "page_count", 1))
+
+        # Dynamically scale DPI & quality so 20, 30, 50+ page documents stay lightweight
+        if total_pages > 30:
+            render_dpi = 90
+            jpg_quality = 68
+        elif total_pages > 15:
+            render_dpi = 105
+            jpg_quality = 74
+        else:
+            render_dpi = 130
+            jpg_quality = 80
+
         try:
             for chunk in document.pages:
                 with fitz.open(stream=chunk.data, filetype="pdf") as doc:
@@ -305,10 +318,13 @@ class NvidiaEngine:
                                          f"{page_no} (text) ---\n{text}"),
                             })
                         else:
-                            png = page.get_pixmap(dpi=150).tobytes("png")
+                            pix = page.get_pixmap(dpi=render_dpi)
+                            if pix.alpha:
+                                pix = fitz.Pixmap(fitz.csRGB, pix)
+                            jpg = pix.tobytes("jpeg", jpg_quality=jpg_quality)
                             blocks.append(NvidiaEngine._image_block(
                                 f"{document.filename} p{page_no}",
-                                "image/png", png))
+                                "image/jpeg", jpg))
         except EngineError:
             raise
         except Exception as exc:
@@ -318,7 +334,7 @@ class NvidiaEngine:
             raise EngineError(f"No pages found in {document.filename}.")
         return blocks
 
-    def _chat(self, messages: list[Any], temperature: float, max_tokens: int = 4096) -> str:
+    def _chat(self, messages: list[Any], temperature: float, max_tokens: int = 8192) -> str:
         try:
             import requests
         except ImportError as exc:
@@ -333,7 +349,11 @@ class NvidiaEngine:
             "Content-Type": "application/json",
         }
 
-        # Try user's requested model first; if it takes >14s or fails, fall back to alternate model
+        import time
+        start_t = time.monotonic()
+        total_budget = float(_NIM_TIMEOUT)
+
+        # Try user's requested model first; if it fails on server/network error, fall back to alternate model
         models_to_try = [self.model]
         if self.model == "z-ai/glm-5.3-flash":
             models_to_try.append("deepseek-ai/deepseek-v4.1-flash")
@@ -342,6 +362,10 @@ class NvidiaEngine:
 
         last = "no response"
         for candidate_model in models_to_try:
+            remaining = total_budget - (time.monotonic() - start_t)
+            if remaining <= 5:
+                break
+            timeout_sec = max(15, int(remaining))
             payload: dict[str, Any] = {
                 "model": candidate_model,
                 "messages": messages,
@@ -351,7 +375,6 @@ class NvidiaEngine:
                 "stream": False,
             }
             _acquire_nvidia_token()
-            timeout_sec = 14 if candidate_model == self.model else 8
             try:
                 resp = requests.post(
                     NIM_ENDPOINT,
