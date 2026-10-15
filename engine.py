@@ -35,9 +35,8 @@ from typing import Any
 NIM_ENDPOINT = os.environ.get(
     "NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
 NVIDIA_DEFAULT_MODEL = os.environ.get("NVIDIA_MODEL", "z-ai/glm-5.3-flash")
-# Per-request HTTP timeout; Vercel kills functions at 60 s wall time, so this
-# stays just under it on hosted environments (55s) and defaults to 120s locally.
-_NIM_TIMEOUT = int(os.environ.get("NIM_TIMEOUT", "55" if os.environ.get("VERCEL") else "120"))
+# Per-request HTTP timeout: None (completely removed, wait indefinitely)
+_NIM_TIMEOUT = None
 # Rendered-PDF page cap — supports real-world exam papers with 20, 30, 50+ pages.
 _NVIDIA_MAX_PDF_PAGES = int(os.environ.get("MAX_PDF_PAGES", "80"))
 
@@ -195,8 +194,6 @@ class NvidiaEngine:
 
         last_error = "unknown parse error"
         for attempt in range(max_attempts):
-            if attempt > 0 and (time.monotonic() - start_t) > (_NIM_TIMEOUT * 1.5):
-                break
             text = self._chat(messages, temperature, max_tokens=max_tokens)  # raises on HTTP failure
             if not (text or "").strip():
                 last_error = "empty response"
@@ -349,10 +346,6 @@ class NvidiaEngine:
             "Content-Type": "application/json",
         }
 
-        import time
-        start_t = time.monotonic()
-        total_budget = float(_NIM_TIMEOUT)
-
         # Try user's requested model first; if it fails on server/network error, fall back to alternate model
         models_to_try = [self.model]
         if self.model == "z-ai/glm-5.3-flash":
@@ -362,10 +355,6 @@ class NvidiaEngine:
 
         last = "no response"
         for candidate_model in models_to_try:
-            remaining = total_budget - (time.monotonic() - start_t)
-            if remaining <= 5:
-                break
-            timeout_sec = max(15, int(remaining))
             payload: dict[str, Any] = {
                 "model": candidate_model,
                 "messages": messages,
@@ -380,11 +369,8 @@ class NvidiaEngine:
                     NIM_ENDPOINT,
                     headers=headers,
                     json=payload,
-                    timeout=timeout_sec,
+                    timeout=None,
                 )
-            except requests.Timeout as exc:
-                last = f"Timeout ({timeout_sec}s) on {candidate_model}: {exc}"
-                continue
             except requests.RequestException as exc:
                 last = f"Network error on {candidate_model}: {exc}"
                 continue
