@@ -6,6 +6,7 @@ import {
   downloadText,
   generateExam,
   type GeneratedExam,
+  type GeneratedQuestion,
 } from '../lib/api';
 import { fmt } from '../lib/sim';
 
@@ -50,23 +51,44 @@ export default function Generator({ modelOverride, onSendToGrader }: GeneratorPr
       setAlert({ msg: 'Enter a subject & topic first.', ok: false });
       return;
     }
+    const totalCount = Math.max(1, parseInt(count, 10) || 5);
+    const totalMarks = parseFloat(marks) || 25;
+
     setRunning(true);
     setAlert(null);
     setLoaderStatus('working');
+    setTab('paper');
+    setExam({
+      title: `${topic.trim()} Examination`,
+      topic: topic.trim(),
+      instructions: 'Answer all questions. Show complete working steps.',
+      total_marks: totalMarks,
+      questions: [],
+    });
+
     try {
       const data = await generateExam({
         topic: topic.trim(),
         grade,
         difficulty,
-        count: parseInt(count, 10) || 5,
-        marks: parseFloat(marks) || 25,
+        count: totalCount,
+        marks: totalMarks,
         model: modelOverride.trim() || undefined,
+        onQuestionGenerated: (_q, _idx, _total, allQuestions) => {
+          const done = allQuestions.filter((item): item is GeneratedQuestion => item !== null);
+          setExam({
+            title: `${topic.trim()} Examination`,
+            topic: topic.trim(),
+            instructions: 'Answer all questions. Show complete working steps.',
+            total_marks: totalMarks,
+            questions: done,
+          });
+        },
       });
       setExam(data.exam);
-      setTab('paper');
       setLoaderStatus('done');
       setAlert({
-        msg: data.note ? `✓ Generated (${data.model}, offline template). ${data.note}` : `✓ Exam generated with ${data.model || 'GLM 5.3 Flash'} — preview below.`,
+        msg: data.note ? `✓ Generated (${data.model}, offline template). ${data.note}` : `✓ Exam generated with ${data.model || 'GLM 5.3 Flash'} (${totalCount} questions) — preview below.`,
         ok: true,
       });
     } catch (err) {
@@ -172,7 +194,7 @@ export default function Generator({ modelOverride, onSendToGrader }: GeneratorPr
             disabled={running}
             className="mt-2.5 flex w-full cursor-pointer items-center justify-center gap-2 rounded-[13px] border-none bg-gradient-to-br from-pine to-[#3b7a53] px-6 py-3 text-[14.5px] font-extrabold text-[#0c1a11] shadow-[0_8px_24px_rgba(78,154,106,.35)] transition hover:brightness-110 disabled:cursor-progress disabled:saturate-50"
           >
-            ✨ {running ? 'Generating…' : 'Generate Exam with GLM 5.3 Flash'}
+            ✨ {running ? `Generating (${exam?.questions.length || 0}/${count} ready)…` : 'Generate Exam with GLM 5.3 Flash'}
           </button>
 
           {loaderStatus && (
@@ -194,6 +216,20 @@ export default function Generator({ modelOverride, onSendToGrader }: GeneratorPr
         </div>
 
         <div>
+          {running && (
+            <div className="mb-3 flex items-center justify-between rounded-xl border border-mint/40 bg-mint/10 px-4 py-2.5 text-[13px] text-mint">
+              <span className="flex items-center gap-2">
+                <span className="inline-block h-2 w-2 animate-ping rounded-full bg-mint" />
+                <span>
+                  Generating with <strong>GLM 5.3 Flash</strong> (1 req/question · 39 RPM limit)
+                </span>
+              </span>
+              <span className="font-mono font-bold">
+                {exam?.questions.length || 0} / {count} ready
+              </span>
+            </div>
+          )}
+
           <div className="mb-4 flex gap-2 border-b border-white/10 pb-3">
             {(
               [
@@ -218,12 +254,24 @@ export default function Generator({ modelOverride, onSendToGrader }: GeneratorPr
           <div className="max-h-[640px] min-h-[380px] overflow-y-auto rounded-xl border border-white/10 bg-black/20 p-5">
             {!exam || !exam.questions?.length ? (
               <div className="px-5 py-12 text-center text-white/45">
-                <div className="mb-3 text-4xl">📝</div>
-                <h4 className="mb-1.5 text-base text-white/70">No Exam Generated Yet</h4>
-                <p className="mx-auto max-w-[36ch] text-[13px]">
-                  Select your subject parameters on the left and hit <b>Generate Exam</b> to build an exam paper with
-                  GLM 5.3 Flash.
-                </p>
+                {running ? (
+                  <>
+                    <div className="mb-3 animate-spin text-4xl">⏳</div>
+                    <h4 className="mb-1.5 text-base text-white/70">Generating Questions…</h4>
+                    <p className="mx-auto max-w-[36ch] text-[13px]">
+                      Contacting NVIDIA NIM GLM 5.3 Flash. Questions will appear here live as each request completes.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="mb-3 text-4xl">📝</div>
+                    <h4 className="mb-1.5 text-base text-white/70">No Exam Generated Yet</h4>
+                    <p className="mx-auto max-w-[36ch] text-[13px]">
+                      Select your subject parameters on the left and hit <b>Generate Exam</b> to build an exam paper with
+                      GLM 5.3 Flash.
+                    </p>
+                  </>
+                )}
               </div>
             ) : tab === 'json' ? (
               <pre className="text-xs leading-relaxed break-words whitespace-pre-wrap text-white/70">
@@ -260,6 +308,15 @@ export default function Generator({ modelOverride, onSendToGrader }: GeneratorPr
                     </div>
                   </div>
                 ))}
+                {running && exam.questions.length < parseInt(count, 10) && (
+                  <div className="flex items-center justify-between rounded-xl border border-dashed border-mint/30 bg-mint/5 p-4 text-[13px] text-white/70">
+                    <span className="flex items-center gap-2">
+                      <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-mint" />
+                      Generating Question {exam.questions.length + 1} of {count}…
+                    </span>
+                    <span className="text-xs text-white/40">39 RPM queue</span>
+                  </div>
+                )}
               </div>
             ) : (
               <div>
@@ -282,6 +339,15 @@ export default function Generator({ modelOverride, onSendToGrader }: GeneratorPr
                     <div className="text-sm leading-relaxed text-white">{q.text || '—'}</div>
                   </div>
                 ))}
+                {running && exam.questions.length < parseInt(count, 10) && (
+                  <div className="flex items-center justify-between rounded-xl border border-dashed border-mint/30 bg-mint/5 p-4 text-[13px] text-white/70">
+                    <span className="flex items-center gap-2">
+                      <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-mint" />
+                      Generating Question {exam.questions.length + 1} of {count}…
+                    </span>
+                    <span className="text-xs text-white/40">39 RPM queue</span>
+                  </div>
+                )}
               </div>
             )}
           </div>

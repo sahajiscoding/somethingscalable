@@ -518,6 +518,84 @@ def api_generate_exam():
     })
 
 
+@app.post("/api/generate-exam-question")
+def api_generate_exam_question():
+    """Generate a single examination question with rubric using GLM 5.3 Flash.
+
+    Per-question endpoint ensures fast (<3s) calls that never trip Vercel or
+    NVIDIA read timeouts, allowing live streaming and 39 RPM concurrency.
+    """
+    body = request.get_json(silent=True) or {}
+    topic = (body.get("topic") or "Mathematics & Physics").strip()
+    grade = (body.get("grade") or "High School").strip()
+    number = str(body.get("number") or "Q1").strip()
+    try:
+        index = int(body.get("index") or 1)
+    except (ValueError, TypeError):
+        index = 1
+    try:
+        total = int(body.get("total") or 5)
+    except (ValueError, TypeError):
+        total = 5
+    try:
+        marks = float(body.get("marks") or 5.0)
+    except (ValueError, TypeError):
+        marks = 5.0
+    difficulty = (body.get("difficulty") or "Medium").strip()
+    subtopic = (body.get("subtopic") or "").strip()
+
+    context_hint = f"Focus on aspect: {subtopic}. " if subtopic else ""
+
+    instruction = (
+        f"You are an expert exam author. Generate question {number} (problem {index} of {total}) on '{topic}' "
+        f"for grade/level: '{grade}'. Total question marks: {marks:g}. Difficulty: {difficulty}. {context_hint}\n"
+        "Return STRICT JSON only matching this schema:\n"
+        "{\n"
+        f'  "number": "{number}",\n'
+        '  "text": "Clear, rigorous question text with all required formulas or context",\n'
+        f'  "max_marks": {marks:g},\n'
+        '  "expected_answer": "Complete target model answer with all working steps",\n'
+        '  "marking_scheme": "Step-by-step marking breakdown (e.g. 2 marks for formula, 3 marks for calculation)",\n'
+        '  "keywords": ["keyword1", "keyword2"]\n'
+        "}\n"
+    )
+    try:
+        engine = make_engine(model=_model(body), backend=_backend(body))
+        generated = engine.generate_json("generate_exam_question", instruction=instruction, temperature=0.6)
+        if isinstance(generated, dict) and "question" in generated and isinstance(generated["question"], dict):
+            generated = generated["question"]
+        if isinstance(generated, list) and generated and isinstance(generated[0], dict):
+            generated = generated[0]
+        if not isinstance(generated, dict) or not generated.get("text"):
+            raise ValueError("Invalid question JSON generated")
+        generated["number"] = str(generated.get("number") or number)
+        generated["max_marks"] = float(generated.get("max_marks") or marks)
+        if not isinstance(generated.get("keywords"), list):
+            generated["keywords"] = [topic.split()[0].lower(), "solution"]
+    except Exception as exc:  # noqa: BLE001
+        if not _has_key():
+            generated = {
+                "number": number,
+                "text": f"Explain the core principles of {topic} for problem {index}, detailing all necessary equations and steps.",
+                "max_marks": marks,
+                "expected_answer": f"Model theoretical formulation and calculation for {topic} problem {index}.",
+                "marking_scheme": f"Formula: {round(marks*0.4, 1)}m; Steps: {round(marks*0.4, 1)}m; Final: {round(marks*0.2, 1)}m.",
+                "keywords": [topic.split()[0].lower(), "derivation", "formula"]
+            }
+            return jsonify({
+                "ok": True,
+                "question": generated,
+                "model": "offline-template",
+                "note": "Generated with offline template; set NVIDIA_API_KEY in Vercel for live GLM 5.3 Flash generation."
+            })
+        return _api_error(exc)
+    return jsonify({
+        "ok": True,
+        "question": generated,
+        "model": getattr(engine, "model", NVIDIA_DEFAULT_MODEL),
+    })
+
+
 @app.errorhandler(500)
 def internal_error(_exc):
     return jsonify({"error": "Internal server error."}), 500

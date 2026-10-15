@@ -324,6 +324,7 @@ class NvidiaEngine:
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
+            "top_p": 0.7,
             "max_tokens": 4096,
             "stream": False,
         }
@@ -336,6 +337,10 @@ class NvidiaEngine:
                 resp = requests.post(NIM_ENDPOINT, headers=headers,
                                      json=payload, timeout=_NIM_TIMEOUT)
             except requests.RequestException as exc:
+                if attempt == 0:
+                    time.sleep(3)
+                    _acquire_nvidia_token()
+                    continue
                 raise EngineError(f"NVIDIA API unreachable: {exc}") from exc
             if resp.status_code == 200:
                 try:

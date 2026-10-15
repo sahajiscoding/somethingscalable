@@ -312,14 +312,88 @@ export interface GenerateExamInput {
   count: number;
   marks: number;
   model?: string;
+  onQuestionGenerated?: (
+    question: GeneratedQuestion,
+    index: number,
+    total: number,
+    allQuestionsSoFar: (GeneratedQuestion | null)[]
+  ) => void;
 }
 
-export async function generateExam(input: GenerateExamInput): Promise<{ exam: GeneratedExam; model: string; note?: string }> {
-  return apiJson<{ exam: GeneratedExam; model: string; note?: string }>('/api/generate-exam', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+export async function generateExam(
+  input: GenerateExamInput
+): Promise<{ exam: GeneratedExam; model: string; note?: string }> {
+  const count = Math.max(1, input.count || 5);
+  const totalMarks = input.marks || 25;
+  const perQMarks = Math.round((totalMarks / count) * 10) / 10;
+  const rateLimiter = new RateLimiter(39, 60_000);
+
+  const completedQuestions: (GeneratedQuestion | null)[] = new Array(count).fill(null);
+  let usedModel = input.model || 'z-ai/glm-5.3-flash';
+  let note: string | undefined;
+
+  // Per-question generation: 1 request per question, bypassing timeouts.
+  // Up to 39 requests dispatched concurrently at once (39 RPM limit).
+  // Streams question output immediately upon response.
+  const promises = Array.from({ length: count }, async (_, i) => {
+    await rateLimiter.acquire();
+    const qNum = `Q${i + 1}`;
+    let attempts = 0;
+    let lastErr: unknown;
+
+    while (attempts < 3) {
+      try {
+        attempts++;
+        const data = await apiJson<{
+          ok: boolean;
+          question: GeneratedQuestion;
+          model: string;
+          note?: string;
+        }>('/api/generate-exam-question', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            topic: input.topic,
+            grade: input.grade,
+            difficulty: input.difficulty,
+            number: qNum,
+            index: i + 1,
+            total: count,
+            marks: perQMarks,
+            model: input.model,
+          }),
+        });
+
+        usedModel = data.model || usedModel;
+        if (data.note) note = data.note;
+
+        completedQuestions[i] = data.question;
+        input.onQuestionGenerated?.(data.question, i, count, completedQuestions);
+        return data.question;
+      } catch (err: any) {
+        lastErr = err;
+        const msg = String(err?.message || err);
+        const is429 = msg.includes('429') || msg.toLowerCase().includes('rate');
+        if (attempts < 3) {
+          await new Promise(r => setTimeout(r, is429 ? 5000 : 2000));
+          await rateLimiter.acquire();
+        }
+      }
+    }
+    throw lastErr;
   });
+
+  const questions = await Promise.all(promises);
+
+  const exam: GeneratedExam = {
+    title: `${input.topic} Examination`,
+    topic: input.topic,
+    instructions: 'Answer all questions. Show complete working steps.',
+    total_marks: totalMarks,
+    questions,
+  };
+
+  return { exam, model: usedModel, note };
 }
 
 export function buildGenPaperText(exam: GeneratedExam): string {
