@@ -485,7 +485,7 @@ def api_report():
 
 @app.post("/api/generate-exam")
 def api_generate_exam():
-    """Generate a question paper and matching answer key using GLM 5.3 Flash."""
+    """Generate a question paper and matching answer key using Nemotron 3.5 Super VL."""
     body = request.get_json(silent=True) or {}
     topic = (body.get("topic") or "Mathematics & Physics").strip()
     grade = (body.get("grade") or "High School").strip()
@@ -587,7 +587,7 @@ def api_generate_exam():
         }
         note = (f"Generated with fallback template ({exc}); check NVIDIA NIM status."
                 if _has_key() else
-                "Generated with offline template; set NVIDIA_API_KEY in Vercel for live GLM 5.3 Flash generation.")
+                "Generated with offline template; set NVIDIA_API_KEY in Vercel for live AI generation.")
         return jsonify({
             "ok": True,
             "exam": generated,
@@ -603,7 +603,7 @@ def api_generate_exam():
 
 @app.post("/api/generate-exam-question")
 def api_generate_exam_question():
-    """Generate a single examination question with rubric using GLM 5.3 Flash.
+    """Generate a single examination question with rubric using Nemotron 3.5 Super VL.
 
     Per-question endpoint ensures fast (<3s) calls that never trip Vercel or
     NVIDIA read timeouts, allowing live streaming and 39 RPM concurrency.
@@ -730,7 +730,7 @@ def api_generate_exam_question():
         }
         note = (f"Generated with fallback template ({exc}); check NVIDIA NIM status."
                 if _has_key() else
-                "Generated with offline template; set NVIDIA_API_KEY in Vercel for live GLM 5.3 Flash generation.")
+                "Generated with offline template; set NVIDIA_API_KEY in Vercel for live AI generation.")
         return jsonify({
             "ok": True,
             "question": generated,

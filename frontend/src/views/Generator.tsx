@@ -3,8 +3,10 @@ import LatticeLoader from '../components/LatticeLoader.jsx';
 import {
   buildGenKeyText,
   buildGenPaperText,
+  DEFAULT_MODEL_ID,
   downloadText,
   generateExam,
+  modelLabel,
   type GeneratedExam,
   type GeneratedQuestion,
 } from '../lib/api';
@@ -90,7 +92,7 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
       setExam(data.exam);
       setLoaderStatus('done');
       setAlert({
-        msg: data.note ? `Generated (${data.model}, offline template). ${data.note}` : `Exam generated with ${data.model || 'GLM 5.3 Flash'} (${totalCount} questions) — preview below.`,
+        msg: data.note ? `Generated (${data.model}, offline template). ${data.note}` : `Exam generated with ${data.model || DEFAULT_MODEL_ID} (${totalCount} questions) — preview below.`,
         ok: true,
       });
     } catch (err) {
@@ -157,7 +159,7 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
         <div className="mb-1 text-[11px] font-bold tracking-[.18em] text-white/45 uppercase">Authoring Tool</div>
         <h2 className="text-[19px] font-bold tracking-tight">Exam Paper &amp; Rubric Generator</h2>
         <p className="mt-1 max-w-[52ch] text-[13.5px] text-white/45">
-          Leverage GLM 5.3 Flash to generate balanced examination papers and matching step-by-step marking rubrics.
+          Leverage Nemotron 3.5 Super VL to generate balanced examination papers and matching step-by-step marking rubrics.
         </p>
       </div>
 
@@ -236,7 +238,37 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
               </div>
               <div className="mt-1 text-xs text-white/45">Select AI model for generating questions &amp; rubric:</div>
 
-              <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+              <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setModelOverride(DEFAULT_MODEL_ID)}
+                  className={`group flex cursor-pointer flex-col rounded-xl border p-3.5 text-left transition-all duration-200 ${
+                    modelOverride.includes('nemotron') || !modelOverride.trim()
+                      ? 'border-mint/60 bg-mint/[0.08] shadow-[0_0_24px_rgba(129,199,132,0.12)] ring-1 ring-mint/30'
+                      : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[13px] font-semibold tracking-tight text-white">
+                      Nemotron 3.5 Super VL
+                    </span>
+                    {modelOverride.includes('nemotron') || !modelOverride.trim() ? (
+                      <span className="flex items-center gap-1.5 rounded-full border border-mint/40 bg-mint/15 px-2 py-0.5 text-[9.5px] font-semibold tracking-wide text-mint uppercase">
+                        <span className="h-1.5 w-1.5 rounded-full bg-mint shadow-[0_0_6px_var(--color-mint)]" />
+                        Active
+                      </span>
+                    ) : (
+                      <span className="h-1.5 w-1.5 rounded-full bg-white/20 group-hover:bg-white/40" />
+                    )}
+                  </div>
+                  <div className="mt-1 text-[11px] font-medium text-mint/90">
+                    Native vision · 120B (12B active)
+                  </div>
+                  <div className="mt-1 text-[11px] text-white/45 leading-relaxed">
+                    NVIDIA&#39;s VL model with 1M context. Default engine, no timeouts.
+                  </div>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setModelOverride('deepseek-ai/deepseek-v4.1-flash')}
@@ -271,16 +303,16 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
                   type="button"
                   onClick={() => setModelOverride('z-ai/glm-5.3-flash')}
                   className={`group flex cursor-pointer flex-col rounded-xl border p-3.5 text-left transition-all duration-200 ${
-                    !modelOverride.includes('deepseek') && (modelOverride.includes('glm') || !modelOverride.trim())
+                    modelOverride.includes('glm')
                       ? 'border-mint/60 bg-mint/[0.08] shadow-[0_0_24px_rgba(129,199,132,0.12)] ring-1 ring-mint/30'
                       : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]'
-                }`}
+                  }`}
               >
                 <div className="flex items-center justify-between">
                   <span className="text-[13px] font-semibold tracking-tight text-white">
                     GLM 5.3 Flash
                   </span>
-                  {!modelOverride.includes('deepseek') && (modelOverride.includes('glm') || !modelOverride.trim()) ? (
+                  {modelOverride.includes('glm') ? (
                     <span className="flex items-center gap-1.5 rounded-full border border-mint/40 bg-mint/15 px-2 py-0.5 text-[9.5px] font-semibold tracking-wide text-mint uppercase">
                       <span className="h-1.5 w-1.5 rounded-full bg-mint shadow-[0_0_6px_var(--color-mint)]" />
                       Active
@@ -310,7 +342,9 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
               ? `Generating (${exam?.questions.length || 0}/${count} ready)…`
               : modelOverride.includes('deepseek')
               ? 'Generate Exam with DeepSeek V4.1 Flash'
-              : 'Generate Exam with GLM 5.3 Flash'}
+              : modelOverride.includes('glm')
+              ? 'Generate Exam with GLM 5.3 Flash'
+              : 'Generate Exam with Nemotron 3.5 Super VL'}
           </button>
 
           {loaderStatus && (
@@ -337,7 +371,7 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
               <span className="flex items-center gap-2">
                 <span className="inline-block h-2 w-2 animate-ping rounded-full bg-mint" />
                 <span>
-                  Generating with <strong>GLM 5.3 Flash</strong> (1 req/question · 39 RPM limit)
+                  Generating with <strong>{modelLabel(modelOverride)}</strong> (1 req/question · 39 RPM limit)
                 </span>
               </span>
               <span className="font-mono font-bold">
@@ -380,7 +414,7 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
                     </div>
                     <h4 className="mb-1.5 text-base font-semibold text-white/80">Generating Questions…</h4>
                     <p className="mx-auto max-w-[36ch] text-[13px] text-white/45">
-                      Contacting NVIDIA NIM GLM 5.3 Flash. Questions will appear here live as each request completes.
+                      Contacting NVIDIA NIM {modelLabel(modelOverride)}. Questions will appear here live as each request completes.
                     </p>
                   </>
                 ) : (
@@ -393,7 +427,7 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
                     <h4 className="mb-1.5 text-base font-semibold text-white/80">No Exam Generated Yet</h4>
                     <p className="mx-auto max-w-[36ch] text-[13px] text-white/45">
                       Select your subject parameters on the left and hit <b>Generate Exam</b> to build an exam paper with
-                      GLM 5.3 Flash.
+                      {` ${modelLabel(modelOverride)}.`}
                     </p>
                   </>
                 )}

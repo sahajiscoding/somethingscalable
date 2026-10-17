@@ -4,7 +4,7 @@ import { TextFlippingBoard } from '../components/ui/text-flipping-board';
 import type { View } from '../lib/view';
 
 const BOARD_MESSAGES = [
-  'GLM 5.3 FLASH ACTIVE \nAUTOMATED EXAM EVAL \nREADY TO GRADE PAPERS',
+  'NEMOTRON 3.5 ACTIVE  \nAUTOMATED EXAM EVAL \nREADY TO GRADE PAPERS',
   'MULTIMODAL VISION OCR\nHANDWRITING TO MARKS \n100% FAIR RUBRICS',
   '4 PENALTY CHECKS     \nDIAGRAMS & STEPS     \nNO MORE MANUAL WORK',
   'GENERATE TEST PAPERS \nCUSTOM MARKING SCHEME\n1-CLICK PIPELINE',
@@ -12,7 +12,7 @@ const BOARD_MESSAGES = [
 
 const BOARD_TABS = ['Active Status', 'Vision OCR', '4 Penalties', 'Exam Authoring'];
 
-const SCAN_TEXTS = ['ANALYSING', 'GLM-5.3', 'GRADING', 'RUBRIC'] as const;
+const SCAN_TEXTS = ['ANALYSING', 'NEMOTRON', 'GRADING', 'RUBRIC'] as const;
 const SCAN_EFFECTS: { value: ImageGenerationLoaderEffect; label: string }[] = [
   { value: 'scale-wave', label: 'Scale Wave' },
   { value: 'wave', label: 'Fluid Wave' },
@@ -80,7 +80,7 @@ export default function Home({ onNavigate, onTryDemo, backendModel, hasKey }: Ho
       <section className="relative flex min-h-[84vh] flex-col items-center justify-center px-4 py-16 text-center">
         <div className="inline-flex items-center gap-2.5 rounded-full border border-white/10 bg-white/5 py-1.5 pr-5 pl-1.5 backdrop-blur">
           <span className="rounded-full bg-white px-3 py-1 text-xs font-extrabold text-black">NEW</span>
-          <span className="text-sm font-semibold text-white/60">GLM 5.3 Flash grading engine</span>
+          <span className="text-sm font-semibold text-white/60">Nemotron 3.5 Super VL grading engine</span>
         </div>
         <h1 className="mt-7 max-w-[16ch] text-5xl leading-[1.05] font-extrabold tracking-tight text-balance md:text-7xl">
           Grades that explain themselves.
@@ -152,7 +152,7 @@ export default function Home({ onNavigate, onTryDemo, backendModel, hasKey }: Ho
             <div className="mb-3.5 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2.5 text-xs font-bold tracking-[.14em] text-white/70 uppercase">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-mint shadow-[0_0_10px_var(--color-mint)]" />
-                <span>GLM 5.3 Flash Mechanical Split-Flap Terminal</span>
+                <span>Nemotron 3.5 Super VL Mechanical Split-Flap Terminal</span>
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {BOARD_TABS.map((t, i) => (
@@ -177,7 +177,7 @@ export default function Home({ onNavigate, onTryDemo, backendModel, hasKey }: Ho
 
         {/* Component 2: Image generation loader / vision scanner */}
         <Reveal>
-          <section aria-label="GLM 5.3 Flash Multimodal Handwriting Scanner" className="mb-7 rounded-2xl border border-white/10 bg-black/60 p-5 shadow-[0_20px_44px_rgba(0,0,0,.32)] backdrop-blur md:p-8">
+          <section aria-label="Nemotron 3.5 Super VL Multimodal Handwriting Scanner" className="mb-7 rounded-2xl border border-white/10 bg-black/60 p-5 shadow-[0_20px_44px_rgba(0,0,0,.32)] backdrop-blur md:p-8">
             <div className="grid items-center gap-6 lg:grid-cols-[1.2fr_1fr]">
               <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-white/15 bg-[#111] shadow-[0_16px_40px_rgba(0,0,0,.5)]">
                 <svg viewBox="0 0 600 450" fill="none" xmlns="http://www.w3.org/2000/svg" className="block h-full w-full">
@@ -240,7 +240,7 @@ export default function Home({ onNavigate, onTryDemo, backendModel, hasKey }: Ho
                 </div>
                 <h3 className="mb-2 text-[22px] font-extrabold tracking-tight">Multimodal Pixel-Wave Scanner</h3>
                 <p className="mb-5 text-sm leading-relaxed text-white/70">
-                  Watch how GLM 5.3 Flash scans raw handwriting, diagrams, and formulas. The neural vision layer
+                  Watch how Nemotron 3.5 Super VL scans raw handwriting, diagrams, and formulas. The neural vision layer
                   transcribes symbols into structured JSON before comparing against step rubrics.
                 </p>
                 <div className="mb-1.5 text-xs font-bold tracking-[.08em] text-white/45 uppercase">Scanner Text Mode</div>
@@ -321,15 +321,15 @@ export default function Home({ onNavigate, onTryDemo, backendModel, hasKey }: Ho
             <div className="mb-1 text-[11px] font-bold tracking-[.18em] text-white/45 uppercase">
               Architecture &amp; Pipeline
             </div>
-            <h2 className="text-[19px] font-bold tracking-tight">How GLM 5.3 Flash Evaluates Exams</h2>
+            <h2 className="text-[19px] font-bold tracking-tight">How Nemotron 3.5 Super VL Evaluates Exams</h2>
             <p className="mt-1 text-[13.5px] text-white/45">
               Split-pipeline execution prevents timeouts while maintaining high grading fidelity.
             </p>
             <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               {[
                 { n: 'Step 01', t: 'Document Ingestion', d: 'Accepts PDFs, scans, photos, and digital text. Digital pages extract text; scanned scripts render to 150 DPI images.' },
-                { n: 'Step 02', t: 'Vision OCR Extraction', d: 'GLM 5.3 Flash transcribes questions, expected answers, and student handwriting in parallel single-request batches.' },
-                { n: 'Step 03', t: 'Alignment & Scoring', d: 'Pure code aligns question numbers; GLM 5.3 Flash marks each item against the rubric, enforcing step marks and penalties.' },
+                { n: 'Step 02', t: 'Vision OCR Extraction', d: 'Nemotron 3.5 Super VL transcribes questions, expected answers, and student handwriting in parallel single-request batches.' },
+                { n: 'Step 03', t: 'Alignment & Scoring', d: 'Pure code aligns question numbers; Nemotron 3.5 Super VL marks each item against the rubric, enforcing step marks and penalties.' },
                 { n: 'Step 04', t: 'Report & Analytics', d: 'Generates real-time scoreboard, deduction tags, granular student feedback, and downloadable JSON & Markdown.' },
               ].map(s => (
                 <div key={s.n} className="rounded-xl border border-white/10 bg-black/25 p-5">

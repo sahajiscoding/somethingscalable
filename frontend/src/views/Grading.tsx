@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import LatticeLoader from '../components/LatticeLoader.jsx';
 import {
+  DEFAULT_MODEL_ID,
   downloadText,
+  modelLabel,
   runLiveEvaluation,
   type BackendState,
   type GradeRecord,
@@ -243,7 +245,7 @@ function vmFromPartialLive(
     mode: strict ? 'Strict' : 'Standard',
     critCountText: `${activeCrit.length} penalty criteria active`,
     sub: inProgress
-      ? `Live evaluation in progress with GLM 5.3 Flash — ${done.length} of ${totalExpected} questions evaluated (batched checking, 5 per request). Outputs appear below in real time as batches return from server.`
+      ? `Live evaluation in progress with ${modelLabel(model)} — ${done.length} of ${totalExpected} questions evaluated (batched checking, 5 per request). Outputs appear below in real time as batches return from server.`
       : `Live AI evaluation complete — ${fmt(awarded)} of ${fmt(total)} marks across ${done.length} questions.`,
     impact,
     contentExtra,
@@ -487,7 +489,7 @@ function ResultsView({
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-mint opacity-75" />
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-mint" />
               </span>
-              <span>Evaluating with {vm.modelName?.includes('deepseek') ? 'DeepSeek V4.1 Flash' : 'GLM 5.3 Flash'} · 39 requests/minute limit active · Output streams per question</span>
+              <span>Evaluating with {modelLabel(vm.modelName)} · 39 requests/minute limit active · Output streams per question</span>
             </div>
             <span className="rounded-full bg-mint/20 px-2.5 py-1 font-extrabold tabular-nums text-white">
               {vm.qCount} question{vm.qCount === 1 ? '' : 's'} ready
@@ -809,7 +811,7 @@ export default function Grading(props: GradingProps) {
             total,
             strict,
             criteria,
-            modelOverride.trim() || backend.model || 'z-ai/glm-5.3-flash',
+            modelOverride.trim() || backend.model || DEFAULT_MODEL_ID,
             completedCount < total,
           ));
           setRunLabel(`Grading (${completedCount}/${total} done)`);
@@ -1042,7 +1044,37 @@ export default function Grading(props: GradingProps) {
             </div>
             <div className="mt-1 text-xs text-white/45">Select AI model for checking papers:</div>
 
-            <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setModelOverride(DEFAULT_MODEL_ID)}
+                className={`group flex cursor-pointer flex-col rounded-xl border p-3.5 text-left transition-all duration-200 ${
+                  modelOverride.includes('nemotron') || !modelOverride.trim()
+                    ? 'border-mint/60 bg-mint/[0.08] shadow-[0_0_24px_rgba(129,199,132,0.12)] ring-1 ring-mint/30'
+                    : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[13px] font-semibold tracking-tight text-white">
+                    Nemotron 3.5 Super VL
+                  </span>
+                  {modelOverride.includes('nemotron') || !modelOverride.trim() ? (
+                    <span className="flex items-center gap-1.5 rounded-full border border-mint/40 bg-mint/15 px-2 py-0.5 text-[9.5px] font-semibold tracking-wide text-mint uppercase">
+                      <span className="h-1.5 w-1.5 rounded-full bg-mint shadow-[0_0_6px_var(--color-mint)]" />
+                      Active
+                    </span>
+                  ) : (
+                    <span className="h-1.5 w-1.5 rounded-full bg-white/20 group-hover:bg-white/40" />
+                  )}
+                </div>
+                <div className="mt-1 text-[11px] font-medium text-mint/90">
+                  Native OCR · 120B (12B active)
+                </div>
+                <div className="mt-1 text-[11px] text-white/45 leading-relaxed">
+                  NVIDIA&#39;s vision model reads handwriting and long papers without timing out.
+                </div>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setModelOverride('deepseek-ai/deepseek-v4.1-flash')}
@@ -1077,7 +1109,7 @@ export default function Grading(props: GradingProps) {
                 type="button"
                 onClick={() => setModelOverride('z-ai/glm-5.3-flash')}
                 className={`group flex cursor-pointer flex-col rounded-xl border p-3.5 text-left transition-all duration-200 ${
-                  !modelOverride.includes('deepseek') && (modelOverride.includes('glm') || !modelOverride.trim())
+                  modelOverride.includes('glm')
                     ? 'border-mint/60 bg-mint/[0.08] shadow-[0_0_24px_rgba(129,199,132,0.12)] ring-1 ring-mint/30'
                     : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]'
                 }`}
@@ -1086,7 +1118,7 @@ export default function Grading(props: GradingProps) {
                   <span className="text-[13px] font-semibold tracking-tight text-white">
                     GLM 5.3 Flash
                   </span>
-                  {!modelOverride.includes('deepseek') && (modelOverride.includes('glm') || !modelOverride.trim()) ? (
+                  {modelOverride.includes('glm') ? (
                     <span className="flex items-center gap-1.5 rounded-full border border-mint/40 bg-mint/15 px-2 py-0.5 text-[9.5px] font-semibold tracking-wide text-mint uppercase">
                       <span className="h-1.5 w-1.5 rounded-full bg-mint shadow-[0_0_6px_var(--color-mint)]" />
                       Active
@@ -1113,7 +1145,7 @@ export default function Grading(props: GradingProps) {
                 id="modelId"
                 value={modelOverride}
                 onChange={e => setModelOverride(e.target.value)}
-                placeholder="e.g. deepseek-ai/deepseek-v4.1-flash or z-ai/glm-5.3-flash"
+                placeholder="e.g. nvidia/nemotron-3.5-super-vl-120b-a12b or z-ai/glm-5.3-flash"
                 autoComplete="off"
                 aria-label="Model id override"
                 className="mt-1 w-full rounded-[8px] border border-white/20 bg-black/30 px-3 py-2 text-xs text-white outline-none focus:border-mint focus:shadow-[0_0_0_3px_rgba(129,199,132,.25)]"
@@ -1143,7 +1175,7 @@ export default function Grading(props: GradingProps) {
             </div>
             <div className={`mt-2 text-xs ${backend.ok ? 'text-mint' : 'text-crimson'}`}>
               {backend.ok
-                ? `● Live backend connected (Active: ${modelOverride.trim() || backend.model || 'z-ai/glm-5.3-flash'}).`
+                ? `● Live backend connected (Active: ${modelOverride.trim() || backend.model || DEFAULT_MODEL_ID}).`
                 : '○ No live backend (offline demo mode). Deploy with `vercel` to enable AI grading.'}
             </div>
           </div>

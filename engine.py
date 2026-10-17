@@ -30,11 +30,22 @@ from typing import Any
 # (Model default lives below as NVIDIA_DEFAULT_MODEL.)
 
 # NVIDIA NIM (OpenAI-compatible chat-completions endpoint) —
-# GLM 5.3 Flash (z-ai/glm-5.3-flash) reads the pages and grades (native vision + JSON).
-# Override the model with NVIDIA_MODEL; any vision-capable NIM id works.
+# Nemotron 3.5 Super VL (nvidia/nemotron-3.5-super-vl-120b-a12b) reads the
+# pages (native OCR/vision) and grades. It answers far faster than the
+# previous GLM/DeepSeek flash models, which hit the read timeout on real
+# exam papers. Override the model with NVIDIA_MODEL; any vision-capable
+# NIM id works.
 NIM_ENDPOINT = os.environ.get(
     "NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
-NVIDIA_DEFAULT_MODEL = os.environ.get("NVIDIA_MODEL", "z-ai/glm-5.3-flash")
+NVIDIA_DEFAULT_MODEL = os.environ.get(
+    "NVIDIA_MODEL", "nvidia/nemotron-3.5-super-vl-120b-a12b")
+# Tried in order after the requested model fails (timeout / HTTP error).
+# Kept short so a dead endpoint cannot burn the whole request window.
+_FALLBACK_MODELS = (
+    "z-ai/glm-5.3-flash",
+    "deepseek-ai/deepseek-v4.1-flash",
+    "nvidia/nemotron-3.5-super-vl-120b-a12b",
+)
 # Per-request HTTP timeout (seconds): fail fast instead of hanging until the
 # host kills the function. A hung NVIDIA call is retried against the fallback
 # model / next attempt rather than blocking grading for minutes. Override
@@ -163,9 +174,10 @@ class EngineError(RuntimeError):
 class NvidiaEngine:
     """Vision + grading through NVIDIA NIM (api.nvidia.com).
 
-    GLM 5.3 Flash (z-ai/glm-5.3-flash) reads the pages and grades (native vision + JSON),
-    HTTP via ``requests``. The key comes from ``NVIDIA_API_KEY`` (or aliases
-    like NIM_API_KEY / NV_API_KEY) configured in Vercel or environment.
+    Nemotron 3.5 Super VL (nvidia/nemotron-3.5-super-vl-120b-a12b) reads the
+    pages and grades (native vision + JSON), HTTP via ``requests``. The key
+    comes from ``NVIDIA_API_KEY`` (or aliases like NIM_API_KEY / NV_API_KEY)
+    configured in Vercel or environment.
 
     Images go over as base64 data-URL blocks. PDF pages are rendered to PNG
     with PyMuPDF (digital pages with enough embedded text ride along as
@@ -353,12 +365,12 @@ class NvidiaEngine:
             "Content-Type": "application/json",
         }
 
-        # Try user's requested model first; if it fails on server/network error, fall back to alternate model
+        # Try the requested model first; on timeout or server error, fall back
+        # through the alternates so one slow endpoint fails nothing.
         models_to_try = [self.model]
-        if self.model == "z-ai/glm-5.3-flash":
-            models_to_try.append("deepseek-ai/deepseek-v4.1-flash")
-        elif self.model == "deepseek-ai/deepseek-v4.1-flash":
-            models_to_try.append("z-ai/glm-5.3-flash")
+        for alt in _FALLBACK_MODELS:
+            if alt not in models_to_try:
+                models_to_try.append(alt)
 
         last = "no response"
         for candidate_model in models_to_try:
@@ -680,7 +692,7 @@ class MockEngine:
 def _parse_json(text: str) -> tuple[Any | None, str]:
     """Parse JSON from a model reply, tolerating reasoning tokens (<think>), fences, and prose."""
     candidate = text.strip()
-    # Strip reasoning tags often output by reasoning models like GLM 5.3 Flash
+    # Strip reasoning tags often output by reasoning models (Nemotron, GLM)
     candidate = re.sub(r"<think>[\s\S]*?</think>", "", candidate).strip()
 
     # Try direct parse
@@ -776,9 +788,9 @@ def make_engine(api_key: str | None = None,
                 backend: str | None = None):
     """Factory used by the CLI, test runners, Streamlit app and API.
 
-    NVIDIA NIM only (``z-ai/glm-5.3-flash``) for checking papers,
-    using the API key configured in Vercel/environment (``NVIDIA_API_KEY``)
-    or provided explicitly.
+    NVIDIA NIM only (``nvidia/nemotron-3.5-super-vl-120b-a12b``) for checking
+    papers, using the API key configured in Vercel/environment
+    (``NVIDIA_API_KEY``) or provided explicitly.
     """
     if mock or backend == "mock":
         return MockEngine(model=model)
@@ -788,6 +800,9 @@ def make_engine(api_key: str | None = None,
         )
     if not model or model.startswith("gemini-") or model in ("moonshotai/kimi-k3", "kimi-k3"):
         model = NVIDIA_DEFAULT_MODEL
+    elif model in ("nemotron", "nemotron-3.5-super-vl", "nemotron-3.5-super-vl-120b-a12b",
+                   "nvidia/nemotron-3.5-super-vl-120b-a12b"):
+        model = "nvidia/nemotron-3.5-super-vl-120b-a12b"
     elif model in ("glm-5.3-flash", "z-ai/glm-5-3-flash", "glm-5-3-flash"):
         model = "z-ai/glm-5.3-flash"
     elif model in ("deepseek-v4.1-flash", "deepseek-v4.1", "deepseek-flash", "deepseek", "deepseek-ai/deepseek-v4.1-flash"):

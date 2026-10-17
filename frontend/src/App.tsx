@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import PatternWaves from './components/PatternWaves.jsx';
-import { checkBackend, type BackendState } from './lib/api';
+import { checkBackend, DEFAULT_MODEL_ID, type BackendState } from './lib/api';
 import {
   EMPTY_ANALYTICS,
   EMPTY_CRITERIA,
@@ -61,7 +61,7 @@ export default function App() {
   const [criteria, setCriteria] = useState<CriteriaState>(EMPTY_CRITERIA);
   const [modelOverride, setModelOverride] = useState('');
   const [live, setLive] = useState(true);
-  const [backend, setBackend] = useState<BackendState>({ ok: false, model: 'z-ai/glm-5.3-flash', hasKey: false });
+  const [backend, setBackend] = useState<BackendState>({ ok: false, model: DEFAULT_MODEL_ID, hasKey: false });
   const [demoRequest, setDemoRequest] = useState(0);
   const [analytics, setAnalytics] = useState<AnalyticsState>(EMPTY_ANALYTICS);
   const [graderNotice, setGraderNotice] = useState<{ id: number; msg: string } | null>(null);

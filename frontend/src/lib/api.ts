@@ -6,6 +6,18 @@ export const APP_SECRET: string = (() => {
   return v.startsWith('__VERCEL') ? '' : v;
 })();
 
+/* Default NIM id used by the server (engine.NVIDIA_DEFAULT_MODEL) — kept here
+ * so preset buttons and status lines match the backend when no override is set. */
+export const DEFAULT_MODEL_ID = 'nvidia/nemotron-3.5-super-vl-120b-a12b';
+
+/* Human-readable name for a NIM model id; empty/unknown → default model name. */
+export function modelLabel(id?: string): string {
+  const v = (id || '').toLowerCase();
+  if (v.includes('deepseek')) return 'DeepSeek V4.1 Flash';
+  if (v.includes('glm')) return 'GLM 5.3 Flash';
+  return 'Nemotron 3.5 Super VL';
+}
+
 export function api(path: string, opts: RequestInit = {}): Promise<Response> {
   const headers: Record<string, string> = { ...(opts.headers as Record<string, string> | undefined) };
   if (APP_SECRET) headers['X-App-Secret'] = APP_SECRET;
@@ -425,7 +437,7 @@ export async function generateExam(
   const rateLimiter = new RateLimiter(39, 60_000);
 
   const completedQuestions: (GeneratedQuestion | null)[] = new Array(count).fill(null);
-  let usedModel = input.model || 'z-ai/glm-5.3-flash';
+  let usedModel = input.model || DEFAULT_MODEL_ID;
   let note: string | undefined;
 
   // Per-question generation: 1 request per question, bypassing timeouts.
