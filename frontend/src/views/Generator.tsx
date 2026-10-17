@@ -231,105 +231,84 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
           {setModelOverride && (
             <div className="mb-4 rounded-xl border border-white/10 bg-black/20 p-3.5">
               <div className="flex items-center justify-between">
-                <div className="text-[11px] font-bold tracking-[.14em] text-white/50 uppercase">Generation Model</div>
+                <div className="text-[11px] font-bold tracking-[.14em] text-white/50 uppercase">Generation Model (build.nvidia.com)</div>
                 <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[10px] font-medium text-white/40">
                   NVIDIA NIM
                 </span>
               </div>
               <div className="mt-1 text-xs text-white/45">Select AI model for generating questions &amp; rubric:</div>
 
-              <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => setModelOverride(DEFAULT_MODEL_ID)}
-                  className={`group flex cursor-pointer flex-col rounded-xl border p-3.5 text-left transition-all duration-200 ${
-                    modelOverride.includes('nemotron') || !modelOverride.trim()
-                      ? 'border-mint/60 bg-mint/[0.08] shadow-[0_0_24px_rgba(129,199,132,0.12)] ring-1 ring-mint/30'
-                      : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[13px] font-semibold tracking-tight text-white">
-                      Nemotron 3.5 Super VL
-                    </span>
-                    {modelOverride.includes('nemotron') || !modelOverride.trim() ? (
-                      <span className="flex items-center gap-1.5 rounded-full border border-mint/40 bg-mint/15 px-2 py-0.5 text-[9.5px] font-semibold tracking-wide text-mint uppercase">
-                        <span className="h-1.5 w-1.5 rounded-full bg-mint shadow-[0_0_6px_var(--color-mint)]" />
-                        Active
-                      </span>
-                    ) : (
-                      <span className="h-1.5 w-1.5 rounded-full bg-white/20 group-hover:bg-white/40" />
-                    )}
-                  </div>
-                  <div className="mt-1 text-[11px] font-medium text-mint/90">
-                    Native vision · 120B (12B active)
-                  </div>
-                  <div className="mt-1 text-[11px] text-white/45 leading-relaxed">
-                    NVIDIA&#39;s VL model with 1M context. Default engine, no timeouts.
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setModelOverride('deepseek-ai/deepseek-v4.1-flash')}
-                  className={`group flex cursor-pointer flex-col rounded-xl border p-3.5 text-left transition-all duration-200 ${
-                    modelOverride.includes('deepseek')
-                      ? 'border-mint/60 bg-mint/[0.08] shadow-[0_0_24px_rgba(129,199,132,0.12)] ring-1 ring-mint/30'
-                      : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[13px] font-semibold tracking-tight text-white">
-                      DeepSeek V4.1 Flash
-                    </span>
-                    {modelOverride.includes('deepseek') ? (
-                      <span className="flex items-center gap-1.5 rounded-full border border-mint/40 bg-mint/15 px-2 py-0.5 text-[9.5px] font-semibold tracking-wide text-mint uppercase">
-                        <span className="h-1.5 w-1.5 rounded-full bg-mint shadow-[0_0_6px_var(--color-mint)]" />
-                        Active
-                      </span>
-                    ) : (
-                      <span className="h-1.5 w-1.5 rounded-full bg-white/20 group-hover:bg-white/40" />
-                    )}
-                  </div>
-                  <div className="mt-1 text-[11px] font-medium text-mint/90">
-                    Ultra-Fast · ~1.5s response
-                  </div>
-                  <div className="mt-1 text-[11px] text-white/45 leading-relaxed">
-                    MoE architecture. Rapid syllabus generation without timeouts.
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setModelOverride('z-ai/glm-5.3-flash')}
-                  className={`group flex cursor-pointer flex-col rounded-xl border p-3.5 text-left transition-all duration-200 ${
-                    modelOverride.includes('glm')
-                      ? 'border-mint/60 bg-mint/[0.08] shadow-[0_0_24px_rgba(129,199,132,0.12)] ring-1 ring-mint/30'
-                      : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]'
-                  }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-[13px] font-semibold tracking-tight text-white">
-                    GLM 5.3 Flash
-                  </span>
-                  {modelOverride.includes('glm') ? (
-                    <span className="flex items-center gap-1.5 rounded-full border border-mint/40 bg-mint/15 px-2 py-0.5 text-[9.5px] font-semibold tracking-wide text-mint uppercase">
-                      <span className="h-1.5 w-1.5 rounded-full bg-mint shadow-[0_0_6px_var(--color-mint)]" />
-                      Active
-                    </span>
-                  ) : (
-                    <span className="h-1.5 w-1.5 rounded-full bg-white/20 group-hover:bg-white/40" />
-                  )}
-                </div>
-                <div className="mt-1 text-[11px] font-medium text-sand/90">
-                  Deep Reasoning · 320B Parameters
-                </div>
-                <div className="mt-1 text-[11px] text-white/45 leading-relaxed">
-                  Deep pedagogical reasoning with balanced tiered difficulties.
-                </div>
-              </button>
+              <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                {[
+                  {
+                    id: DEFAULT_MODEL_ID,
+                    name: 'Nemotron 3.5 Super VL',
+                    tag: 'Default · 120B (12B active)',
+                    tagTone: 'text-mint/90',
+                    desc: 'NVIDIA’s flagship VL model with thinking overhead disabled for fast generation.',
+                    match: (m: string) => !m.trim() || m.includes('super-vl'),
+                  },
+                  {
+                    id: 'google/gemma-4-31b-it',
+                    name: 'Gemma 4 31B Vision',
+                    tag: 'Recommended Fast Multimodal',
+                    tagTone: 'text-mint/90',
+                    desc: 'Google’s 31B multimodal model on NVIDIA NIM. Fast, clean JSON rubric output.',
+                    match: (m: string) => m.includes('gemma-4-31b'),
+                  },
+                  {
+                    id: 'nvidia/nemotron-3.5-lightning-30b-a3b',
+                    name: 'Nemotron 3.5 Lightning',
+                    tag: 'Ultra-Fast · 30B (3B active)',
+                    tagTone: 'text-mint/90',
+                    desc: 'Sub-second question & marking scheme generation using 3B active MoE.',
+                    match: (m: string) => m.includes('lightning'),
+                  },
+                  {
+                    id: 'deepseek-ai/deepseek-v4.1-flash',
+                    name: 'DeepSeek V4.1 Flash',
+                    tag: 'High-Throughput MoE · ~1.5s',
+                    tagTone: 'text-sand/90',
+                    desc: 'MoE architecture. Rapid syllabus generation without timeouts.',
+                    match: (m: string) => m.includes('deepseek'),
+                  },
+                ].map(preset => {
+                  const active = preset.match(modelOverride);
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => setModelOverride(preset.id)}
+                      className={`group flex cursor-pointer flex-col rounded-xl border p-3 text-left transition-all duration-200 ${
+                        active
+                          ? 'border-mint/60 bg-mint/[0.08] shadow-[0_0_24px_rgba(129,199,132,0.12)] ring-1 ring-mint/30'
+                          : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[12.5px] font-semibold tracking-tight text-white">
+                          {preset.name}
+                        </span>
+                        {active ? (
+                          <span className="flex items-center gap-1 rounded-full border border-mint/40 bg-mint/15 px-2 py-0.5 text-[9px] font-semibold tracking-wide text-mint uppercase">
+                            <span className="h-1.5 w-1.5 rounded-full bg-mint shadow-[0_0_6px_var(--color-mint)]" />
+                            Active
+                          </span>
+                        ) : (
+                          <span className="h-1.5 w-1.5 rounded-full bg-white/20 group-hover:bg-white/40" />
+                        )}
+                      </div>
+                      <div className={`mt-1 text-[10.5px] font-medium ${preset.tagTone}`}>
+                        {preset.tag}
+                      </div>
+                      <div className="mt-1 text-[10.5px] text-white/45 leading-relaxed">
+                        {preset.desc}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
           )}
 
           <button

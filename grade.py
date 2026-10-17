@@ -59,19 +59,17 @@ You are an experienced, fair examiner. You receive:
   the transcribed student answer (plus legibility / uncertain_spans from
   OCR).
 
-For EVERY question produce one JSON object with exactly these fields:
+For EVERY question produce one JSON object with these fields:
   number           - question number as given in the input
-  student_answer   - the student's answer (lightly cleaned of transcription
-                     artefacts only; do not rewrite their reasoning)
-  expected_answer  - the official answer (abridged if very long)
   max_marks        - maximum marks for the question
   marks_awarded    - marks the student earns, 0 <= awarded <= max_marks
   deductions       - [{{category, marks, reason}}]; must sum to
                      (max_marks - marks_awarded)
-  feedback         - full sentence explanation of where and why marks were
-                     cut (or why full marks were given)
+  feedback         - concise 1-2 sentence explanation of where and why marks
+                     were cut (or why full marks were given)
   ocr_note         - note any suspected transcription/handwriting-recognition
                      errors affecting this answer ("" if none)
+(Do NOT repeat student_answer or expected_answer in the output JSON.)
 
 MARKING RULES:
 1. Partial credit: award the rubric's step marks for each correct step even
@@ -115,19 +113,17 @@ answer and a set of required keywords/concepts are provided (derived from
 web search).  Mark the student's answer by checking how many of these
 keywords appear in their response.
 
-For EVERY question produce a JSON object with exactly these fields:
+For EVERY question produce a JSON object with these fields:
   number           - question number as given in the input
-  student_answer   - the student's answer (lightly cleaned of transcription
-                     artefacts only; do not rewrite their reasoning)
-  expected_answer  - the model/expected answer (abridged if very long)
   max_marks        - maximum marks for the question
   marks_awarded    - marks the student earns, 0 <= awarded <= max_marks
   deductions       - [{{category, marks, reason}}]; must sum to
                      (max_marks - marks_awarded)
-  feedback         - full sentence explanation of where and why marks were
-                     cut (or why full marks were given)
+  feedback         - concise 1-2 sentence explanation of where and why marks
+                     were cut (or why full marks were given)
   ocr_note         - note any suspected transcription/handwriting-recognition
                      errors affecting this answer ("" if none)
+(Do NOT repeat student_answer or expected_answer in the output JSON.)
 
 MARKING RULES:
 1. Count how many of the provided keywords appear in the student's answer
@@ -164,19 +160,75 @@ def build_prompt(params: GradeParams) -> str:
     )
 
 
+def _norm_compare(text: str) -> str:
+    return "".join(ch for ch in (text or "").lower() if ch.isalnum())
+
+
+def _try_fast_grade(q: AlignedQuestion, params: GradeParams) -> dict | None:
+    """Fast deterministic grading for blank responses or exact Answer Key matches."""
+    student = (q.student_answer or "").strip()
+    expected = (q.expected_answer or "").strip()
+    max_m = float(q.max_marks or 0.0)
+    if not student:
+        return normalise_record(
+            {
+                "number": q.number,
+                "max_marks": max_m,
+                "marks_awarded": 0.0,
+                "deductions": (
+                    [{"category": CONTENT_CATEGORY, "marks": max_m, "reason": "No student answer was provided."}]
+                    if max_m > 0 else []
+                ),
+                "feedback": "No student answer was transcribed for this question.",
+                "ocr_note": "",
+            },
+            q,
+            params,
+        )
+    if not params.penalty_list and expected and max_m > 0:
+        ns = _norm_compare(student)
+        ne = _norm_compare(expected)
+        if len(ne) >= 2 and (ns == ne or (len(ne) >= 25 and ne in ns)):
+            return normalise_record(
+                {
+                    "number": q.number,
+                    "max_marks": max_m,
+                    "marks_awarded": max_m,
+                    "deductions": [],
+                    "feedback": "Full marks awarded: response matches the official answer key across all required points.",
+                    "ocr_note": "",
+                },
+                q,
+                params,
+            )
+    return None
+
+
 def grade_answers(engine, aligned: list[AlignedQuestion],
                   params: GradeParams | None = None) -> list[dict]:
     """Grade every aligned question in one engine call."""
     params = params or GradeParams()
+    fast_by_idx: dict[int, dict] = {}
+    pending: list[AlignedQuestion] = []
+    for idx, q in enumerate(aligned):
+        fast = _try_fast_grade(q, params)
+        if fast is not None:
+            fast_by_idx[idx] = fast
+        else:
+            pending.append(q)
+
+    if not pending:
+        return [fast_by_idx[i] for i in range(len(aligned))]
+
     payload = {
         "strict": params.strict,
         "keyword_mode": params.keyword_mode,
         "penalty_criteria": params.penalty_list,
-        "questions": [q.to_payload() for q in aligned],
+        "questions": [q.to_payload() for q in pending],
     }
-    # Scale the output budget with batch size: one question needs ~1500
-    # tokens; the CLI whole-paper path keeps its historic headroom.
-    max_tokens = min(1500 * max(1, len(aligned)), 8192)
+    # Scale the output budget with batch size: without repeating input answers,
+    # each question needs ~350 tokens.
+    max_tokens = min(650 * max(1, len(pending)), 6000)
     raw = engine.generate_json("grade", data=payload,
                                instruction=build_prompt(params),
                                temperature=0.1, max_tokens=max_tokens)
@@ -191,9 +243,11 @@ def grade_answers(engine, aligned: list[AlignedQuestion],
         if isinstance(item, dict) and item.get("number") is not None:
             by_number[str(item["number"]).strip()] = item
 
-    aligned_by_number = {q.number: q for q in aligned}
     records: list[dict] = []
-    for q in aligned:
+    for idx, q in enumerate(aligned):
+        if idx in fast_by_idx:
+            records.append(fast_by_idx[idx])
+            continue
         item = by_number.get(q.number)
         if item is None:
             # Fall back to fuzzy match (model may re-format numbers).
@@ -217,47 +271,14 @@ def grade_batch(engine, aligned_list: list[AlignedQuestion],
 
     Batching amortises the per-request overhead (TLS + Vercel cold start +
     NVIDIA queueing) across questions: one 5-question call generating
-    ~2500 tokens is far quicker than five separate calls, and far fewer
+    ~1500 tokens is far quicker than five separate calls, and far fewer
     concurrent requests means no 429s and no NVIDIA-side timeouts.
     Output shape and normalisation are identical to :func:`grade_answers`.
     """
     params = params or GradeParams()
     if not aligned_list:
         return []
-    payload = {
-        "strict": params.strict,
-        "keyword_mode": params.keyword_mode,
-        "penalty_criteria": params.penalty_list,
-        "questions": [q.to_payload() for q in aligned_list],
-    }
-    # ~500 output tokens per question is generous; cap keeps generation
-    # short so the upstream server never idles into a read timeout.
-    max_tokens = min(1500 * max(1, len(aligned_list)), 6000)
-    raw = engine.generate_json("grade", data=payload,
-                               instruction=build_prompt(params),
-                               temperature=0.1, max_tokens=max_tokens)
-
-    if isinstance(raw, dict):
-        raw = raw.get("questions") or raw.get("results") or raw.get("grades")
-    if not isinstance(raw, list) or not raw:
-        raise GradingError("Grading engine returned no question records.")
-
-    by_number: dict[str, dict] = {}
-    for item in raw:
-        if isinstance(item, dict) and item.get("number") is not None:
-            by_number[str(item["number"]).strip()] = item
-
-    records: list[dict] = []
-    for q in aligned_list:
-        item = by_number.get(q.number)
-        if item is None:
-            item = next(
-                (v for k, v in by_number.items()
-                 if _loose(k) == _loose(q.number)),
-                None,
-            )
-        records.append(normalise_record(item, q, params))
-    return records
+    return grade_answers(engine, aligned_list, params)
 
 
 def aligned_from_dict(aligned: dict) -> AlignedQuestion:

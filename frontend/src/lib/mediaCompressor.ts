@@ -528,21 +528,35 @@ export async function compressMediaIfNeeded(
   onProgress?: (pct: number, msg: string) => void
 ): Promise<MediaCompressResult> {
   const origSize = file.size;
-  if (origSize <= targetBytes && !isImageFile(file) && !isPdfFile(file)) {
-    return {
-      file,
-      compressed: false,
-      originalBytes: origSize,
-      compressedBytes: origSize,
-      fromMB: origSize / 1048576,
-      toMB: origSize / 1048576,
-      savedBytes: 0,
-      savedPercent: 0,
-      kind: 'other',
-    };
+
+  // For images (camera photos, PNG scans), downscale anything > 450 KB to <= 1600px JPEG
+  // so uploads and VLM visual tokenization stay fast (typically ~180-350 KB).
+  if (isImageFile(file)) {
+    const fastImageTarget = Math.min(targetBytes, 900_000);
+    if (origSize <= 450_000 && /jpe?g$/i.test(file.name)) {
+      return {
+        file,
+        compressed: false,
+        originalBytes: origSize,
+        compressedBytes: origSize,
+        fromMB: origSize / 1048576,
+        toMB: origSize / 1048576,
+        savedBytes: 0,
+        savedPercent: 0,
+        kind: 'image',
+      };
+    }
+    return compressImage(file, {
+      targetBytes: fastImageTarget,
+      maxDimension: 1600,
+      quality: 0.80,
+      preset: 'medium',
+      onProgress,
+    });
   }
 
-  // If already under target, skip unless explicitly needed
+  // For PDFs and text files: preserve digital PDFs under 3.5 MB so the server
+  // can extract embedded text instantaneously without rasterizing.
   if (origSize <= targetBytes) {
     return {
       file,
@@ -553,7 +567,7 @@ export async function compressMediaIfNeeded(
       toMB: origSize / 1048576,
       savedBytes: 0,
       savedPercent: 0,
-      kind: isImageFile(file) ? 'image' : isPdfFile(file) ? 'pdf' : 'other',
+      kind: isPdfFile(file) ? 'pdf' : 'other',
     };
   }
 

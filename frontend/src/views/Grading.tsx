@@ -802,7 +802,7 @@ export default function Grading(props: GradingProps) {
           else setStage({ done: s, active: s });
         },
         onQuestionsAligned: qs => {
-          setRunLabel(`Checking ${qs.length} questions in batches of 4 (2 at a time)\u2026`);
+          setRunLabel(`Checking ${qs.length} questions in batches of 5 (3 at a time)\u2026`);
         },
         onQuestionDone: (_record, _idx, total, allGraded) => {
           const completedCount = allGraded.filter(Boolean).length;
@@ -839,12 +839,13 @@ export default function Grading(props: GradingProps) {
       setRunLabel('Run AI Evaluation');
       setStage(null);
       setLoaderStatus('error');
+      const errMsg = err instanceof Error ? err.message : String(err);
       setAlert({
-        msg: `Live backend failed (${err instanceof Error ? err.message : String(err)}) — nothing was graded and no demo was substituted. Check the server API key and retry.`,
+        msg: `Live backend failed (${errMsg}) — nothing was graded and no demo was substituted. Check the server API key or switch to a faster model (e.g. Gemma 4 31B Vision or Llama 3.2 90B Vision) and retry.`,
         ok: false,
       });
     }
-  }, [running, missingDocs, flagMissing, files, strict, criteria, modelOverride, onRecord, setFiles]);
+  }, [running, missingDocs, flagMissing, files, strict, criteria, modelOverride, backend.model, onRecord, setFiles]);
 
   const runEvaluation = useCallback(() => {
     if (!live) {
@@ -1037,115 +1038,110 @@ export default function Grading(props: GradingProps) {
 
           <div aria-label="Live backend settings" className="mt-4 rounded-xl border border-white/10 bg-black/10 p-3.5">
             <div className="flex items-center justify-between">
-              <div className="text-[11px] font-bold tracking-[.16em] text-white/45 uppercase">Live AI Engine &amp; Model</div>
+              <div className="text-[11px] font-bold tracking-[.16em] text-white/45 uppercase">Live AI Engine &amp; Model (build.nvidia.com)</div>
               <span className="rounded-full border border-mint/30 bg-mint/10 px-2 py-0.5 text-[10px] font-bold text-mint">
-                39 RPM Rate Limited
+                Fast Direct Mode
               </span>
             </div>
-            <div className="mt-1 text-xs text-white/45">Select AI model for checking papers:</div>
+            <div className="mt-1 text-xs text-white/45">Recommended high-speed NVIDIA NIM models for OCR &amp; grading:</div>
 
-            <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => setModelOverride(DEFAULT_MODEL_ID)}
-                className={`group flex cursor-pointer flex-col rounded-xl border p-3.5 text-left transition-all duration-200 ${
-                  modelOverride.includes('nemotron') || !modelOverride.trim()
-                    ? 'border-mint/60 bg-mint/[0.08] shadow-[0_0_24px_rgba(129,199,132,0.12)] ring-1 ring-mint/30'
-                    : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-[13px] font-semibold tracking-tight text-white">
-                    Nemotron 3.5 Super VL
-                  </span>
-                  {modelOverride.includes('nemotron') || !modelOverride.trim() ? (
-                    <span className="flex items-center gap-1.5 rounded-full border border-mint/40 bg-mint/15 px-2 py-0.5 text-[9.5px] font-semibold tracking-wide text-mint uppercase">
-                      <span className="h-1.5 w-1.5 rounded-full bg-mint shadow-[0_0_6px_var(--color-mint)]" />
-                      Active
-                    </span>
-                  ) : (
-                    <span className="h-1.5 w-1.5 rounded-full bg-white/20 group-hover:bg-white/40" />
-                  )}
-                </div>
-                <div className="mt-1 text-[11px] font-medium text-mint/90">
-                  Native OCR · 120B (12B active)
-                </div>
-                <div className="mt-1 text-[11px] text-white/45 leading-relaxed">
-                  NVIDIA&#39;s vision model reads handwriting and long papers without timing out.
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setModelOverride('deepseek-ai/deepseek-v4.1-flash')}
-                className={`group flex cursor-pointer flex-col rounded-xl border p-3.5 text-left transition-all duration-200 ${
-                  modelOverride.includes('deepseek')
-                    ? 'border-mint/60 bg-mint/[0.08] shadow-[0_0_24px_rgba(129,199,132,0.12)] ring-1 ring-mint/30'
-                    : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-[13px] font-semibold tracking-tight text-white">
-                    DeepSeek V4.1 Flash
-                  </span>
-                  {modelOverride.includes('deepseek') ? (
-                    <span className="flex items-center gap-1.5 rounded-full border border-mint/40 bg-mint/15 px-2 py-0.5 text-[9.5px] font-semibold tracking-wide text-mint uppercase">
-                      <span className="h-1.5 w-1.5 rounded-full bg-mint shadow-[0_0_6px_var(--color-mint)]" />
-                      Active
-                    </span>
-                  ) : (
-                    <span className="h-1.5 w-1.5 rounded-full bg-white/20 group-hover:bg-white/40" />
-                  )}
-                </div>
-                <div className="mt-1 text-[11px] font-medium text-mint/90">
-                  Ultra-Fast · ~1.5s per question
-                </div>
-                <div className="mt-1 text-[11px] text-white/45 leading-relaxed">
-                  552B MoE activating 8B/16B. High-throughput OCR &amp; strict schema adherence.
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setModelOverride('z-ai/glm-5.3-flash')}
-                className={`group flex cursor-pointer flex-col rounded-xl border p-3.5 text-left transition-all duration-200 ${
-                  modelOverride.includes('glm')
-                    ? 'border-mint/60 bg-mint/[0.08] shadow-[0_0_24px_rgba(129,199,132,0.12)] ring-1 ring-mint/30'
-                    : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-[13px] font-semibold tracking-tight text-white">
-                    GLM 5.3 Flash
-                  </span>
-                  {modelOverride.includes('glm') ? (
-                    <span className="flex items-center gap-1.5 rounded-full border border-mint/40 bg-mint/15 px-2 py-0.5 text-[9.5px] font-semibold tracking-wide text-mint uppercase">
-                      <span className="h-1.5 w-1.5 rounded-full bg-mint shadow-[0_0_6px_var(--color-mint)]" />
-                      Active
-                    </span>
-                  ) : (
-                    <span className="h-1.5 w-1.5 rounded-full bg-white/20 group-hover:bg-white/40" />
-                  )}
-                </div>
-                <div className="mt-1 text-[11px] font-medium text-sand/90">
-                  Deep Reasoning · 320B Parameters
-                </div>
-                <div className="mt-1 text-[11px] text-white/45 leading-relaxed">
-                  Comprehensive handwriting analysis with granular step-by-step partial credit.
-                </div>
-              </button>
+            <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+              {[
+                {
+                  id: DEFAULT_MODEL_ID,
+                  name: 'Nemotron 3.5 Super VL',
+                  tag: 'Default Multi-Page VLM · 12B Active',
+                  tagTone: 'text-mint/90',
+                  desc: 'Native multi-page OCR + rubric grading with chain-of-thought overhead disabled.',
+                  match: (m: string) => !m.trim() || m.includes('super-vl'),
+                },
+                {
+                  id: 'google/gemma-4-31b-it',
+                  name: 'Gemma 4 31B Vision',
+                  tag: 'Recommended Fast VLM · ~2s/page',
+                  tagTone: 'text-mint/90',
+                  desc: 'Google’s multimodal vision-language model on NVIDIA NIM. Fast OCR & strict JSON.',
+                  match: (m: string) => m.includes('gemma-4-31b'),
+                },
+                {
+                  id: 'meta/llama-3.2-90b-vision-instruct',
+                  name: 'Llama 3.2 90B Vision',
+                  tag: 'Zero-Thinking VLM · High Accuracy',
+                  tagTone: 'text-mint/90',
+                  desc: 'Instant non-thinking vision instruct model. Ideal for dense handwriting & answer keys.',
+                  match: (m: string) => m.includes('llama-3.2-90b'),
+                },
+                {
+                  id: 'meta/llama-3.2-11b-vision-instruct',
+                  name: 'Llama 3.2 11B Vision',
+                  tag: 'Ultra-Light VLM · ~1s/page',
+                  tagTone: 'text-mint/90',
+                  desc: 'Lowest-latency vision model on build.nvidia.com for clean scans and printed keys.',
+                  match: (m: string) => m.includes('llama-3.2-11b'),
+                },
+                {
+                  id: 'nvidia/nemotron-3.5-lightning-30b-a3b',
+                  name: 'Nemotron 3.5 Lightning',
+                  tag: 'Fastest Grader · 3B Active MoE',
+                  tagTone: 'text-sand/90',
+                  desc: 'Sub-second batch grading (30B/3B active). Auto-pairs with VLM for image scans.',
+                  match: (m: string) => m.includes('lightning'),
+                },
+                {
+                  id: 'deepseek-ai/deepseek-v4.1-flash',
+                  name: 'DeepSeek V4.1 Flash',
+                  tag: 'High-Throughput MoE · ~1.5s/batch',
+                  tagTone: 'text-sand/90',
+                  desc: 'Fast rubric step-by-step evaluation. Auto-pairs with VLM for image scans.',
+                  match: (m: string) => m.includes('deepseek'),
+                },
+              ].map(preset => {
+                const active = preset.match(modelOverride);
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => setModelOverride(preset.id)}
+                    className={`group flex cursor-pointer flex-col rounded-xl border p-3 text-left transition-all duration-200 ${
+                      active
+                        ? 'border-mint/60 bg-mint/[0.08] shadow-[0_0_24px_rgba(129,199,132,0.12)] ring-1 ring-mint/30'
+                        : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-[12.5px] font-semibold tracking-tight text-white">
+                        {preset.name}
+                      </span>
+                      {active ? (
+                        <span className="flex items-center gap-1 rounded-full border border-mint/40 bg-mint/15 px-2 py-0.5 text-[9px] font-semibold tracking-wide text-mint uppercase">
+                          <span className="h-1.5 w-1.5 rounded-full bg-mint shadow-[0_0_6px_var(--color-mint)]" />
+                          Active
+                        </span>
+                      ) : (
+                        <span className="h-1.5 w-1.5 rounded-full bg-white/20 group-hover:bg-white/40" />
+                      )}
+                    </div>
+                    <div className={`mt-1 text-[10.5px] font-medium ${preset.tagTone}`}>
+                      {preset.tag}
+                    </div>
+                    <div className="mt-1 text-[10.5px] text-white/45 leading-relaxed">
+                      {preset.desc}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="mt-3">
               <label htmlFor="modelId" className="block text-[11.5px] text-white/60">
-                Custom NIM Model ID <span className="text-white/35">(or edit active model)</span>:
+                Custom NIM Model ID <span className="text-white/35">(any model from build.nvidia.com)</span>:
               </label>
               <input
                 type="text"
                 id="modelId"
                 value={modelOverride}
                 onChange={e => setModelOverride(e.target.value)}
-                placeholder="e.g. nvidia/nemotron-3.5-super-vl-120b-a12b or z-ai/glm-5.3-flash"
+                placeholder="e.g. google/gemma-4-31b-it or meta/llama-3.2-90b-vision-instruct"
                 autoComplete="off"
                 aria-label="Model id override"
                 className="mt-1 w-full rounded-[8px] border border-white/20 bg-black/30 px-3 py-2 text-xs text-white outline-none focus:border-mint focus:shadow-[0_0_0_3px_rgba(129,199,132,.25)]"

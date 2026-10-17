@@ -13,15 +13,46 @@ export const DEFAULT_MODEL_ID = 'nvidia/nemotron-3.5-super-vl-120b-a12b';
 /* Human-readable name for a NIM model id; empty/unknown → default model name. */
 export function modelLabel(id?: string): string {
   const v = (id || '').toLowerCase();
+  if (v.includes('gemma-4-31b')) return 'Gemma 4 31B Vision';
+  if (v.includes('gemma-3-12b') || v.includes('gemma-3-27b')) return 'Gemma 3 Vision';
+  if (v.includes('llama-3.2-90b')) return 'Llama 3.2 90B Vision';
+  if (v.includes('llama-3.2-11b')) return 'Llama 3.2 11B Vision';
+  if (v.includes('lightning')) return 'Nemotron 3.5 Lightning';
   if (v.includes('deepseek')) return 'DeepSeek V4.1 Flash';
   if (v.includes('glm')) return 'GLM 5.3 Flash';
-  return 'Nemotron 3.5 Super VL';
+  if (v.includes('qwen')) return 'Qwen 3.6 35B';
+  if (v.includes('nemotron')) return 'Nemotron 3.5 Super VL';
+  return id ? id.split('/').pop() || 'Nemotron 3.5 Super VL' : 'Nemotron 3.5 Super VL';
 }
 
-export function api(path: string, opts: RequestInit = {}): Promise<Response> {
+export async function api(path: string, opts: RequestInit = {}, retries = 2): Promise<Response> {
   const headers: Record<string, string> = { ...(opts.headers as Record<string, string> | undefined) };
   if (APP_SECRET) headers['X-App-Secret'] = APP_SECRET;
-  return fetch(path, { ...opts, headers });
+
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(path, { ...opts, headers });
+      if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt < retries) {
+        await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+        continue;
+      }
+      return res;
+    } catch (err: unknown) {
+      lastErr = err;
+      if (attempt < retries) {
+        await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+        continue;
+      }
+    }
+  }
+  const rawMsg = String((lastErr as Error)?.message || lastErr || '');
+  if (/failed to fetch|networkerror|load failed/i.test(rawMsg)) {
+    throw new Error(
+      'Connection to the grading server dropped or timed out (Failed to fetch). Ensure the backend server is running and NVIDIA_API_KEY is set, or select a faster model such as Gemma 4 31B Vision or Llama 3.2 90B Vision.'
+    );
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(rawMsg || 'Network request failed');
 }
 
 export async function apiJson<T>(path: string, opts: RequestInit = {}): Promise<T> {
@@ -162,24 +193,19 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
     typeof window !== 'undefined' &&
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
-  // Compress in parallel across documents if needed
+  // Compress in parallel across documents if needed (compressMediaIfNeeded is a no-op
+  // for already-compressed JPEGs <= 450 KB and digital PDFs <= 3.5 MB).
   await Promise.all(
     roles.map(async role => {
       if (!files[role]) return;
-      // On localhost, Flask accepts up to 25 MB directly, so don't compress unless > 20 MB.
-      // On remote/Vercel hosts, compress if > 3.5 MB to stay comfortably under the 4.5 MB gateway limit.
-      const threshold = isLocal ? 20_000_000 : 3_500_000;
-      if (files[role].size > threshold) {
-        const res = await compressMediaIfNeeded(files[role]);
-        if (res.compressed) {
-          files[role] = res.file;
-        }
-        // If still oversize on hosted Vercel, attempt aggressive pass targeted for multi-page documents
-        if (!isLocal && files[role] && files[role].size > 4_200_000) {
-          const fallback = await compressMediaIfNeeded(files[role], 3_000_000);
-          if (fallback.compressed) {
-            files[role] = fallback.file;
-          }
+      const res = await compressMediaIfNeeded(files[role]);
+      if (res.compressed) {
+        files[role] = res.file;
+      }
+      if (!isLocal && files[role] && files[role].size > 4_200_000) {
+        const fallback = await compressMediaIfNeeded(files[role], 3_000_000);
+        if (fallback.compressed) {
+          files[role] = fallback.file;
         }
       }
     })
@@ -192,7 +218,7 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
     );
   }
 
-  // Stage 1 — transcribe the three documents in parallel (one AI call each).
+  // Stage 1 — transcribe the three documents in parallel (one AI call each, or instant for digital PDFs).
   input.onStage?.(0);
   const extracted = await Promise.all(
     roles.map(async role => {
@@ -200,7 +226,7 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
       fd.append('file', files[role], files[role].name);
       fd.append('role', role);
       if (input.model) fd.append('model', input.model);
-      const res = await api('/api/extract', { method: 'POST', body: fd });
+      const res = await api('/api/extract', { method: 'POST', body: fd }, 2);
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
         role?: string;
@@ -250,18 +276,13 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
   const usedModel = aligned.model;
   input.onStage?.(3);
   input.onQuestionsAligned?.(aligned.aligned);
-  // Stage 3 — grade in small batches (4 questions per LLM call, 2 batches
-  // at a time). One batched call replaces 4 round trips (TLS + server +
-  // NVIDIA overhead each), so papers finish in seconds with no 429 storms
-  // and no NVIDIA-side timeouts. Results stream in as each batch returns;
-  // a batch that fails falls back to /api/grade-one per question, so
-  // progress is never lost.
+  // Stage 3 — grade in batches (5 questions per LLM call, 3 batches at a time).
   const totalQuestions = aligned.aligned.length;
   const records: GradeRecord[] = new Array(totalQuestions);
   const completedRecords: (GradeRecord | null)[] = new Array(totalQuestions).fill(null);
   const rateLimiter = new RateLimiter(39, 60_000);
-  const BATCH_SIZE = 4;
-  const BATCH_CONCURRENCY = 2;
+  const BATCH_SIZE = 5;
+  const BATCH_CONCURRENCY = 3;
 
   const normKey = (v: unknown) => String(v ?? '').trim().toLowerCase();
 

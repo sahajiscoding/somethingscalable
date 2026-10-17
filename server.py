@@ -79,12 +79,27 @@ _DIST_INDEX = _DIST_DIR / "index.html"
 
 @app.before_request
 def _guard_api():
+    if request.method == "OPTIONS" and request.path.startswith("/api/"):
+        resp = Response("", status=204)
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-App-Secret, Authorization"
+        return resp
     if not APP_SECRET or not request.path.startswith("/api/"):
         return None
     if request.headers.get("X-App-Secret") != APP_SECRET:
         print(f"[auth] rejected {request.method} {request.path}")
         return jsonify({"error": "Missing or invalid X-App-Secret header."}), 401
     return None
+
+
+@app.after_request
+def _add_cors_headers(response: Response) -> Response:
+    if request.path.startswith("/api/"):
+        response.headers.setdefault("Access-Control-Allow-Origin", "*")
+        response.headers.setdefault("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        response.headers.setdefault("Access-Control-Allow-Headers", "Content-Type, X-App-Secret, Authorization")
+    return response
 
 
 def _js_escape(value: str) -> str:
@@ -769,4 +784,4 @@ if __name__ == "__main__":
         port = fallback.getsockname()[1]
         fallback.close()
         print(f"* Port busy — serving on {port} instead.")
-    app.run(host="0.0.0.0", port=port, debug=True, use_reloader=False)
+    app.run(host="0.0.0.0", port=port, debug=True, use_reloader=False, threaded=True)

@@ -39,22 +39,60 @@ NIM_ENDPOINT = os.environ.get(
     "NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
 NVIDIA_DEFAULT_MODEL = os.environ.get(
     "NVIDIA_MODEL", "nvidia/nemotron-3.5-super-vl-120b-a12b")
-# Tried in order after the requested model fails (timeout / HTTP error).
-# Kept short so a dead endpoint cannot burn the whole request window.
+
+# Vision-capable models on build.nvidia.com (accept image_url blocks natively).
+_VISION_MODELS = frozenset({
+    "nvidia/nemotron-3.5-super-vl-120b-a12b",
+    "google/gemma-4-31b-it",
+    "google/gemma-3-12b-it",
+    "google/gemma-3-4b-it",
+    "meta/llama-3.2-90b-vision-instruct",
+    "meta/llama-3.2-11b-vision-instruct",
+    "microsoft/phi-3-vision-128k-instruct",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    "nvidia/cosmos-reason2-8b",
+    "nvidia/neva-22b",
+})
+
+# Vision models on NVIDIA NIM that accept at most 1 image_url per message.
+# Multi-page scanned PDFs are automatically stitched into one vertical strip
+# when routed through these models.
+_SINGLE_IMAGE_VISION_MODELS = frozenset({
+    "meta/llama-3.2-90b-vision-instruct",
+    "meta/llama-3.2-11b-vision-instruct",
+    "microsoft/phi-3-vision-128k-instruct",
+    "nvidia/neva-22b",
+})
+
+# Fast vision fallbacks (used when messages include images/scans).
+_VISION_FALLBACK_MODELS = (
+    "nvidia/nemotron-3.5-super-vl-120b-a12b",
+    "google/gemma-4-31b-it",
+    "meta/llama-3.2-90b-vision-instruct",
+    "meta/llama-3.2-11b-vision-instruct",
+    "google/gemma-3-12b-it",
+)
+
+# Fast text/grading fallbacks (used for grading batches, exam generation, and
+# digital text extraction).
 _FALLBACK_MODELS = (
-    "z-ai/glm-5.3-flash",
+    "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "google/gemma-4-31b-it",
     "deepseek-ai/deepseek-v4.1-flash",
     "nvidia/nemotron-3.5-super-vl-120b-a12b",
+    "meta/llama-3.2-90b-vision-instruct",
+    "z-ai/glm-5.3-flash",
 )
-# Per-request HTTP timeout (seconds): fail fast instead of hanging until the
-# host kills the function. A hung NVIDIA call is retried against the fallback
-# model / next attempt rather than blocking grading for minutes. Override
-# with NVIDIA_TIMEOUT (read timeout). Connect timeout stays short (10 s).
+
+# Per-request HTTP timeout (seconds): kept tight (24 s default) so a slow
+# model fails over quickly to a fast alternate instead of hanging past
+# Vercel's 60 s serverless function ceiling (which causes browser "Failed to fetch").
 try:
-    _NIM_TIMEOUT = int(float(str(os.environ.get("NVIDIA_TIMEOUT", "55"))))
+    _NIM_TIMEOUT = int(float(str(os.environ.get("NVIDIA_TIMEOUT", "24"))))
 except ValueError:
-    _NIM_TIMEOUT = 55
-_NIM_CONNECT_TIMEOUT = 10
+    _NIM_TIMEOUT = 24
+_NIM_CONNECT_TIMEOUT = 8
+_NIM_WALL_BUDGET = int(float(str(os.environ.get("NVIDIA_WALL_BUDGET", "46"))))
 # Rendered-PDF page cap — supports real-world exam papers with 20, 30, 50+ pages.
 _NVIDIA_MAX_PDF_PAGES = int(os.environ.get("MAX_PDF_PAGES", "80"))
 
@@ -205,7 +243,7 @@ class NvidiaEngine:
                       data: Any = None,
                       instruction: str = "",
                       temperature: float = 0.15,
-                      max_tokens: int = 8192,
+                      max_tokens: int = 4096,
                       max_attempts: int = 2) -> Any:
         import time
         messages = self._build_messages(instruction, document, data)
@@ -213,7 +251,16 @@ class NvidiaEngine:
 
         last_error = "unknown parse error"
         for attempt in range(max_attempts):
-            text = self._chat(messages, temperature, max_tokens=max_tokens)  # raises on HTTP failure
+            elapsed = time.monotonic() - start_t
+            if attempt > 0 and elapsed >= _NIM_WALL_BUDGET - 6:
+                break
+            remaining_budget = max(10.0, _NIM_WALL_BUDGET - elapsed)
+            text = self._chat(
+                messages,
+                temperature,
+                max_tokens=max_tokens,
+                wall_budget=remaining_budget,
+            )  # raises on HTTP failure
             if not (text or "").strip():
                 last_error = "empty response"
             else:
@@ -253,7 +300,7 @@ class NvidiaEngine:
                 page = document.pages[0]
                 content.append(
                     self._image_block(document.filename, page.mime, page.data))
-            else:  # pdf: digital pages as text, scanned pages as PNG images
+            else:  # pdf: digital pages as text, scanned pages as JPEG images
                 content.extend(self._pdf_blocks(document))
         if data is not None:
             content.append({
@@ -268,19 +315,25 @@ class NvidiaEngine:
     def _image_block(filename: str, mime: str, data: bytes) -> dict:
         import base64
 
-        if len(data) > 8 * 1024 * 1024:
+        # Downscale high-res camera photos (> 400 KB or non-JPEG) to <= 1560px
+        # JPEG so base64 payloads stay ~150-300 KB and vision encoding is 5x faster.
+        if len(data) > 400 * 1024 or mime not in ("image/jpeg", "image/jpg"):
             fitz = _get_pdf_renderer()
             if fitz is not None:
                 try:
                     img_doc = fitz.open(stream=data)
                     page = img_doc[0]
                     w, h = page.rect.width, page.rect.height
-                    scale = min(1.0, 1920 / max(w, h))
-                    pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale))
-                    if pix.alpha:
-                        pix = fitz.Pixmap(fitz.csRGB, pix)
-                    data = pix.tobytes("jpeg", jpg_quality=80)
-                    mime = "image/jpeg"
+                    scale = min(1.0, 1560 / max(w, h, 1))
+                    if scale < 1.0 or len(data) > 400 * 1024:
+                        pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale))
+                        if pix.alpha:
+                            pix = fitz.Pixmap(fitz.csRGB, pix)
+                        compressed = pix.tobytes("jpeg", jpg_quality=78)
+                        if len(compressed) < len(data) or scale < 1.0:
+                            data = compressed
+                            mime = "image/jpeg"
+                    img_doc.close()
                 except Exception:
                     pass
         if len(data) > 8 * 1024 * 1024:
@@ -304,16 +357,19 @@ class NvidiaEngine:
         page_no = 0
         total_pages = max(1, getattr(document, "page_count", 1))
 
-        # Dynamically scale DPI & quality so 20, 30, 50+ page documents stay lightweight
+        # Dynamically scale DPI & quality so multi-page documents stay fast
         if total_pages > 30:
-            render_dpi = 90
-            jpg_quality = 68
+            render_dpi = 85
+            jpg_quality = 66
+            max_dim = 1150
         elif total_pages > 15:
-            render_dpi = 105
-            jpg_quality = 74
+            render_dpi = 100
+            jpg_quality = 72
+            max_dim = 1300
         else:
-            render_dpi = 130
-            jpg_quality = 80
+            render_dpi = 120
+            jpg_quality = 76
+            max_dim = 1500
 
         try:
             for chunk in document.pages:
@@ -327,14 +383,18 @@ class NvidiaEngine:
                                 "grade the parts separately."
                             )
                         text = (page.get_text() or "").strip()
-                        if len(text) >= 40:
+                        if len(text) >= 12:
                             blocks.append({
                                 "type": "text",
                                 "text": (f"--- {document.filename} page "
                                          f"{page_no} (text) ---\n{text}"),
                             })
                         else:
-                            pix = page.get_pixmap(dpi=render_dpi)
+                            w, h = page.rect.width, page.rect.height
+                            dpi_scale = render_dpi / 72.0
+                            dim_scale = max_dim / max(w * dpi_scale, h * dpi_scale, 1.0)
+                            eff_scale = dpi_scale * min(1.0, dim_scale)
+                            pix = page.get_pixmap(matrix=fitz.Matrix(eff_scale, eff_scale))
                             if pix.alpha:
                                 pix = fitz.Pixmap(fitz.csRGB, pix)
                             jpg = pix.tobytes("jpeg", jpg_quality=jpg_quality)
@@ -350,7 +410,107 @@ class NvidiaEngine:
             raise EngineError(f"No pages found in {document.filename}.")
         return blocks
 
-    def _chat(self, messages: list[Any], temperature: float, max_tokens: int = 8192) -> str:
+    @staticmethod
+    def _messages_have_images(messages: list[Any]) -> bool:
+        for msg in messages:
+            content = msg.get("content") if isinstance(msg, dict) else None
+            if isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "image_url":
+                        return True
+        return False
+
+    @staticmethod
+    def _is_vision_capable(model_id: str) -> bool:
+        m = (model_id or "").lower().strip()
+        if m in _VISION_MODELS:
+            return True
+        return any(k in m for k in (
+            "vl", "vision", "omni", "gemma-3", "gemma-4",
+            "neva", "cosmos", "fuyu", "paligemma", "vila", "kosmos", "parse",
+        ))
+
+    @staticmethod
+    def _uses_thinking_kwargs(model_id: str) -> bool:
+        m = (model_id or "").lower()
+        return any(k in m for k in ("nemotron", "deepseek", "glm", "kimi"))
+
+    @staticmethod
+    def _adapt_messages_for_model(messages: list[Any], model_id: str) -> list[Any]:
+        """If a vision model accepts at most 1 image per message (e.g. Llama 3.2
+        Vision) and the message has multiple scanned page images, stitch them
+        vertically into a single composite image."""
+        if model_id not in _SINGLE_IMAGE_VISION_MODELS:
+            return messages
+        fitz = _get_pdf_renderer()
+        if fitz is None:
+            return messages
+
+        import base64
+        adapted: list[Any] = []
+        for msg in messages:
+            if not isinstance(msg, dict) or not isinstance(msg.get("content"), list):
+                adapted.append(msg)
+                continue
+            parts = msg["content"]
+            img_parts = [p for p in parts if isinstance(p, dict) and p.get("type") == "image_url"]
+            if len(img_parts) <= 1:
+                adapted.append(msg)
+                continue
+
+            # Decode up to 6 page images and stitch vertically
+            decoded_pix = []
+            try:
+                for p in img_parts[:6]:
+                    url = (p.get("image_url") or {}).get("url", "")
+                    if ";base64," in url:
+                        b64_str = url.split(";base64,", 1)[1]
+                        raw_bytes = base64.b64decode(b64_str)
+                        with fitz.open(stream=raw_bytes) as d:
+                            pix = d[0].get_pixmap()
+                            if pix.alpha:
+                                pix = fitz.Pixmap(fitz.csRGB, pix)
+                            decoded_pix.append(pix)
+                if len(decoded_pix) > 1:
+                    max_w = max(px.width for px in decoded_pix)
+                    total_h = sum(px.height for px in decoded_pix)
+                    out_doc = fitz.open()
+                    canvas_page = out_doc.new_page(width=max_w, height=total_h)
+                    cur_y = 0.0
+                    for px in decoded_pix:
+                        rect = fitz.Rect(0, cur_y, px.width, cur_y + px.height)
+                        canvas_page.insert_image(rect, stream=px.tobytes("jpeg", jpg_quality=76))
+                        cur_y += px.height
+                    scale = min(1.0, 2200 / max(max_w, total_h, 1))
+                    stitched_pix = canvas_page.get_pixmap(matrix=fitz.Matrix(scale, scale))
+                    stitched_jpg = stitched_pix.tobytes("jpeg", jpg_quality=76)
+                    out_doc.close()
+                    stitched_block = NvidiaEngine._image_block("stitched_pages.jpg", "image/jpeg", stitched_jpg)
+                    new_parts = [p for p in parts if not (isinstance(p, dict) and p.get("type") == "image_url")]
+                    new_parts.append(stitched_block)
+                    adapted.append({**msg, "content": new_parts})
+                    continue
+            except Exception:
+                pass
+            # Fallback: keep first image so single-image model doesn't HTTP 400
+            first_seen = False
+            trimmed_parts = []
+            for p in parts:
+                if isinstance(p, dict) and p.get("type") == "image_url":
+                    if not first_seen:
+                        trimmed_parts.append(p)
+                        first_seen = True
+                else:
+                    trimmed_parts.append(p)
+            adapted.append({**msg, "content": trimmed_parts})
+        return adapted
+
+    def _chat(self,
+              messages: list[Any],
+              temperature: float,
+              max_tokens: int = 4096,
+              wall_budget: float = 46.0) -> str:
+        import time
         try:
             import requests
         except ImportError as exc:
@@ -365,33 +525,71 @@ class NvidiaEngine:
             "Content-Type": "application/json",
         }
 
-        # Try the requested model first; on timeout or server error, fall back
-        # through the alternates so one slow endpoint fails nothing.
-        models_to_try = [self.model]
-        for alt in _FALLBACK_MODELS:
-            if alt not in models_to_try:
-                models_to_try.append(alt)
+        has_images = self._messages_have_images(messages)
+        models_to_try: list[str] = []
 
+        if has_images:
+            # Image/scan OCR requires a vision-capable model. If user picked a
+            # text-only model for fast grading, automatically use a fast VLM for OCR.
+            if self._is_vision_capable(self.model):
+                models_to_try.append(self.model)
+            for alt in _VISION_FALLBACK_MODELS:
+                if alt not in models_to_try:
+                    models_to_try.append(alt)
+        else:
+            models_to_try.append(self.model)
+            for alt in _FALLBACK_MODELS:
+                if alt not in models_to_try:
+                    models_to_try.append(alt)
+
+        chat_start = time.monotonic()
         last = "no response"
-        for candidate_model in models_to_try:
+        for idx, candidate_model in enumerate(models_to_try):
+            elapsed = time.monotonic() - chat_start
+            remaining = wall_budget - elapsed
+            if idx > 0 and remaining < 6.0:
+                break
+            req_timeout = max(6, min(_NIM_TIMEOUT, int(remaining) - 1)) if idx > 0 else min(_NIM_TIMEOUT, max(10, int(remaining)))
+
+            effective_messages = (
+                self._adapt_messages_for_model(messages, candidate_model)
+                if has_images else messages
+            )
             payload: dict[str, Any] = {
                 "model": candidate_model,
-                "messages": messages,
+                "messages": effective_messages,
                 "temperature": temperature,
                 "top_p": 0.7,
                 "max_tokens": max_tokens,
                 "stream": False,
             }
+            if self._uses_thinking_kwargs(candidate_model):
+                # Disable chain-of-thought reasoning trace so the model outputs
+                # JSON immediately (~2-4s) instead of spending 40-60s on <think>.
+                payload["chat_template_kwargs"] = {
+                    "enable_thinking": False,
+                    "thinking": False,
+                }
+
             _acquire_nvidia_token()
             try:
                 resp = requests.post(
                     NIM_ENDPOINT,
                     headers=headers,
                     json=payload,
-                    timeout=(_NIM_CONNECT_TIMEOUT, _NIM_TIMEOUT),
+                    timeout=(_NIM_CONNECT_TIMEOUT, req_timeout),
                 )
+                # If a model rejects chat_template_kwargs with 400/422, retry immediately without it
+                if resp.status_code in (400, 422) and "chat_template_kwargs" in payload:
+                    payload.pop("chat_template_kwargs", None)
+                    resp = requests.post(
+                        NIM_ENDPOINT,
+                        headers=headers,
+                        json=payload,
+                        timeout=(_NIM_CONNECT_TIMEOUT, req_timeout),
+                    )
             except requests.Timeout as exc:
-                last = (f"Timed out after {_NIM_TIMEOUT}s on {candidate_model} "
+                last = (f"Timed out after {req_timeout}s on {candidate_model} "
                         f"(NVIDIA took too long): {exc}")
                 continue
             except requests.RequestException as exc:
@@ -401,10 +599,13 @@ class NvidiaEngine:
             if resp.status_code == 200:
                 try:
                     choice_msg = resp.json()["choices"][0]["message"]
-                    text = choice_msg.get("content") or choice_msg.get("reasoning_content") or ""
-                    if text.strip():
-                        return text
-                except (KeyError, IndexError, TypeError):
+                    content_text = (choice_msg.get("content") or "").strip()
+                    if content_text:
+                        return content_text
+                    reasoning_text = (choice_msg.get("reasoning_content") or "").strip()
+                    if reasoning_text and _parse_json(reasoning_text)[0] is not None:
+                        return reasoning_text
+                except (KeyError, IndexError, TypeError, ValueError):
                     pass
             elif resp.status_code in (401, 403):
                 raise EngineError(
@@ -803,6 +1004,19 @@ def make_engine(api_key: str | None = None,
     elif model in ("nemotron", "nemotron-3.5-super-vl", "nemotron-3.5-super-vl-120b-a12b",
                    "nvidia/nemotron-3.5-super-vl-120b-a12b"):
         model = "nvidia/nemotron-3.5-super-vl-120b-a12b"
+    elif model in ("nemotron-lightning", "nemotron-3.5-lightning", "nemotron-3.5-lightning-30b-a3b",
+                   "nvidia/nemotron-3.5-lightning-30b-a3b"):
+        model = "nvidia/nemotron-3.5-lightning-30b-a3b"
+    elif model in ("gemma-4", "gemma-4-31b", "gemma-4-31b-it", "google/gemma-4-31b-it"):
+        model = "google/gemma-4-31b-it"
+    elif model in ("gemma-3", "gemma-3-12b", "gemma-3-12b-it", "google/gemma-3-12b-it"):
+        model = "google/gemma-3-12b-it"
+    elif model in ("llama-90b-vision", "llama-3.2-90b-vision", "llama-3.2-90b-vision-instruct",
+                   "meta/llama-3.2-90b-vision-instruct"):
+        model = "meta/llama-3.2-90b-vision-instruct"
+    elif model in ("llama-11b-vision", "llama-3.2-11b-vision", "llama-3.2-11b-vision-instruct",
+                   "meta/llama-3.2-11b-vision-instruct"):
+        model = "meta/llama-3.2-11b-vision-instruct"
     elif model in ("glm-5.3-flash", "z-ai/glm-5-3-flash", "glm-5-3-flash"):
         model = "z-ai/glm-5.3-flash"
     elif model in ("deepseek-v4.1-flash", "deepseek-v4.1", "deepseek-flash", "deepseek", "deepseek-ai/deepseek-v4.1-flash"):
