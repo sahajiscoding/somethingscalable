@@ -14,6 +14,16 @@ export default defineConfig({
       '@': path.resolve(rootDir, './src'),
     },
   },
+  server: {
+    // Forward /api/* to the Flask backend (python server.py, default PORT 5050)
+    // so `npm run dev` works against a locally running backend without CORS.
+    proxy: {
+      '/api': {
+        target: process.env.VITE_API_PROXY || 'http://localhost:5050',
+        changeOrigin: true,
+      },
+    },
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,
