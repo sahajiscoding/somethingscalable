@@ -802,10 +802,14 @@ interface GradingProps {
   notice: { id: number; msg: string } | null;
   onRecord: (awarded: number, total: number, impact: Record<string, number>) => void;
   onNavigate?: (v: View) => void;
+  markingMode: 'standard' | 'negative' | 'non_negative';
+  setMarkingMode: (m: 'standard' | 'negative' | 'non_negative') => void;
+  negativeMarksValue: number;
+  setNegativeMarksValue: (n: number) => void;
 }
 
 export default function Grading(props: GradingProps) {
-  const { files, setFiles, strict, setStrict, criteria, toggleCriterion, modelOverride, setModelOverride, live, setLive, backend, demoRequest, notice, onRecord } = props;
+  const { files, setFiles, strict, setStrict, criteria, toggleCriterion, modelOverride, setModelOverride, live, setLive, backend, demoRequest, notice, onRecord, markingMode, setMarkingMode, negativeMarksValue, setNegativeMarksValue } = props;
   const [alert, setAlert] = useState<{ msg: string; ok: boolean } | null>(null);
   const [missing, setMissing] = useState<DocKey[]>([]);
   const [running, setRunning] = useState(false);
@@ -901,6 +905,8 @@ export default function Grading(props: GradingProps) {
         student: studentDoc.file,
         strict,
         penalties,
+        marking_mode: markingMode,
+        negative_marks_value: negativeMarksValue,
         model: modelOverride.trim() || undefined,
         onPageImages: imgs => {
           latestPageImages = imgs;
@@ -1254,6 +1260,81 @@ export default function Grading(props: GradingProps) {
               />
             </button>
           </div>
+
+          <fieldset className="mt-4 border-0">
+            <legend className="mb-2.5 text-[11px] font-bold tracking-[.16em] text-white/45 uppercase">
+              Marking Mode — wrong answer policy
+            </legend>
+            <div className="grid gap-2.5">
+              {([
+                {
+                  value: 'standard' as const,
+                  label: 'Standard Marking',
+                  desc: 'Deduct marks from the question total as usual',
+                },
+                {
+                  value: 'negative' as const,
+                  label: 'Negative Marking',
+                  desc: 'Wrong answers lose extra marks (penalty below)',
+                },
+                {
+                  value: 'non_negative' as const,
+                  label: 'Non-Negative Marking',
+                  desc: 'Wrong answers score 0 — no marks deducted',
+                },
+              ] as const).map(opt => (
+                <label
+                  key={opt.value}
+                  className={`flex cursor-pointer items-center gap-2.5 rounded-xl border bg-black/10 p-3 text-[13.5px] transition select-none ${
+                    markingMode === opt.value ? 'border-mint/45 bg-mint/5' : 'border-white/10 hover:border-white/20 hover:bg-black/15'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="markingMode"
+                    className="sr-only"
+                    checked={markingMode === opt.value}
+                    onChange={() => setMarkingMode(opt.value)}
+                  />
+                  <span
+                    aria-hidden="true"
+                    className={`grid h-[19px] w-[19px] flex-none place-items-center rounded-full border-[1.5px] text-[10px] font-black transition ${
+                      markingMode === opt.value ? 'border-mint bg-mint text-[#12211a]' : 'border-white/20 bg-black/25 text-transparent'
+                    }`}
+                  >
+                    ●
+                  </span>
+                  <span>
+                    <b className="block font-semibold">{opt.label}</b>
+                    <span className="text-[11.5px] text-white/45">{opt.desc}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            {markingMode === 'negative' && (
+              <div className="mt-3 rounded-xl border border-crimson/30 bg-crimson/5 p-3.5">
+                <label htmlFor="negativeMarksValue" className="block text-[12.5px] font-semibold text-[#ffd6d6]">
+                  Penalty per wrong answer
+                  <span className="ml-1.5 text-[11px] font-normal text-white/45">(marks deducted for each incorrect answer)</span>
+                </label>
+                <input
+                  type="number"
+                  id="negativeMarksValue"
+                  min="0"
+                  step="0.25"
+                  value={negativeMarksValue || ''}
+                  onChange={e => setNegativeMarksValue(Math.max(0, parseFloat(e.target.value) || 0))}
+                  placeholder="e.g. 0.25 or 1"
+                  className="mt-2 w-full rounded-[8px] border border-crimson/30 bg-black/30 px-3 py-2 text-xs text-white outline-none focus:border-crimson focus:shadow-[0_0_0_3px_rgba(239,83,80,.25)] placeholder:text-white/30"
+                />
+                {negativeMarksValue > 0 && (
+                  <div className="mt-2 text-[11.5px] text-[#ffcfcf]">
+                    Each wrong answer will lose an additional <strong>−{negativeMarksValue}</strong> mark{negativeMarksValue !== 1 ? 's' : ''} beyond the question's own deductions.
+                  </div>
+                )}
+              </div>
+            )}
+          </fieldset>
 
           <fieldset className="mt-4 border-0">
             <legend className="mb-2.5 text-[11px] font-bold tracking-[.16em] text-white/45 uppercase">

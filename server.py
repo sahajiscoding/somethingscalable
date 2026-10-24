@@ -129,7 +129,16 @@ def _params(body: dict) -> GradeParams:
                  if p in PENALTY_CATEGORIES}
     strict = str(body.get("strict") or "").strip().lower() in (
         "1", "true", "yes", "on")
-    return GradeParams(strict=strict, penalties=frozenset(penalties))
+    marking_mode = str(body.get("marking_mode") or "standard").strip().lower()
+    if marking_mode not in ("standard", "negative", "non_negative"):
+        marking_mode = "standard"
+    try:
+        negative_marks_value = float(body.get("negative_marks_value") or 0)
+    except (ValueError, TypeError):
+        negative_marks_value = 0.0
+    return GradeParams(strict=strict, penalties=frozenset(penalties),
+                       marking_mode=marking_mode,
+                       negative_marks_value=max(0.0, negative_marks_value))
 
 
 def _model(body: dict) -> str | None:

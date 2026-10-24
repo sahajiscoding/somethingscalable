@@ -199,6 +199,8 @@ export interface LiveEvalInput {
   student: File;
   strict: boolean;
   penalties: string[];
+  marking_mode?: 'standard' | 'negative' | 'non_negative';
+  negative_marks_value?: number;
   model?: string;
   onStage?: (stage: number) => void;
   onPageImages?: (images: string[]) => void;
@@ -340,6 +342,8 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
             question: q,
             strict: input.strict,
             penalties: input.penalties,
+            marking_mode: input.marking_mode || 'standard',
+            negative_marks_value: input.negative_marks_value || 0,
             model: usedModel,
           }),
         });
@@ -374,6 +378,8 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
             questions: batch,
             strict: input.strict,
             penalties: input.penalties,
+            marking_mode: input.marking_mode || 'standard',
+            negative_marks_value: input.negative_marks_value || 0,
             model: usedModel,
           }),
         });
@@ -448,6 +454,8 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
       documents: docs,
       strict: input.strict,
       penalties: input.penalties,
+      marking_mode: input.marking_mode || 'standard',
+      negative_marks_value: input.negative_marks_value || 0,
       warnings: docWarnings.concat(aligned.warnings || []),
       engine: 'nvidia',
       model: usedModel,

@@ -41,6 +41,12 @@ class GradeParams:
     penalties: frozenset = frozenset()
     model: str | None = None
     keyword_mode: bool = False
+    # Marking mode for wrong answers:
+    #   "standard"     – default; deduct from max_marks as usual
+    #   "negative"     – additionally subtract `negative_marks_value` per wrong answer
+    #   "non_negative" – wrong answers score 0 (no marks deducted from total)
+    marking_mode: str = "standard"
+    negative_marks_value: float = 0.0
 
     @property
     def penalty_list(self) -> list[str]:
@@ -509,6 +515,31 @@ def normalise_record(item: dict | None, q: AlignedQuestion,
         or q.expected_answer or "(not found in answer key)"
 
     marks_deducted = max(0.0, round(max_marks - awarded, 2))
+
+    # --- Marking-mode adjustments ---
+    # "non_negative": wrong answers score 0 (no penalty beyond losing the
+    #   question's own marks — the total never goes below zero).
+    # "negative": wrong answers lose an additional `negative_marks_value`
+    #   (marks_awarded can go below 0 for this question, which the summary
+    #   will reflect in the total).
+    if params.marking_mode == "non_negative" and marks_deducted > 0:
+        # Already 0 if fully wrong; nothing extra to deduct.
+        awarded = max(0.0, awarded)
+        marks_deducted = max(0.0, round(max_marks - awarded, 2))
+    elif params.marking_mode == "negative" and marks_deducted > 0:
+        penalty = round(params.negative_marks_value, 2)
+        if penalty > 0:
+            awarded = round(awarded - penalty, 2)
+            marks_deducted = round(max_marks - awarded, 2)
+            deductions.append({
+                "category": "negative_marking",
+                "marks": penalty,
+                "reason": f"Negative marking penalty: −{penalty} for incorrect answer",
+            })
+            feedback = (f"{feedback}  [Negative marking: −{penalty} applied]"
+                        if feedback else
+                        f"Negative marking: −{penalty} applied for incorrect answer.")
+
     geometry = [dict(g) for g in (q.geometry or []) if isinstance(g, dict)]
     steps = _normalise_steps(
         item.get("steps"),

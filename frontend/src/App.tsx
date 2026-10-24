@@ -65,6 +65,8 @@ export default function App() {
   const [demoRequest, setDemoRequest] = useState(0);
   const [analytics, setAnalytics] = useState<AnalyticsState>(EMPTY_ANALYTICS);
   const [graderNotice, setGraderNotice] = useState<{ id: number; msg: string } | null>(null);
+  const [markingMode, setMarkingMode] = useState<'standard' | 'negative' | 'non_negative'>('standard');
+  const [negativeMarksValue, setNegativeMarksValue] = useState(0);
 
   useEffect(() => {
     checkBackend().then(setBackend).catch(() => undefined);
@@ -211,6 +213,10 @@ export default function App() {
               notice={graderNotice}
               onRecord={handleRecord}
               onNavigate={navigate}
+              markingMode={markingMode}
+              setMarkingMode={setMarkingMode}
+              negativeMarksValue={negativeMarksValue}
+              setNegativeMarksValue={setNegativeMarksValue}
             />
           )}
           {view === 'compressor' && (
