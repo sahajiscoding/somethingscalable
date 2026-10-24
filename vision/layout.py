@@ -199,6 +199,13 @@ def _crop_page(gray: np.ndarray, page: int, dpi: int,
     binary = binarize(normalized)
 
     row_ink = binary.sum(axis=1)
+    # Ruled notebook paper: a near-full-width horizontal line is stationery,
+    # not an answer. Treat it as a separator so the answers above and below
+    # become separate bands instead of one page-sized block.
+    rule_rows = row_ink > width * 0.6
+    if rule_rows.any():
+        row_ink = row_ink.copy()
+        row_ink[rule_rows] = 0
     row_threshold = max(2, int(width * 0.0015))
     bands = _runs(row_ink > row_threshold, min_len=max(8, int(height * 0.006)))
     bands = _merge_gaps(bands, max_gap=max(10, int(height * 0.012)))

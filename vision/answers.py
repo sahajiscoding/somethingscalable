@@ -14,7 +14,7 @@ PROMPT = """\
 MAPPING TASK: group OCR blocks from one student's answer sheet into questions.
 
 Each line is one block:
-[<block id>] page <n> conf <0..1>: <latex>
+[<block id>] page <n> conf <0..1>: <text>
 
 Return JSON only:
 {"groups":[{"number":"3","crop_ids":["p1c4","p1c5"],"legibility":"good"}]}
@@ -43,7 +43,7 @@ def transcript_text(pages: list[TranscribedPage]) -> str:
                 continue
             rows.append(
                 f"[{crop.crop_id}] page {page.page} "
-                f"conf {transcription.confidence:.2f}: {transcription.latex}"
+                f"conf {transcription.confidence:.2f}: {transcription.text}"
             )
     return "\n".join(rows)
 
@@ -122,7 +122,7 @@ def _block_index(pages: list[TranscribedPage]):
             index[crop.crop_id] = (
                 page.page,
                 transcription.confidence,
-                transcription.latex,
+                transcription.text,
                 crop.rect.to_list(),
             )
     return index

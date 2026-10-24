@@ -359,11 +359,11 @@ def decide(per_provider: dict[str, Transcription],
         )
 
     preferred = entries[0]
-    latex = preferred.latex
+    latex = preferred.text
     if len(entries) == 1:
         confidence, notes = 0.55, ["single-provider"]
     else:
-        verdict = agreement(entries[0].latex, entries[1].latex)
+        verdict = agreement(entries[0].text, entries[1].text)
         if verdict == "same":
             confidence, note = 0.95, "providers agree"
         elif verdict == "differ":
@@ -371,7 +371,7 @@ def decide(per_provider: dict[str, Transcription],
         else:
             confidence, note = 0.5, "providers unverified"
         notes = [note]
-        latex = entries[0].latex
+        latex = entries[0].text
 
     if any(item.note == "unreadable" for item in entries):
         confidence = min(confidence, 0.4)

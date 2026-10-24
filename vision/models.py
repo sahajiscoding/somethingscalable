@@ -48,8 +48,13 @@ class Transcription:
     error: str = ""
 
     @property
+    def text(self) -> str:
+        """Verbatim transcription: LaTeX when mathematical, prose otherwise."""
+        return self.latex.strip() or self.plain.strip()
+
+    @property
     def ok(self) -> bool:
-        return bool(self.latex.strip()) and not self.error
+        return bool(self.text) and not self.error
 
 
 @dataclass
@@ -90,7 +95,7 @@ class TranscribedPage:
         for crop in self.crops:
             t = self.transcriptions.get(crop.crop_id)
             if t and t.ok:
-                parts.append(t.latex)
+                parts.append(t.text)
         return "\n".join(parts)
 
     def to_dict(self) -> dict:
@@ -106,7 +111,7 @@ class TranscribedPage:
                     "id": c.crop_id,
                     "rect": c.rect.to_list(),
                     "line_count": c.line_count,
-                    "latex": (self.transcriptions.get(c.crop_id).latex
+                    "latex": (self.transcriptions.get(c.crop_id).text
                               if self.transcriptions.get(c.crop_id) else ""),
                     "confidence": round(
                         self.transcriptions[c.crop_id].confidence, 3

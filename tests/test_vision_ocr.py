@@ -70,6 +70,12 @@ class ParseItemsTests(unittest.TestCase):
         self.assertAlmostEqual(results["p1c0"].confidence, 0.2)
         self.assertEqual(results["p1c0"].note, "unreadable")
 
+    def test_accepts_plain_text_for_prose(self):
+        raw = '{"items": [{"id": "p1c0", "text": "b) Kala-azar"}]}'
+        results = ocr.parse_items(raw, self.crops, "nvidia")
+        self.assertTrue(results["p1c0"].ok)
+        self.assertEqual(results["p1c0"].text, "b) Kala-azar")
+
 
 class ProviderConfigTests(unittest.TestCase):
     def test_no_keys_means_no_providers(self):
@@ -105,6 +111,21 @@ class ProviderConfigTests(unittest.TestCase):
         self.assertEqual(
             [provider.name for provider in providers], ["nvidia", "groq"]
         )
+
+    def test_nvidia_uses_the_selected_model(self):
+        providers = build_providers(
+            {"NVIDIA_API_KEY": "test-key"},
+            model="google/gemma-4-31b-it",
+        )
+        self.assertEqual(providers[0].config.model, "google/gemma-4-31b-it")
+        self.assertEqual(providers[0].config.batch_size, 4)
+
+    def test_single_image_model_sends_one_crop_per_call(self):
+        providers = build_providers(
+            {"NVIDIA_API_KEY": "test-key"},
+            model="meta/llama-3.2-90b-vision-instruct",
+        )
+        self.assertEqual(providers[0].config.batch_size, 1)
 
 
 if __name__ == "__main__":

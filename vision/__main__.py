@@ -85,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
               f"fidelity={page.fidelity}")
         for crop in page.crops:
             transcription = page.transcriptions.get(crop.crop_id)
-            latex = transcription.latex if transcription else ""
+            latex = transcription.text if transcription else ""
             confidence = transcription.confidence if transcription else 0.0
             note = transcription.note if transcription else ""
             suffix = f"   [{note}]" if note else ""

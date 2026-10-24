@@ -13,26 +13,26 @@ import re
 from .models import Crop, Transcription
 
 SYSTEM_PROMPT = (
-    "You are an OCR engine for handwritten mathematics. "
+    "You are an OCR engine for handwritten exam answers. "
     "You transcribe exactly what is written and you never solve, correct, "
     "simplify, or complete the work."
 )
 
-USER_PROMPT = """Transcribe each image to LaTeX.
+USER_PROMPT = """Transcribe each image exactly as written.
 
 Rules:
-- Copy the working exactly as written, including mistakes.
-- Never fix arithmetic, never rewrite a symbol to make an equation true.
-- Use \\frac{{a}}{{b}}, \\sqrt{{a}}, ^{{}} for powers, \\cdot for multiplication.
+- Copy the answer verbatim, including spelling, grammar and mistakes.
+- Write prose and one-word answers as plain text.
+- Write mathematics as LaTeX: \\frac{{a}}{{b}}, \\sqrt{{x}}, ^{{}} for powers, \\cdot for multiplication.
 - One image may contain several lines; separate them with \\\\ .
 - If a symbol cannot be read, write \\square for it and list the image id.
-- Do not include prose, units outside the expression, or commentary.
+- Do not add commentary, units that were not written, or your own answer.
 
 Images are attached in the same order as the ids below:
 {listing}
 
 Return JSON only, no markdown:
-{{"items":[{{"id":"<id>","latex":"<latex>","plain":"<plain text>"}}],"unreadable":["<id>"]}}
+{{"items":[{{"id":"<id>","text":"<verbatim transcription>","latex":"<latex when mathematical, else empty>","plain":"<plain text when prose>"}}],"unreadable":["<id>"]}}
 """
 
 
@@ -97,7 +97,7 @@ def parse_items(raw: str, crops: list[Crop], provider: str) -> dict[str, Transcr
         results[crop_id] = Transcription(
             crop_id=crop_id,
             latex=str(item.get("latex") or "").strip(),
-            plain=str(item.get("plain") or "").strip(),
+            plain=str(item.get("plain") or item.get("text") or "").strip(),
             provider=provider,
             confidence=0.0,
             note="unreadable" if crop_id in unreadable else "",
