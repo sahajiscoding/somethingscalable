@@ -30,6 +30,22 @@ def make_page(lines: int = 4, angle: float = 0.0) -> Image.Image:
     return image
 
 
+def make_ruled_page(answers: int = 4) -> Image.Image:
+    image = Image.new("L", (1000, 1400), 255)
+    draw = ImageDraw.Draw(image)
+    font = _font(30)
+    for y in range(90, 1340, 90):
+        draw.line((0, y, 999, y), fill=0, width=2)
+    for index in range(answers):
+        draw.text(
+            (80, 118 + index * 120),
+            f"Q{index + 1}) answer {index + 1}",
+            fill=0,
+            font=font,
+        )
+    return image
+
+
 class LayoutTests(unittest.TestCase):
     def test_finds_one_block_per_line(self):
         page = layout._crop_page(np.asarray(make_page(4)), 1, 240, 32)
@@ -48,6 +64,10 @@ class LayoutTests(unittest.TestCase):
                 patch.load()
                 self.assertEqual(patch.mode, "L")
             self.assertGreaterEqual(crop.line_count, 1)
+
+    def test_ruled_lines_do_not_merge_the_whole_page(self):
+        page = layout._crop_page(np.asarray(make_ruled_page(4)), 1, 240, 32)
+        self.assertGreaterEqual(len(page.crops), 3)
 
     def test_crops_do_not_overlap_vertically(self):
         page = layout._crop_page(np.asarray(make_page(5)), 1, 240, 32)

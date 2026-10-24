@@ -92,6 +92,19 @@ class TranscriptMappingTests(unittest.TestCase):
         engine = FakeEngine(error=RuntimeError("boom"))
         self.assertEqual(answers_from_transcript(engine, [page]), [])
 
+    def test_prose_only_block_is_not_dropped(self):
+        page = _page([("p1c0", "", 0.9)])
+        page.transcriptions["p1c0"].plain = "b) Kala-azar"
+        engine = FakeEngine({"groups": [
+            {"number": "Q3", "crop_ids": ["p1c0"]},
+        ]})
+
+        answers = answers_from_transcript(engine, [page])
+
+        self.assertEqual(len(answers), 1)
+        self.assertEqual(answers[0].number, "Q3")
+        self.assertEqual(answers[0].response, "b) Kala-azar")
+
 
 class VisionFlagTests(unittest.TestCase):
     def _document(self, kind: str = "image") -> Document:

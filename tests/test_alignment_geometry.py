@@ -1,7 +1,7 @@
 import unittest
 
 from extract import (AlignedQuestion, KeyEntry, QuestionSpec, StudentAnswer,
-                     align_questions)
+                     align_questions, normalize_number)
 
 
 class AlignmentGeometryTests(unittest.TestCase):
@@ -34,6 +34,18 @@ class AlignmentGeometryTests(unittest.TestCase):
             [StudentAnswer(number="1", response="4")],
         )
         self.assertEqual(aligned[0].geometry, [])
+
+
+class NumberNormalisationTests(unittest.TestCase):
+    def test_strips_answer_and_section_prefixes(self):
+        self.assertEqual(normalize_number("a.3)"), "3")
+        self.assertEqual(normalize_number("Ans 4"), "4")
+        self.assertEqual(normalize_number("answer-5"), "5")
+        self.assertEqual(normalize_number("Q.3"), "3")
+
+    def test_keeps_sub_part_suffixes(self):
+        self.assertEqual(normalize_number("3a"), "3a")
+        self.assertEqual(normalize_number("(iii)"), "3")
 
 
 if __name__ == "__main__":

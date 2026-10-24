@@ -611,8 +611,16 @@ def _warn(doc, message: str) -> None:
 def _vision_student_answers(engine, doc) -> list[StudentAnswer]:
     from vision import transcribe_document
     from vision.answers import answers_from_transcript
+    from vision.providers import build_providers
 
-    pages = transcribe_document(doc)
+    # Crop OCR must use the same vision model the user selected. Text-only
+    # choices (fast graders) fall back to the provider default instead of
+    # sending images to a model that cannot read them.
+    model = str(getattr(engine, "model", "") or "").strip()
+    is_vision = getattr(engine, "_is_vision_capable", None)
+    if model and callable(is_vision) and not is_vision(model):
+        model = ""
+    pages = transcribe_document(doc, providers=build_providers(model=model or None))
     if not pages or not any(page.crops for page in pages):
         return []
     for page in pages:
@@ -725,6 +733,10 @@ def normalize_number(raw: Any) -> str:
     s = re.sub(r"\s+", "", s)
     if not s:
         return ""
+    # Section/answer prefixes: "a.3", "Ans 3", "answer-3" -> "3". Only strip a
+    # single leading letter when a digit follows, so "3a" (sub-part) survives.
+    s = re.sub(r"^(?:ans|answer)\s*[.:\-]?\s*(?=\d)", "", s)
+    s = re.sub(r"^[a-d]\s*[.):\-]\s*(?=\d)", "", s)
     if s in _ROMAN:                       # 'iv' -> '4' when standalone
         return str(_ROMAN[s])
     s = re.sub(r"^0+(?=\d)", "", s)       # '04' -> '4'

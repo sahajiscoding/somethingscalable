@@ -22,6 +22,15 @@ NVIDIA_DEFAULT_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 NVIDIA_DEFAULT_MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b"
 GROQ_DEFAULT_URL = "https://api.groq.com/openai/v1/chat/completions"
 
+# These NIM vision models accept at most one image_url per message, so crops
+# must be sent one at a time instead of in a 4-image batch.
+_SINGLE_IMAGE_MODELS = frozenset({
+    "meta/llama-3.2-90b-vision-instruct",
+    "meta/llama-3.2-11b-vision-instruct",
+    "microsoft/phi-3-vision-128k-instruct",
+    "nvidia/neva-22b",
+})
+
 CONNECT_TIMEOUT = 6.0
 
 
@@ -193,12 +202,14 @@ def nvidia_provider(api_key: str | None = None,
     key = (api_key or os.environ.get("NVIDIA_API_KEY") or "").strip()
     if not key:
         return None
+    chosen = (model or os.environ.get("NVIDIA_MODEL") or NVIDIA_DEFAULT_MODEL).strip()
     return VisionProvider(ProviderConfig(
         name="nvidia",
         url=url or os.environ.get("NVIDIA_API_URL", NVIDIA_DEFAULT_URL),
-        model=model or os.environ.get("NVIDIA_MODEL", NVIDIA_DEFAULT_MODEL),
+        model=chosen,
         api_key=key,
         timeout=timeout,
+        batch_size=1 if chosen in _SINGLE_IMAGE_MODELS else 4,
     ))
 
 
@@ -221,15 +232,20 @@ def groq_provider(api_key: str | None = None,
     ))
 
 
-def build_providers(env: dict | None = None) -> list[VisionProvider]:
-    """NVIDIA first (accuracy), Groq second (speed). Missing keys are skipped."""
+def build_providers(env: dict | None = None,
+                    model: str | None = None) -> list[VisionProvider]:
+    """NVIDIA first (accuracy), Groq second (speed). Missing keys are skipped.
+
+    ``model`` lets the caller reuse the model selected in the UI for crop OCR;
+    when omitted the NVIDIA provider falls back to ``NVIDIA_MODEL``.
+    """
     if env is not None:
         previous = dict(os.environ)
         os.environ.update({k: str(v) for k, v in env.items()})
     else:
         previous = None
     try:
-        providers = [nvidia_provider(), groq_provider()]
+        providers = [nvidia_provider(model=model), groq_provider()]
     finally:
         if previous is not None:
             os.environ.clear()
