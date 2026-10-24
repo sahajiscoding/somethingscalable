@@ -14,6 +14,7 @@ per-question payload the grader consumes.
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field, asdict
 from typing import Any
@@ -65,6 +66,8 @@ class StudentAnswer:
     page: int | None = None
     legibility: str = "good"            # good | fair | poor
     uncertain_spans: list[str] = field(default_factory=list)
+    crop_ids: list[str] = field(default_factory=list)
+    geometry: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -84,6 +87,7 @@ class AlignedQuestion:
     keywords: list[str] = field(default_factory=list)
     page: int | None = None
     warnings: list[str] = field(default_factory=list)
+    geometry: list[dict] = field(default_factory=list)
 
     def to_payload(self) -> dict:
         return {
@@ -97,6 +101,7 @@ class AlignedQuestion:
             "uncertain_spans": self.uncertain_spans,
             "keywords": self.keywords,
             "warnings": self.warnings,
+            "geometry": self.geometry,
         }
 
 
@@ -574,7 +579,51 @@ def extract_key(engine, doc) -> list[KeyEntry]:
     return entries
 
 
-def extract_student(engine, doc) -> list[StudentAnswer]:
+def _vision_enabled(doc, override: bool | None = None) -> bool:
+    """Whether the crop-first OCR path should run for this document."""
+    if override is False:
+        return False
+    if doc.kind not in ("pdf", "image"):
+        return False
+    if override is True:
+        return True
+    flag = (os.environ.get("VISION_STUDENT") or "auto").strip().lower()
+    if flag in {"0", "false", "off", "no"}:
+        return False
+    if flag in {"1", "true", "on", "yes"}:
+        return True
+    # auto: on as soon as a vision provider is configured.
+    return bool(
+        (os.environ.get("NVIDIA_API_KEY") or "").strip()
+        or (
+            (os.environ.get("GROQ_API_KEY") or "").strip()
+            and (os.environ.get("GROQ_MODEL") or "").strip()
+        )
+    )
+
+
+def _warn(doc, message: str) -> None:
+    warnings = getattr(doc, "warnings", None)
+    if isinstance(warnings, list) and message not in warnings:
+        warnings.append(message)
+
+
+def _vision_student_answers(engine, doc) -> list[StudentAnswer]:
+    from vision import transcribe_document
+    from vision.answers import answers_from_transcript
+
+    pages = transcribe_document(doc)
+    if not pages or not any(page.crops for page in pages):
+        return []
+    for page in pages:
+        for warning in page.warnings:
+            note = f"Vision page {page.page}: {warning}"
+            if note not in doc.warnings:
+                doc.warnings.append(note)
+    return answers_from_transcript(engine, pages)
+
+
+def extract_student(engine, doc, *, vision: bool | None = None) -> list[StudentAnswer]:
     # Instant zero-LLM fast path when a digital rubric/key PDF or structured text
     # is uploaded in the student slot (e.g. testing with the actual answer key).
     digital_text = _get_digital_text(doc)
@@ -593,6 +642,22 @@ def extract_student(engine, doc) -> list[StudentAnswer]:
                 )
                 for it in fast_items
             ]
+
+    # Crop-first OCR for scans. Falls back to the whole-document call below
+    # whenever vision is disabled, unconfigured, or reads nothing.
+    if (not digital_text
+            and getattr(engine, "name", "") != "mock"
+            and _vision_enabled(doc, vision)):
+        try:
+            vision_answers = _vision_student_answers(engine, doc)
+        except Exception as exc:
+            _warn(doc, f"Vision extraction failed ({exc}); "
+                       "used whole-document fallback.")
+            vision_answers = []
+        if vision_answers:
+            return vision_answers
+        _warn(doc, "Vision OCR produced no usable answers; "
+                   "used whole-document fallback.")
 
     try:
         raw = engine.generate_json("extract_student", document=doc,
@@ -734,6 +799,7 @@ def align_questions(paper: list[QuestionSpec],
             keywords=(entry.keywords if entry else []),
             page=(spec.page if spec else None),
             warnings=warnings,
+            geometry=(ans.geometry if ans else []),
         ))
 
     return aligned

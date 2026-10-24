@@ -12,4 +12,7 @@ dependencies = [
     "python-dotenv==1.2.2",
     "pymupdf==1.28.2",
     "pypdf>=5.0.0",
+    "numpy>=2.0",
+    "sympy>=1.13",
+    "Pillow>=10.0",
 ]

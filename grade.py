@@ -164,6 +164,30 @@ def _norm_compare(text: str) -> str:
     return "".join(ch for ch in (text or "").lower() if ch.isalnum())
 
 
+def _symbolically_equivalent(student: str, expected: str) -> bool:
+    """True only when SymPy proves the final answer matches the key.
+
+    Conservative by construction: prose, units and unreadable placeholders do
+    not parse, so they fall through to the model instead of being auto-marked.
+    """
+    if not student or not expected:
+        return False
+    try:
+        from vision.arbiter import agreement, split_lines
+    except Exception:  # sympy unavailable: keep the old behaviour
+        return False
+
+    lines = split_lines(student)
+    candidates = ([lines[-1]] if lines else []) + [student]
+    for candidate in candidates:
+        try:
+            if agreement(candidate, expected) == "same":
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _try_fast_grade(q: AlignedQuestion, params: GradeParams) -> dict | None:
     """Fast deterministic grading for blank responses or exact Answer Key matches."""
     student = (q.student_answer or "").strip()
@@ -196,6 +220,21 @@ def _try_fast_grade(q: AlignedQuestion, params: GradeParams) -> dict | None:
                     "marks_awarded": max_m,
                     "deductions": [],
                     "feedback": "Full marks awarded: response matches the official answer key across all required points.",
+                    "ocr_note": "",
+                },
+                q,
+                params,
+            )
+        # Equivalent forms the string check cannot see: 1/2 vs 0.5, 2^3 vs 8.
+        # Only safe when the key carries no step marks to bypass.
+        if not q.marking_scheme and _symbolically_equivalent(student, expected):
+            return normalise_record(
+                {
+                    "number": q.number,
+                    "max_marks": max_m,
+                    "marks_awarded": max_m,
+                    "deductions": [],
+                    "feedback": "Full marks awarded: the final answer is symbolically equivalent to the answer key.",
                     "ocr_note": "",
                 },
                 q,
@@ -262,7 +301,8 @@ def grade_answers(engine, aligned: list[AlignedQuestion],
 
 _ALIGNED_FIELDS = ("number", "question", "max_marks", "expected_answer",
                    "marking_scheme", "student_answer", "legibility",
-                   "uncertain_spans", "keywords", "page", "warnings")
+                   "uncertain_spans", "keywords", "page", "warnings",
+                   "geometry")
 
 
 def grade_batch(engine, aligned_list: list[AlignedQuestion],

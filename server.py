@@ -414,7 +414,7 @@ def api_align():
                        body.get("key"))
         student = _rebuild(StudentAnswer,
                            ("number", "response", "page", "legibility",
-                            "uncertain_spans"),
+                            "uncertain_spans", "crop_ids", "geometry"),
                            body.get("student"))
     except (ValueError, TypeError) as exc:
         return jsonify({"error": f"Malformed extraction payload: {exc}"}), 400
