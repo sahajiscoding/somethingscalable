@@ -39,7 +39,7 @@ interface GeneratorProps {
 
 export default function Generator({ modelOverride, setModelOverride, onSendToGrader }: GeneratorProps) {
   const [topic, setTopic] = useState('Calculus — Quadratic Equations & Derivatives');
-  const [grade, setGrade] = useState('Senior Secondary (Grade 11-12)');
+  const [grade, setGrade] = useState('Senior Secondary (Grade 11)');
   const [difficulty, setDifficulty] = useState('Medium');
   const [count, setCount] = useState('5');
   const [marks, setMarks] = useState('25');
@@ -191,7 +191,8 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
               </label>
               <select id="genGrade" value={grade} onChange={e => setGrade(e.target.value)} className={`${inputCls} appearance-none`}>
                 <option>High School (Grade 10)</option>
-                <option>Senior Secondary (Grade 11-12)</option>
+                <option>Senior Secondary (Grade 11)</option>
+                <option>Senior Secondary (Grade 12)</option>
                 <option>Undergraduate / College</option>
                 <option>Competitive Exam / Olympiad</option>
               </select>
