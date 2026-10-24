@@ -69,6 +69,25 @@ For EVERY question produce one JSON object with these fields:
                      were cut (or why full marks were given)
   ocr_note         - note any suspected transcription/handwriting-recognition
                      errors affecting this answer ("" if none)
+  steps            - array of step-by-step evaluation objects breaking down
+                     the student's working:
+                     [{{
+                       "title": "Step 1: Substitute x=2",
+                       "status": "correct" | "error",
+                       "lines": [{{
+                         "crop_id": "p1c2",
+                         "text": "p(2) = 2^2 - 4",
+                         "ok": true,
+                         "error_tag": ""
+                       }}],
+                       "explanation": ""
+                     }}]
+                     Use error_tag (e.g. "Concept Error", "Calculation Error",
+                     "Result Error", "Missing Root", "Sign Error",
+                     "Incomplete Step") on the primary wrong line of an error
+                     step, and provide a 1-sentence "explanation" for why that
+                     step is wrong. Map "crop_id" from the question's geometry
+                     list when available.
 (Do NOT repeat student_answer or expected_answer in the output JSON.)
 
 MARKING RULES:
@@ -489,6 +508,18 @@ def normalise_record(item: dict | None, q: AlignedQuestion,
     expected_answer = str(item.get("expected_answer") or "").strip() \
         or q.expected_answer or "(not found in answer key)"
 
+    marks_deducted = max(0.0, round(max_marks - awarded, 2))
+    geometry = [dict(g) for g in (q.geometry or []) if isinstance(g, dict)]
+    steps = _normalise_steps(
+        item.get("steps"),
+        geometry=geometry,
+        student_answer=student_answer,
+        deductions=deductions,
+        awarded=awarded,
+        marks_deducted=marks_deducted,
+        feedback=feedback,
+    )
+
     return {
         "number": q.number,
         "question": q.question,
@@ -496,14 +527,226 @@ def normalise_record(item: dict | None, q: AlignedQuestion,
         "expected_answer": expected_answer,
         "max_marks": max_marks,
         "marks_awarded": awarded,
-        "marks_deducted": max(0.0, round(max_marks - awarded, 2)),
+        "marks_deducted": marks_deducted,
         "deductions": deductions,
         "feedback": feedback,
         "ocr_note": ocr_note,
         "legibility": q.legibility,
         "page": q.page,
         "warnings": list(q.warnings),
+        "geometry": geometry,
+        "steps": steps,
     }
+
+
+def _infer_error_tag(reason: str, category: str = "content", is_last: bool = False) -> str:
+    low = (reason or "").lower()
+    if category == "handwriting":
+        return "Handwriting Issue"
+    if category == "diagrams":
+        return "Diagram Flaw"
+    if category == "unreadable":
+        return "Unreadable Span"
+    if category == "formatting":
+        return "Missing Steps"
+    if any(w in low for w in ("calculat", "arithmetic", "evaluat", "substitut", "multipl", "divid", "add", "subtract", "sign")):
+        return "Calculation Error"
+    if any(w in low for w in ("root", "missing", "omitted", "forgot", "incomplete")):
+        return "Missing Root" if "root" in low else "Incomplete Step"
+    if is_last or any(w in low for w in ("conclus", "result", "final", "hence", "therefore")):
+        return "Result Error"
+    return "Concept Error"
+
+
+def _normalise_steps(
+    raw_steps: Any,
+    *,
+    geometry: list[dict],
+    student_answer: str,
+    deductions: list[dict],
+    awarded: float,
+    marks_deducted: float,
+    feedback: str,
+) -> list[dict]:
+    """Validate model-emitted steps or synthesize deterministic steps from geometry/lines."""
+    crop_ids = [str(g.get("crop_id") or "") for g in geometry if g.get("crop_id")]
+    crop_by_id = {str(g.get("crop_id")): g for g in geometry if g.get("crop_id")}
+
+    def _match_crop_id(text: str, fallback_idx: int) -> str:
+        t_norm = _loose(text)
+        if t_norm:
+            for g in geometry:
+                cid = str(g.get("crop_id") or "")
+                g_norm = _loose(str(g.get("latex") or ""))
+                if cid and g_norm and t_norm == g_norm:
+                    return cid
+            for g in geometry:
+                cid = str(g.get("crop_id") or "")
+                g_norm = _loose(str(g.get("latex") or ""))
+                if cid and len(g_norm) >= 4 and (t_norm in g_norm or g_norm in t_norm):
+                    return cid
+        if 0 <= fallback_idx < len(crop_ids):
+            return crop_ids[fallback_idx]
+        return crop_ids[-1] if crop_ids else ""
+
+    if isinstance(raw_steps, list) and raw_steps:
+        out: list[dict] = []
+        line_cursor = 0
+        for idx, s in enumerate(raw_steps):
+            if not isinstance(s, dict):
+                continue
+            title = str(s.get("title") or f"Step {idx + 1}").strip()
+            if not title.lower().startswith("step"):
+                title = f"Step {idx + 1}: {title}"
+            status_raw = str(s.get("status") or "").strip().lower()
+            status = "error" if status_raw in ("error", "incorrect", "wrong", "false", "fail") else "correct"
+            explanation = str(s.get("explanation") or s.get("reason") or "").strip()
+
+            raw_lines = s.get("lines")
+            norm_lines: list[dict] = []
+            if isinstance(raw_lines, list):
+                for ln in raw_lines:
+                    if isinstance(ln, dict):
+                        txt = str(ln.get("text") or ln.get("latex") or "").strip()
+                        if not txt:
+                            continue
+                        cid = str(ln.get("crop_id") or "").strip()
+                        if not cid or (crop_by_id and cid not in crop_by_id):
+                            cid = _match_crop_id(txt, line_cursor)
+                        ok_val = ln.get("ok")
+                        ok = bool(ok_val) if isinstance(ok_val, bool) else (status == "correct")
+                        tag = str(ln.get("error_tag") or "").strip()
+                        norm_lines.append({
+                            "crop_id": cid,
+                            "text": txt,
+                            "ok": ok,
+                            "error_tag": "" if ok else tag,
+                        })
+                        line_cursor += 1
+                    elif isinstance(ln, str) and ln.strip():
+                        txt = ln.strip()
+                        cid = _match_crop_id(txt, line_cursor)
+                        norm_lines.append({
+                            "crop_id": cid,
+                            "text": txt,
+                            "ok": status == "correct",
+                            "error_tag": "",
+                        })
+                        line_cursor += 1
+
+            if not norm_lines:
+                fallback_txt = str(s.get("text") or s.get("latex") or "").strip()
+                if not fallback_txt and 0 <= line_cursor < len(geometry):
+                    fallback_txt = str(geometry[line_cursor].get("latex") or "").strip()
+                if fallback_txt:
+                    cid = _match_crop_id(fallback_txt, line_cursor)
+                    norm_lines.append({
+                        "crop_id": cid,
+                        "text": fallback_txt,
+                        "ok": status == "correct",
+                        "error_tag": "",
+                    })
+                    line_cursor += 1
+
+            if status == "error" and norm_lines:
+                if all(ln["ok"] for ln in norm_lines):
+                    for ln in norm_lines:
+                        ln["ok"] = False
+                if not any(ln.get("error_tag") for ln in norm_lines):
+                    primary = next((ln for ln in norm_lines if not ln["ok"]), norm_lines[0])
+                    primary["error_tag"] = _infer_error_tag(
+                        explanation or feedback,
+                        deductions[0]["category"] if deductions else "content",
+                        is_last=(idx == len(raw_steps) - 1),
+                    )
+                if not explanation:
+                    explanation = deductions[0]["reason"] if deductions else feedback
+
+            out.append({
+                "title": title,
+                "status": status,
+                "lines": norm_lines,
+                "explanation": explanation if status == "error" else "",
+            })
+        if out:
+            return out
+
+    # Deterministic fallback when model omits steps or fast-grading ran
+    source_lines: list[tuple[str, str]] = []
+    for g in geometry:
+        cid = str(g.get("crop_id") or "")
+        txt = str(g.get("latex") or "").strip()
+        if txt:
+            for sub in [ln.strip() for ln in txt.splitlines() if ln.strip()]:
+                source_lines.append((cid, sub))
+    if not source_lines:
+        raw_ans = student_answer if student_answer != "(no answer transcribed)" else ""
+        split_ans = [ln.strip() for ln in raw_ans.splitlines() if ln.strip()]
+        if not split_ans and raw_ans:
+            split_ans = [s.strip() for s in raw_ans.split(";") if s.strip()] or [raw_ans]
+        for idx, ln in enumerate(split_ans):
+            cid = crop_ids[min(idx, len(crop_ids) - 1)] if crop_ids else ""
+            source_lines.append((cid, ln))
+
+    if not source_lines:
+        return [{
+            "title": "Step 1: Student response",
+            "status": "error" if marks_deducted > 0 else "correct",
+            "lines": [{
+                "crop_id": crop_ids[0] if crop_ids else "",
+                "text": "(no answer transcribed)",
+                "ok": marks_deducted <= 0,
+                "error_tag": "Missing Answer" if marks_deducted > 0 else "",
+            }],
+            "explanation": feedback if marks_deducted > 0 else "",
+        }]
+
+    if marks_deducted <= 0:
+        return [
+            {
+                "title": f"Step {idx + 1}: Working step {idx + 1}",
+                "status": "correct",
+                "lines": [{"crop_id": cid, "text": txt, "ok": True, "error_tag": ""}],
+                "explanation": "",
+            }
+            for idx, (cid, txt) in enumerate(source_lines)
+        ]
+
+    # Partial or zero marks: mark initial steps correct when partial credit was earned
+    n = len(source_lines)
+    correct_cutoff = max(1, n // 2) if (awarded > 0 and n >= 2) else 0
+    steps_out: list[dict] = []
+    if correct_cutoff > 0:
+        for idx in range(correct_cutoff):
+            cid, txt = source_lines[idx]
+            steps_out.append({
+                "title": f"Step {idx + 1}: Initial working",
+                "status": "correct",
+                "lines": [{"crop_id": cid, "text": txt, "ok": True, "error_tag": ""}],
+                "explanation": "",
+            })
+
+    rem = source_lines[correct_cutoff:]
+    reasons = [d["reason"] for d in deductions if d.get("reason")] or [feedback]
+    cats = [d["category"] for d in deductions if d.get("category")] or ["content"]
+    for offset, (cid, txt) in enumerate(rem):
+        step_num = correct_cutoff + offset + 1
+        reason = reasons[min(offset, len(reasons) - 1)]
+        cat = cats[min(offset, len(cats) - 1)]
+        is_last = (offset == len(rem) - 1)
+        title_label = "Conclusion" if (is_last and n >= 2) else "Calculation & evaluation"
+        steps_out.append({
+            "title": f"Step {step_num}: {title_label}",
+            "status": "error",
+            "lines": [{
+                "crop_id": cid,
+                "text": txt,
+                "ok": False,
+                "error_tag": _infer_error_tag(reason, cat, is_last=is_last),
+            }],
+            "explanation": reason,
+        })
+    return steps_out
 
 
 def summarise(records: list[dict]) -> dict:

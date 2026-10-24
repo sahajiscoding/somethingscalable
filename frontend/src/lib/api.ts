@@ -85,10 +85,34 @@ export type CriterionKey = 'handwriting' | 'diagrams' | 'unreadable' | 'formatti
 export interface Deduction {
   category: string;
   marks: number;
+  reason?: string;
+}
+
+export interface CropGeometry {
+  crop_id: string;
+  page: number;
+  rect: [number, number, number, number];
+  latex?: string;
+  confidence?: number;
+}
+
+export interface StepLine {
+  crop_id?: string;
+  text: string;
+  ok: boolean;
+  error_tag?: string;
+}
+
+export interface GradeStep {
+  title: string;
+  status: 'correct' | 'error';
+  lines: StepLine[];
+  explanation?: string;
 }
 
 export interface GradeRecord {
   number: string | number;
+  question?: string;
   max_marks: number;
   marks_awarded: number;
   marks_deducted: number;
@@ -96,7 +120,11 @@ export interface GradeRecord {
   student_answer: string;
   feedback: string;
   ocr_note?: string;
+  page?: number;
+  legibility?: string;
   deductions: Deduction[];
+  geometry?: CropGeometry[];
+  steps?: GradeStep[];
 }
 
 export interface LiveSummary {
@@ -114,6 +142,7 @@ export interface LiveReport {
   mode: { strict: boolean; penalty_criteria: string[] };
   summary: LiveSummary;
   questions: GradeRecord[];
+  pageImages?: string[];
 }
 
 export interface AlignedQuestion {
@@ -172,6 +201,7 @@ export interface LiveEvalInput {
   penalties: string[];
   model?: string;
   onStage?: (stage: number) => void;
+  onPageImages?: (images: string[]) => void;
   onQuestionsAligned?: (questions: AlignedQuestion[]) => void;
   onQuestionStart?: (questionNumber: string | number, index: number, total: number) => void;
   onQuestionDone?: (
@@ -234,6 +264,7 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
         kind?: string;
         pages?: number;
         warnings?: string[];
+        page_images?: string[];
         data?: Record<string, unknown[]>;
       };
       if (!res.ok) throw new Error(data.error || `could not transcribe ${files[role].name} (HTTP ${res.status})`);
@@ -244,6 +275,17 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
   extracted.forEach(e => {
     if (e.role) byRole[e.role] = e;
   });
+  let pageImages: string[] = Array.isArray(byRole.student?.page_images) ? byRole.student.page_images : [];
+  if (pageImages.length === 0 && files.student && files.student.type.startsWith('image/')) {
+    try {
+      pageImages = [URL.createObjectURL(files.student)];
+    } catch {
+      pageImages = [];
+    }
+  }
+  if (pageImages.length > 0) {
+    input.onPageImages?.(pageImages);
+  }
   input.onStage?.(2);
 
   // Stage 2 — map responses onto question numbers (instant, no AI).
@@ -412,6 +454,9 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
     }),
   });
   input.onStage?.(5);
+  if (pageImages.length > 0) {
+    reportData.report.pageImages = pageImages;
+  }
   return reportData;
 }
 

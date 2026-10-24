@@ -353,6 +353,34 @@ def api_compress():
         return jsonify({"error": f"Compression failed: {exc}"}), 500
 
 
+def _student_page_previews(data: bytes, kind: str, max_pages: int = 20, max_dim: int = 1400) -> list[str]:
+    """Render student submission pages as compact JPEG data URLs for the dual-pane UI."""
+    if kind not in ("pdf", "image") or not data:
+        return []
+    import base64
+    try:
+        import pymupdf
+        out: list[str] = []
+        stream_doc = (
+            pymupdf.open(stream=data, filetype="pdf")
+            if kind == "pdf" or data.startswith(b"%PDF-")
+            else pymupdf.open(stream=data)
+        )
+        with stream_doc as pdf:
+            for idx, page in enumerate(pdf):
+                if idx >= max_pages:
+                    break
+                w, h = page.rect.width, page.rect.height
+                scale = min(2.0, max_dim / max(w, h, 1.0))
+                pix = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False)
+                jpg_bytes = pix.tobytes("jpeg", jpg_quality=76)
+                b64 = base64.b64encode(jpg_bytes).decode("ascii")
+                out.append(f"data:image/jpeg;base64,{b64}")
+        return out
+    except Exception:
+        return []
+
+
 @app.post("/api/extract")
 def api_extract():
     """One vision-extraction call for a single document (multipart)."""
@@ -368,6 +396,7 @@ def api_extract():
     if len(data) > 25 * 1024 * 1024:
         return jsonify({"error": f"{upload.filename} exceeds 25 MB."}), 400
 
+    page_images: list[str] = []
     try:
         with tempfile.TemporaryDirectory(prefix="examcheck_") as tmp:
             safe = Path(upload.filename).name or f"{role}.bin"
@@ -382,11 +411,20 @@ def api_extract():
                 items = [e.to_dict() for e in extract_key(engine, doc)]
             else:
                 items = [a.to_dict() for a in extract_student(engine, doc)]
+                page_images = _student_page_previews(data, doc.kind)
     except Exception as exc:  # noqa: BLE001 - mapped to JSON below
         return _api_error(exc)
-    return jsonify({"role": role, "filename": doc.filename, "kind": doc.kind,
-                    "pages": doc.page_count, "warnings": doc.warnings,
-                    "data": {_EXTRACT_KEYS[role]: items}})
+    payload = {
+        "role": role,
+        "filename": doc.filename,
+        "kind": doc.kind,
+        "pages": doc.page_count,
+        "warnings": doc.warnings,
+        "data": {_EXTRACT_KEYS[role]: items},
+    }
+    if role == "student":
+        payload["page_images"] = page_images
+    return jsonify(payload)
 
 
 def _rebuild(spec_cls, fields: tuple, rows) -> list:

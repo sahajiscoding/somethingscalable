@@ -61,7 +61,13 @@ class TranscriptMappingTests(unittest.TestCase):
         self.assertEqual(answers[1].page, 1)
         self.assertEqual(answers[0].crop_ids, ["p1c0"])
         self.assertEqual(answers[0].geometry, [
-            {"crop_id": "p1c0", "page": 1, "rect": [0.1, 0.1, 0.2, 0.1]},
+            {
+                "crop_id": "p1c0",
+                "page": 1,
+                "rect": [0.1, 0.1, 0.2, 0.1],
+                "latex": "2+2=4",
+                "confidence": 0.95,
+            },
         ])
 
     def test_ungrouped_blocks_are_kept(self):

@@ -130,8 +130,13 @@ def _block_index(pages: list[TranscribedPage]):
 
 def _geometry(crop_ids: list[str], blocks) -> list[dict]:
     return [
-        {"crop_id": crop_id, "page": blocks[crop_id][0],
-         "rect": blocks[crop_id][3]}
+        {
+            "crop_id": crop_id,
+            "page": blocks[crop_id][0],
+            "rect": blocks[crop_id][3],
+            "latex": blocks[crop_id][2],
+            "confidence": round(blocks[crop_id][1], 3),
+        }
         for crop_id in crop_ids
     ]
 

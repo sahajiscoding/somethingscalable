@@ -1,4 +1,5 @@
-/* Offline demo engine — sample dataset + scoring (mirrors the legacy page). */
+/* Offline demo engine — sample dataset + realistic handwritten math pages & step annotations. */
+import type { CropGeometry, GradeStep } from './api';
 
 export const fmt = (n: number): string =>
   Math.round(n * 10) % 10 === 0 ? String(Math.round(n)) : n.toFixed(1);
@@ -18,7 +19,9 @@ export const CRITERIA: Record<string, Criterion> = {
 
 export interface DemoQuestion {
   no: string;
+  questionText: string;
   total: number;
+  page: number;
   target: string;
   student: string;
   contentLoss: number;
@@ -26,75 +29,279 @@ export interface DemoQuestion {
   contentReason: string;
   penalties: Record<string, { amount: number; note: string }>;
   fullNote: string;
+  geometry: CropGeometry[];
+  steps: GradeStep[];
 }
+
+function svgToDataUrl(svg: string): string {
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg.trim())}`;
+}
+
+const PAGE_1_SVG = `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1040" width="800" height="1040">
+  <defs>
+    <linearGradient id="paperGrad1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#c9c6be"/>
+      <stop offset="50%" stop-color="#bebbb3"/>
+      <stop offset="100%" stop-color="#b2afa7"/>
+    </linearGradient>
+    <filter id="paperShadow1" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <!-- Desk background -->
+  <rect width="800" height="1040" fill="#2c2623"/>
+  <!-- Notebook page -->
+  <rect x="68" y="24" width="664" height="992" rx="4" fill="url(#paperGrad1)" filter="url(#paperShadow1)"/>
+  <!-- Subtle ruled lines -->
+  <g stroke="#a5a29a" stroke-width="1" opacity="0.45">
+    <line x1="90" y1="120" x2="710" y2="120"/>
+    <line x1="90" y1="170" x2="710" y2="170"/>
+    <line x1="90" y1="220" x2="710" y2="220"/>
+    <line x1="90" y1="270" x2="710" y2="270"/>
+    <line x1="90" y1="320" x2="710" y2="320"/>
+    <line x1="90" y1="370" x2="710" y2="370"/>
+    <line x1="90" y1="420" x2="710" y2="420"/>
+    <line x1="90" y1="470" x2="710" y2="470"/>
+  </g>
+  <line x1="138" y1="24" x2="138" y2="1016" stroke="#9e7b7b" stroke-width="1.5" opacity="0.45"/>
+  <!-- Handwritten Q1 -->
+  <g fill="#424347" font-family="'Segoe Print', 'Bradley Hand', 'Comic Sans MS', cursive" font-size="22">
+    <text x="95" y="92" font-size="16" opacity="0.75">Page 1 · Class 10 Mathematics — Polynomials</text>
+    <text x="96" y="162" font-weight="bold">Q1</text>
+    <path d="M 92 170 Q 115 165 130 150" stroke="#424347" stroke-width="1.6" fill="none"/>
+    <text x="160" y="162">Find the degree and zeroes of p(x) = x² - 5x + 6</text>
+    <text x="165" y="214">Highest power of x is 2, so degree = 2</text>
+    <text x="165" y="264">x² - 5x + 6 = (x - 2)(x - 3) = 0</text>
+    <text x="165" y="314">Therefore, zeroes are x = 2 and x = 3.</text>
+  </g>
+</svg>
+`;
+
+const PAGE_2_SVG = `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1040" width="800" height="1040">
+  <defs>
+    <linearGradient id="paperGrad2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#c9c6be"/>
+      <stop offset="55%" stop-color="#bcb9b1"/>
+      <stop offset="100%" stop-color="#afa9a0"/>
+    </linearGradient>
+    <filter id="paperShadow2" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000" flood-opacity="0.48"/>
+    </filter>
+  </defs>
+  <!-- Desk background -->
+  <rect width="800" height="1040" fill="#2c2623"/>
+  <!-- Left desk floral/cloth texture hint -->
+  <circle cx="32" cy="445" r="24" fill="#8e8279" opacity="0.35"/>
+  <!-- Scanned paper sheet -->
+  <rect x="92" y="18" width="628" height="1004" rx="3" fill="url(#paperGrad2)" filter="url(#paperShadow2)"/>
+  <!-- Handwritten script matching screenshot -->
+  <g fill="#46474b" font-family="'Segoe Print', 'Bradley Hand', 'Comic Sans MS', cursive" font-size="22">
+    <!-- Top crossed-out scratch -->
+    <text x="150" y="64" font-size="18" opacity="0.65">Q2 ans</text>
+    <line x1="145" y1="58" x2="212" y2="54" stroke="#46474b" stroke-width="2"/>
+    <line x1="145" y1="64" x2="210" y2="60" stroke="#46474b" stroke-width="1.8"/>
+
+    <!-- Q2 -->
+    <text x="145" y="122">Q2</text>
+    <path d="M 136 136 Q 168 126 194 106" stroke="#46474b" stroke-width="1.6" fill="none"/>
+    <text x="220" y="118" font-size="24">5 x³ + 2x - 7</text>
+    <text x="224" y="176" font-size="19">Constant is negative (-7)</text>
+    <text x="220" y="232" font-size="20">Polynomials should have only positive terms</text>
+    <text x="220" y="274" font-size="20">It is not a polynomial</text>
+
+    <!-- Q3 -->
+    <text x="145" y="388">Q3</text>
+    <path d="M 136 404 Q 168 392 192 374" stroke="#46474b" stroke-width="1.6" fill="none"/>
+    <text x="222" y="384" font-size="23">p(x) = x² - 4</text>
+    <text x="234" y="428" font-size="22">x = 2</text>
+    <text x="224" y="476" font-size="23">p(2) = 2² - 4</text>
+    <text x="266" y="528" font-size="24">= 22 - 4</text>
+    <text x="266" y="574" font-size="24">= 18</text>
+    <text x="230" y="622" font-size="23">p(2) = 0  ≠  18</text>
+    <text x="232" y="682" font-size="21">hence x = 2 not a zero of p(x)</text>
+
+    <!-- Q4 -->
+    <text x="145" y="760">Q4</text>
+    <path d="M 136 778 Q 168 764 192 744" stroke="#46474b" stroke-width="1.6" fill="none"/>
+    <text x="218" y="756" font-size="23">x² - 9 = 0</text>
+    <text x="222" y="798" font-size="22">x² = 9</text>
+    <text x="222" y="844" font-size="23">x = √9</text>
+    <text x="242" y="894" font-size="23">=  3</text>
+    <text x="226" y="948" font-size="23">zero is  x = 3</text>
+  </g>
+</svg>
+`;
+
+export const DEMO_PAGE_IMAGES: string[] = [
+  svgToDataUrl(PAGE_1_SVG),
+  svgToDataUrl(PAGE_2_SVG),
+];
 
 export const QUESTIONS: DemoQuestion[] = [
   {
     no: 'Q1',
-    total: 5,
-    target: 'x = (−b ± √(b² − 4ac)) / 2a, with discriminant b² − 4ac evaluated to 49, giving roots x = 5 and x = −2.',
-    student: 'x = (−b ± √(b² − 4ac)) / 2a written correctly; discriminant left unevaluated and final roots not stated.',
-    contentLoss: 1.5,
-    strictLoss: 0.5,
-    contentReason: 'the discriminant was never evaluated and the final roots were not stated',
-    penalties: {
-      handwriting: { amount: 0.5, note: 'handwriting penalties were applied' },
-      formatting: { amount: 0.5, note: 'intermediate working steps were missing from the solution' },
-    },
-    fullNote: 'formula, discriminant and both roots match the official key',
-  },
-  {
-    no: 'Q2',
-    total: 6,
-    target: "Explanation of Lenz's law (4 marks) plus a fully labelled diagram showing induced current opposing the flux change (2 marks).",
-    student: 'Correct verbal explanation of the opposing flux change, but the diagram has no current-direction arrows and only one coil turn is shown.',
-    contentLoss: 1.0,
-    strictLoss: 0.5,
-    contentReason: 'the induced-current direction was never annotated on the diagram',
-    penalties: {
-      diagrams: { amount: 1.5, note: 'the diagram was incomplete and marked flawed' },
-      handwriting: { amount: 0.5, note: 'handwriting penalties were applied' },
-    },
-    fullNote: 'explanation and diagram both meet the rubric',
-  },
-  {
-    no: 'Q3',
-    total: 4,
-    target: 'The Treaty of Versailles was signed on 28 June 1919, ending the First World War between the Allied Powers and Germany.',
-    student: 'Signed on 28 June 1919; ended the First World War between the Allied Powers and Germany.',
+    questionText: 'Find the degree and zeroes of the quadratic polynomial p(x) = x^2 - 5x + 6.',
+    total: 3,
+    page: 1,
+    target: 'Degree = 2; factorising p(x) = (x - 2)(x - 3) = 0 gives zeroes x = 2 and x = 3.',
+    student: 'Highest power of x is 2, so degree = 2\nx^2 - 5x + 6 = (x - 2)(x - 3) = 0\nTherefore, zeroes are x = 2 and x = 3.',
     contentLoss: 0,
     strictLoss: 0,
     contentReason: '',
     penalties: {},
-    fullNote: 'response matches the official answer key exactly — no corrections required',
+    fullNote: 'Degree and both zeroes of p(x) are stated with complete factorisation steps',
+    geometry: [
+      { crop_id: 'p1c1', page: 1, rect: [0.20, 0.185, 0.50, 0.042], latex: 'Highest power of x is 2, so degree = 2', confidence: 0.97 },
+      { crop_id: 'p1c2', page: 1, rect: [0.20, 0.233, 0.45, 0.042], latex: 'x^2 - 5x + 6 = (x - 2)(x - 3) = 0', confidence: 0.96 },
+      { crop_id: 'p1c3', page: 1, rect: [0.20, 0.281, 0.46, 0.042], latex: 'Therefore, zeroes are x = 2 and x = 3.', confidence: 0.98 },
+    ],
+    steps: [
+      {
+        title: 'Step 1: Identify degree of polynomial',
+        status: 'correct',
+        lines: [{ crop_id: 'p1c1', text: 'degree = 2 (highest power of x)', ok: true, error_tag: '' }],
+        explanation: '',
+      },
+      {
+        title: 'Step 2: Factorise and solve for zeroes',
+        status: 'correct',
+        lines: [
+          { crop_id: 'p1c2', text: '(x - 2)(x - 3) = 0', ok: true, error_tag: '' },
+          { crop_id: 'p1c3', text: 'Zeroes are x = 2 and x = 3', ok: true, error_tag: '' },
+        ],
+        explanation: '',
+      },
+    ],
+  },
+  {
+    no: 'Q2',
+    questionText: 'State whether 5x^3 + 2x - 7 is a polynomial. Justify your answer.',
+    total: 2,
+    page: 2,
+    target: 'Yes, 5x^3 + 2x - 7 is a polynomial because all variable exponents (3, 1, 0) are non-negative integers. Negative coefficients/constants are allowed.',
+    student: '5x^3 + 2x - 7\nConstant is negative (-7)\nPolynomials should have only positive terms\nIt is not a polynomial',
+    contentLoss: 2,
+    strictLoss: 0,
+    contentReason: 'misidentified a polynomial as invalid due to a negative constant term (-7)',
+    penalties: {
+      handwriting: { amount: 0.5, note: 'minor scratch-out at the top of the solution' },
+    },
+    fullNote: 'correctly identifies polynomial criteria',
+    geometry: [
+      { crop_id: 'p2c1', page: 2, rect: [0.275, 0.148, 0.275, 0.036], latex: 'Constant is negative (-7)', confidence: 0.93 },
+      { crop_id: 'p2c2', page: 2, rect: [0.270, 0.202, 0.500, 0.038], latex: 'Polynomials should have only positive terms', confidence: 0.91 },
+      { crop_id: 'p2c3', page: 2, rect: [0.270, 0.244, 0.300, 0.036], latex: 'It is not a polynomial', confidence: 0.94 },
+    ],
+    steps: [
+      {
+        title: 'Step 1: Check polynomial definition',
+        status: 'error',
+        lines: [
+          { crop_id: 'p2c1', text: 'Constant is negative (-7)', ok: false, error_tag: 'Concept Error' },
+          { crop_id: 'p2c2', text: 'Polynomials should have only positive terms', ok: false, error_tag: '' },
+        ],
+        explanation: 'Conceptual misconception: polynomial terms only require non-negative integer exponents on variables; negative coefficients or constants (-7) are completely valid.',
+      },
+      {
+        title: 'Step 2: Final classification',
+        status: 'error',
+        lines: [
+          { crop_id: 'p2c3', text: 'It is not a polynomial', ok: false, error_tag: '' },
+        ],
+        explanation: 'Incorrect conclusion: 5x^3 + 2x - 7 is a cubic polynomial.',
+      },
+    ],
+  },
+  {
+    no: 'Q3',
+    questionText: 'Check whether x=2 is a zero of p(x) = x^2 - 4',
+    total: 3,
+    page: 2,
+    target: 'Substitute x = 2: p(2) = 2^2 - 4 = 4 - 4 = 0. Since p(2) = 0, x = 2 is a zero of p(x).',
+    student: 'p(x) = x^2 - 4\nx = 2\np(2) = 2^2 - 4\n= 22 - 4\n= 18\np(2) = 18 != 0\nhence x = 2 not a zero of p(x)',
+    contentLoss: 2,
+    strictLoss: 0.5,
+    contentReason: 'arithmetic error evaluating 2^2 as 22 instead of 4, which led to the wrong conclusion',
+    penalties: {
+      formatting: { amount: 0.5, note: 'intermediate substitution notation was cramped' },
+    },
+    fullNote: 'substitution, evaluation and zero check are all accurate',
+    geometry: [
+      { crop_id: 'p2c4', page: 2, rect: [0.275, 0.432, 0.195, 0.040], latex: 'p(2) = 2^2 - 4', confidence: 0.96 },
+      { crop_id: 'p2c5', page: 2, rect: [0.326, 0.483, 0.115, 0.042], latex: '= 22 - 4', confidence: 0.94 },
+      { crop_id: 'p2c6', page: 2, rect: [0.326, 0.531, 0.088, 0.038], latex: '= 18', confidence: 0.95 },
+      { crop_id: 'p2c7', page: 2, rect: [0.340, 0.578, 0.036, 0.034], latex: 'p(2) = 18 != 0', confidence: 0.89 },
+      { crop_id: 'p2c8', page: 2, rect: [0.285, 0.635, 0.370, 0.040], latex: 'hence x=2 not a zero', confidence: 0.92 },
+    ],
+    steps: [
+      {
+        title: 'Step 1: Substitute x=2',
+        status: 'correct',
+        lines: [
+          { crop_id: 'p2c4', text: 'p(2) = 2^2 - 4', ok: true, error_tag: '' },
+        ],
+        explanation: '',
+      },
+      {
+        title: 'Step 2: Calculate value',
+        status: 'error',
+        lines: [
+          { crop_id: 'p2c5', text: '= 22 - 4', ok: false, error_tag: 'Calculation Error' },
+          { crop_id: 'p2c6', text: '= 18', ok: false, error_tag: '' },
+        ],
+        explanation: 'Arithmetic error: calculated 2^2 as 22.',
+      },
+      {
+        title: 'Step 3: Conclusion',
+        status: 'error',
+        lines: [
+          { crop_id: 'p2c7', text: 'p(2) = 18 != 0', ok: false, error_tag: 'Result Error' },
+          { crop_id: 'p2c8', text: 'hence x=2 not a zero', ok: false, error_tag: '' },
+        ],
+        explanation: 'Conclusion is incorrect because the calculation was wrong.',
+      },
+    ],
   },
   {
     no: 'Q4',
-    total: 5,
-    target: 'n = 0.25 mol; limiting reagent NaOH; theoretical yield = 11.0 g.',
-    student: 'n ≈ 0.2? mol (figure smudged), limiting reagent NaOH, calculated yield 9.8 g.',
-    contentLoss: 1.5,
+    questionText: 'Find all real zeroes of the polynomial x^2 - 9 = 0.',
+    total: 2,
+    page: 2,
+    target: 'x^2 = 9 => x = ±√9 => x = 3 and x = -3.',
+    student: 'x^2 - 9 = 0\nx^2 = 9\nx = √9\n= 3\nzero is x = 3',
+    contentLoss: 1,
     strictLoss: 0.5,
-    contentReason: 'the mole calculation started from an incorrect value, giving 9.8 g instead of 11.0 g',
+    contentReason: 'took only the positive square root (x = 3) and omitted the negative root (x = -3)',
     penalties: {
-      unreadable: { amount: 1.0, note: 'the input data was smudged and treated as unreadable' },
-      handwriting: { amount: 0.5, note: 'handwriting penalties were applied' },
+      formatting: { amount: 0.5, note: 'missing ± sign when taking square root on both sides' },
     },
-    fullNote: 'limiting reagent and yield both correct',
-  },
-  {
-    no: 'Q5',
-    total: 5,
-    target: 'Structured response: claim → evidence → reasoning → conclusion, with each step of the argument shown in order.',
-    student: 'Conclusion present, but evidence is never linked back to the claim and the working steps are skipped; ideas jump between paragraphs.',
-    contentLoss: 2.0,
-    strictLoss: 0.5,
-    contentReason: 'the reasoning chain was incomplete: evidence was not linked back to the claim',
-    penalties: {
-      formatting: { amount: 1.0, note: 'poor formatting and missing steps were penalised' },
-      handwriting: { amount: 0.5, note: 'handwriting penalties were applied' },
-    },
-    fullNote: 'structure and reasoning chain fully developed',
+    fullNote: 'both positive and negative roots stated',
+    geometry: [
+      { crop_id: 'p2c9', page: 2, rect: [0.272, 0.742, 0.140, 0.068], latex: 'x^2 = 9; x = \\sqrt{9}', confidence: 0.95 },
+      { crop_id: 'p2c10', page: 2, rect: [0.326, 0.838, 0.030, 0.036], latex: '= 3', confidence: 0.93 },
+      { crop_id: 'p2c11', page: 2, rect: [0.280, 0.892, 0.195, 0.038], latex: 'zero is x = 3', confidence: 0.94 },
+    ],
+    steps: [
+      {
+        title: 'Step 1: Isolate x^2 and take square root',
+        status: 'correct',
+        lines: [
+          { crop_id: 'p2c9', text: 'x^2 = 9  =>  x = √9', ok: true, error_tag: '' },
+        ],
+        explanation: '',
+      },
+      {
+        title: 'Step 2: State all roots',
+        status: 'error',
+        lines: [
+          { crop_id: 'p2c10', text: '= 3', ok: false, error_tag: 'Missing Root' },
+          { crop_id: 'p2c11', text: 'zero is x = 3', ok: false, error_tag: '' },
+        ],
+        explanation: 'Missing negative root: x^2 = 9 has two solutions, x = +3 and x = -3.',
+      },
+    ],
   },
 ];
 
@@ -116,6 +323,7 @@ export interface DemoEval {
   contentSum: number;
   strictSum: number;
   impact: Record<string, number>;
+  pageImages: string[];
 }
 
 export function evaluateDemo(strict: boolean, criteria: Record<string, boolean>): DemoEval {
@@ -147,7 +355,7 @@ export function evaluateDemo(strict: boolean, criteria: Record<string, boolean>)
     if (sum > 0) impact[k] = sum;
   });
 
-  return { rows, total, awarded, deducted, contentSum, strictSum, impact };
+  return { rows, total, awarded, deducted, contentSum, strictSum, impact, pageImages: DEMO_PAGE_IMAGES };
 }
 
 export function gradeLetter(pct: number): string {

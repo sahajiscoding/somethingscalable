@@ -6,7 +6,9 @@ import {
   modelLabel,
   runLiveEvaluation,
   type BackendState,
+  type CropGeometry,
   type GradeRecord,
+  type GradeStep,
   type LiveReport,
 } from '../lib/api';
 import {
@@ -17,6 +19,7 @@ import { downloadPdf, generateGradingReportPdf } from '../lib/pdfGenerator';
 import type { View } from '../lib/view';
 import {
   CRITERIA,
+  DEMO_PAGE_IMAGES,
   evaluateDemo,
   fmt,
   gradeLetter,
@@ -24,6 +27,7 @@ import {
   type DemoEval,
   type DocFiles,
 } from '../lib/sim';
+import DualPaneReview from './DualPaneReview';
 
 const STEPS_TEXT = [
   'Reading question paper & answer key…',
@@ -57,6 +61,7 @@ interface QTag {
 
 interface QVM {
   no: string;
+  questionText: string;
   awarded: number;
   total: number;
   target: string;
@@ -66,6 +71,12 @@ interface QVM {
   title: string;
   body: string;
   ocrNote?: string;
+  page: number;
+  geometry: CropGeometry[];
+  steps: GradeStep[];
+  accepted?: boolean;
+  flagged?: boolean;
+  teacherFeedback?: string;
 }
 
 interface ImpactItem {
@@ -90,6 +101,9 @@ interface ResultsVM {
   impact: ImpactItem[];
   contentExtra: number;
   questions: QVM[];
+  pageImages: string[];
+  sheetName?: string;
+  subjectLabel?: string;
   downloadJson?: string;
   downloadMd?: string;
   inProgress?: boolean;
@@ -124,6 +138,7 @@ function vmFromDemo(ev: DemoEval, strict: boolean, criteria: CriteriaState, shee
     else if (notes.length > 1) clauses.push(`${notes.slice(0, -1).join(', ')} and ${notes[notes.length - 1]}`);
     return {
       no: q.no,
+      questionText: q.questionText,
       awarded: r.awarded,
       total: q.total,
       target: q.target,
@@ -132,6 +147,9 @@ function vmFromDemo(ev: DemoEval, strict: boolean, criteria: CriteriaState, shee
       good,
       title: good ? 'Full marks awarded:' : `Deducted ${fmt(r.deducted)} mark${r.deducted === 1 ? '' : 's'}:`,
       body: good ? `${q.fullNote}.` : `${clauses.join('; ')}.`,
+      page: q.page,
+      geometry: q.geometry,
+      steps: q.steps,
     };
   });
   return {
@@ -156,7 +174,69 @@ function vmFromDemo(ev: DemoEval, strict: boolean, criteria: CriteriaState, shee
     impact,
     contentExtra: ev.contentSum + ev.strictSum,
     questions,
+    pageImages: ev.pageImages || DEMO_PAGE_IMAGES,
+    sheetName: 'Tanya Goenka',
+    subjectLabel: 'Grade 10 Class 10 A · MATH',
   };
+}
+
+function fallbackStepsForRecord(r: GradeRecord): GradeStep[] {
+  if (Array.isArray(r.steps) && r.steps.length > 0) return r.steps;
+  const geo = Array.isArray(r.geometry) ? r.geometry : [];
+  const lines = geo.length
+    ? geo.map(g => ({ crop_id: g.crop_id, text: g.latex || r.student_answer }))
+    : (r.student_answer || '')
+        .split(/\r?\n/)
+        .map(s => s.trim())
+        .filter(Boolean)
+        .map(t => ({ crop_id: '', text: t }));
+
+  const good = r.marks_deducted <= 0;
+  if (!lines.length) {
+    return [
+      {
+        title: 'Step 1: Student response',
+        status: good ? 'correct' : 'error',
+        lines: [{ text: r.student_answer || '(no answer transcribed)', ok: good, error_tag: good ? '' : 'Missing Answer' }],
+        explanation: good ? '' : r.feedback,
+      },
+    ];
+  }
+  if (good) {
+    return lines.map((ln, idx) => ({
+      title: `Step ${idx + 1}: Working step ${idx + 1}`,
+      status: 'correct',
+      lines: [{ crop_id: ln.crop_id, text: ln.text, ok: true, error_tag: '' }],
+      explanation: '',
+    }));
+  }
+  const cutoff = r.marks_awarded > 0 && lines.length >= 2 ? Math.max(1, Math.floor(lines.length / 2)) : 0;
+  const out: GradeStep[] = [];
+  for (let i = 0; i < cutoff; i++) {
+    out.push({
+      title: `Step ${i + 1}: Initial substitution`,
+      status: 'correct',
+      lines: [{ crop_id: lines[i].crop_id, text: lines[i].text, ok: true, error_tag: '' }],
+      explanation: '',
+    });
+  }
+  for (let i = cutoff; i < lines.length; i++) {
+    const isLast = i === lines.length - 1;
+    out.push({
+      title: `Step ${i + 1}: ${isLast && lines.length >= 2 ? 'Conclusion' : 'Calculate value'}`,
+      status: 'error',
+      lines: [
+        {
+          crop_id: lines[i].crop_id,
+          text: lines[i].text,
+          ok: false,
+          error_tag: isLast && lines.length >= 2 ? 'Result Error' : 'Calculation Error',
+        },
+      ],
+      explanation: r.feedback,
+    });
+  }
+  return out;
 }
 
 function recordToQVM(r: GradeRecord): QVM {
@@ -167,8 +247,12 @@ function recordToQVM(r: GradeRecord): QVM {
     tone: d.category === 'content' ? 'content' : d.category,
   }));
   if (!tags.length) tags.push({ label: `${fmt(r.max_marks)} awarded`, amount: 0, tone: 'awarded' });
+  const qNo = String(r.number).toUpperCase().startsWith('Q') ? String(r.number) : `Q${r.number}`;
+  const geometry = Array.isArray(r.geometry) ? r.geometry : [];
+  const page = r.page || geometry[0]?.page || 1;
   return {
-    no: `Q${r.number}`,
+    no: qNo,
+    questionText: r.question || r.expected_answer,
     awarded: r.marks_awarded,
     total: r.max_marks,
     target: r.expected_answer,
@@ -178,6 +262,9 @@ function recordToQVM(r: GradeRecord): QVM {
     title: good ? 'Full marks awarded:' : `Deducted ${fmt(r.marks_deducted)} marks:`,
     body: r.feedback,
     ocrNote: r.ocr_note,
+    page,
+    geometry,
+    steps: fallbackStepsForRecord(r),
   };
 }
 
@@ -188,6 +275,8 @@ function vmFromPartialLive(
   criteria: CriteriaState,
   model: string,
   inProgress: boolean,
+  pageImages: string[] = [],
+  sheetName?: string,
 ): ResultsVM {
   const done = completedRecords.filter((r): r is GradeRecord => r !== null);
   const activeCrit = Object.keys(criteria).filter(k => criteria[k]);
@@ -250,12 +339,15 @@ function vmFromPartialLive(
     impact,
     contentExtra,
     questions,
+    pageImages,
+    sheetName: sheetName || 'Student Submission',
+    subjectLabel: `Live AI · ${modelLabel(model)}`,
     modelName: model,
     inProgress,
   };
 }
 
-function vmFromLive(report: LiveReport): ResultsVM {
+function vmFromLive(report: LiveReport, fallbackImages: string[] = [], sheetName?: string): ResultsVM {
   const s = report.summary;
   const pct = s.total_marks ? (s.marks_awarded / s.total_marks) * 100 : 0;
   const activeCrit = report.mode.penalty_criteria || [];
@@ -270,6 +362,8 @@ function vmFromLive(report: LiveReport): ResultsVM {
     }));
   const contentExtra = (byCat.content || 0) + (byCat.strict || 0);
   const questions: QVM[] = report.questions.map(recordToQVM);
+  const pageImages =
+    report.pageImages && report.pageImages.length > 0 ? report.pageImages : fallbackImages;
   return {
     chips: [
       { text: `Live AI · ${report.engine} ${report.model}`, tone: 'plain' },
@@ -292,6 +386,9 @@ function vmFromLive(report: LiveReport): ResultsVM {
     impact,
     contentExtra,
     questions,
+    pageImages,
+    sheetName: sheetName || 'Student Submission',
+    subjectLabel: `Live AI · ${modelLabel(report.model)}`,
     modelName: report.model,
     inProgress: false,
   };
@@ -789,6 +886,14 @@ export default function Grading(props: GradingProps) {
     }
     setRunLabel('Grading with live AI…');
     const penalties = Object.keys(criteria).filter(k => criteria[k]);
+    let latestPageImages: string[] = [];
+    if (studentDoc.file.type.startsWith('image/')) {
+      try {
+        latestPageImages = [URL.createObjectURL(studentDoc.file)];
+      } catch {
+        latestPageImages = [];
+      }
+    }
     try {
       const { report, markdown } = await runLiveEvaluation({
         paper: paperDoc.file,
@@ -797,6 +902,9 @@ export default function Grading(props: GradingProps) {
         strict,
         penalties,
         model: modelOverride.trim() || undefined,
+        onPageImages: imgs => {
+          latestPageImages = imgs;
+        },
         onStage: s => {
           if (s >= 5) setStage({ done: 5, active: -1 });
           else setStage({ done: s, active: s });
@@ -813,13 +921,15 @@ export default function Grading(props: GradingProps) {
             criteria,
             modelOverride.trim() || backend.model || DEFAULT_MODEL_ID,
             completedCount < total,
+            latestPageImages,
+            studentDoc.file.name,
           ));
           setRunLabel(`Grading (${completedCount}/${total} done)`);
         },
       });
       const s = report.summary;
       setVm({
-        ...vmFromLive(report),
+        ...vmFromLive(report, latestPageImages, studentDoc.file.name),
         downloadJson: JSON.stringify(report, null, 2),
         downloadMd: markdown,
       });
@@ -913,6 +1023,155 @@ export default function Grading(props: GradingProps) {
       setCompressing(null);
     }
   };
+
+  const handleUpdateQuestion = useCallback(
+    (
+      qNo: string,
+      patch: { awarded?: number; accepted?: boolean; flagged?: boolean; teacherFeedback?: string },
+    ) => {
+      setVm(prev => {
+        if (!prev) return prev;
+        const questions = prev.questions.map(q => {
+          if (q.no !== qNo) return q;
+          const nextAwarded =
+            patch.awarded !== undefined
+              ? Math.max(0, Math.min(q.total, patch.awarded))
+              : q.awarded;
+          const nextGood = nextAwarded >= q.total;
+          const nextDeducted = Math.max(0, Math.round((q.total - nextAwarded) * 100) / 100);
+          return {
+            ...q,
+            awarded: nextAwarded,
+            good: nextGood,
+            title: nextGood ? 'Full marks awarded:' : `Deducted ${fmt(nextDeducted)} marks:`,
+            accepted: patch.accepted !== undefined ? patch.accepted : q.accepted,
+            flagged: patch.flagged !== undefined ? patch.flagged : q.flagged,
+            teacherFeedback:
+              patch.teacherFeedback !== undefined ? patch.teacherFeedback : q.teacherFeedback,
+          };
+        });
+        const total = questions.reduce((s, q) => s + q.total, 0);
+        const awarded = Math.round(questions.reduce((s, q) => s + q.awarded, 0) * 100) / 100;
+        const deducted = Math.max(0, Math.round((total - awarded) * 100) / 100);
+        const pct = total > 0 ? (awarded / total) * 100 : 0;
+        return {
+          ...prev,
+          questions,
+          awarded,
+          total,
+          deducted,
+          pct,
+          grade: gradeLetter(pct),
+          pass: pct >= 60,
+        };
+      });
+
+      setLiveReport(prev => {
+        if (!prev) return prev;
+        const norm = (s: string | number) =>
+          String(s).toUpperCase().startsWith('Q') ? String(s).toUpperCase() : `Q${s}`.toUpperCase();
+        const questions = prev.questions.map(r => {
+          if (norm(r.number) !== qNo.toUpperCase()) return r;
+          const nextAwarded =
+            patch.awarded !== undefined
+              ? Math.max(0, Math.min(r.max_marks, patch.awarded))
+              : r.marks_awarded;
+          const nextDeducted = Math.max(0, Math.round((r.max_marks - nextAwarded) * 100) / 100);
+          const baseFeedback = r.feedback.replace(/\n\nTeacher Feedback:[\s\S]*$/, '');
+          const nextFeedback =
+            patch.teacherFeedback !== undefined
+              ? patch.teacherFeedback.trim()
+                ? `${baseFeedback}\n\nTeacher Feedback: ${patch.teacherFeedback.trim()}`
+                : baseFeedback
+              : r.feedback;
+          return {
+            ...r,
+            marks_awarded: nextAwarded,
+            marks_deducted: nextDeducted,
+            feedback: nextFeedback,
+          };
+        });
+        const total_marks = questions.reduce((s, r) => s + r.max_marks, 0);
+        const marks_awarded = Math.round(questions.reduce((s, r) => s + r.marks_awarded, 0) * 100) / 100;
+        const marks_deducted = Math.max(0, Math.round((total_marks - marks_awarded) * 100) / 100);
+        const percentage = total_marks > 0 ? Math.round((marks_awarded / total_marks) * 1000) / 10 : 0;
+        const updated: LiveReport = {
+          ...prev,
+          questions,
+          summary: {
+            ...prev.summary,
+            total_marks,
+            marks_awarded,
+            marks_deducted,
+            percentage,
+          },
+        };
+        setLiveBlobs(b => (b ? { ...b, json: JSON.stringify(updated, null, 2) } : b));
+        return updated;
+      });
+    },
+    [],
+  );
+
+  const handleAcceptAll = useCallback(() => {
+    setVm(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        questions: prev.questions.map(q => ({ ...q, accepted: true, flagged: false })),
+      };
+    });
+  }, []);
+
+  const buildExportJson = useCallback(() => {
+    if (!vm) return '{}';
+    return JSON.stringify(
+      {
+        sheetName: vm.sheetName,
+        mode: vm.mode,
+        summary: {
+          marks_awarded: vm.awarded,
+          total_marks: vm.total,
+          marks_deducted: vm.deducted,
+          percentage: Math.round(vm.pct * 10) / 10,
+          grade: vm.grade,
+        },
+        questions: vm.questions.map(q => ({
+          number: q.no,
+          question: q.questionText,
+          awarded: q.awarded,
+          total: q.total,
+          accepted: !!q.accepted,
+          flagged: !!q.flagged,
+          feedback: q.body,
+          teacher_feedback: q.teacherFeedback || '',
+          steps: q.steps,
+        })),
+      },
+      null,
+      2,
+    );
+  }, [vm]);
+
+  const buildExportMd = useCallback(() => {
+    if (!vm) return '';
+    const lines = [
+      `# WeHelpTeachers — Grading Report (${vm.sheetName || 'Student Submission'})`,
+      '',
+      `**Score:** ${fmt(vm.awarded)} / ${fmt(vm.total)} (${vm.pct.toFixed(1)}% · Grade ${vm.grade})`,
+      '',
+    ];
+    for (const q of vm.questions) {
+      lines.push(`## ${q.no} — ${fmt(q.awarded)} / ${fmt(q.total)} marks ${q.accepted ? '[Accepted]' : ''} ${q.flagged ? '[Flagged]' : ''}`);
+      lines.push(`- **Question:** ${q.questionText}`);
+      lines.push(`- **AI Evaluation:** ${q.body}`);
+      if (q.teacherFeedback) {
+        lines.push(`- **Teacher Feedback:** ${q.teacherFeedback}`);
+      }
+      lines.push('');
+    }
+    return lines.join('\n');
+  }, [vm]);
 
   return (
     <div>
@@ -1239,15 +1498,44 @@ export default function Grading(props: GradingProps) {
       </div>
 
       {vm && (
-        <ResultsView
-          vm={vm}
-          onDownloadPdf={liveReport ? async () => {
-            const bytes = await generateGradingReportPdf(liveReport);
-            downloadPdf(bytes, 'grading-report.pdf');
-          } : undefined}
-          onDownloadJson={liveBlobs ? () => downloadText(liveBlobs.json, 'report.json', 'application/json') : undefined}
-          onDownloadMd={liveBlobs ? () => downloadText(liveBlobs.md, 'report.md', 'text/markdown') : undefined}
-        />
+        <>
+          <DualPaneReview
+            vm={vm}
+            onUpdateQuestion={handleUpdateQuestion}
+            onAcceptAll={handleAcceptAll}
+            onDownloadPdf={
+              liveReport
+                ? async () => {
+                    const bytes = await generateGradingReportPdf(liveReport);
+                    downloadPdf(bytes, 'grading-report.pdf');
+                  }
+                : undefined
+            }
+            onDownloadJson={() =>
+              downloadText(liveBlobs?.json || buildExportJson(), 'report.json', 'application/json')
+            }
+            onDownloadMd={() =>
+              downloadText(liveBlobs?.md || buildExportMd(), 'report.md', 'text/markdown')
+            }
+          />
+          <ResultsView
+            vm={vm}
+            onDownloadPdf={
+              liveReport
+                ? async () => {
+                    const bytes = await generateGradingReportPdf(liveReport);
+                    downloadPdf(bytes, 'grading-report.pdf');
+                  }
+                : undefined
+            }
+            onDownloadJson={() =>
+              downloadText(liveBlobs?.json || buildExportJson(), 'report.json', 'application/json')
+            }
+            onDownloadMd={() =>
+              downloadText(liveBlobs?.md || buildExportMd(), 'report.md', 'text/markdown')
+            }
+          />
+        </>
       )}
     </div>
   );
