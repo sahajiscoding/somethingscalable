@@ -242,7 +242,7 @@ def _load_image(path: Path, data: bytes, role: str) -> Document:
                 )
                 data = compressed
                 mime = "image/jpeg"
-        except Exception:
+        except Exception:  # nosec B110
             pass
 
     if len(data) > MAX_INLINE_BYTES:

@@ -236,7 +236,7 @@ def _expr_equal(left, right) -> bool:
     try:
         if simplify(left - right) == 0:
             return True
-    except Exception:
+    except Exception:  # nosec B110
         pass
     try:
         if left.equals(right):

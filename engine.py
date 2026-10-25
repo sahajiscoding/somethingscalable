@@ -352,7 +352,7 @@ class NvidiaEngine:
                             data = compressed
                             mime = "image/jpeg"
                     img_doc.close()
-                except Exception:
+                except Exception:  # nosec B110
                     pass
         if len(data) > 8 * 1024 * 1024:
             raise EngineError(
@@ -511,7 +511,7 @@ class NvidiaEngine:
                         new_parts.append(stitched_block)
                         adapted.append({**msg, "content": new_parts})
                         continue
-                except Exception:
+                except Exception:  # nosec B110
                     pass
             # Fallback: keep first image so single-image model doesn't HTTP 400
             first_seen = False
@@ -562,7 +562,7 @@ class NvidiaEngine:
                                 "type": "image_url",
                                 "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
                             }
-                    except Exception:
+                    except Exception:  # nosec B110
                         pass
             merged_content: list[dict] = []
             if text_chunks:

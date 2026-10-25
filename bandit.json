@@ -1,6 +1,6 @@
 {
   "errors": [],
-  "generated_at": "2026-10-24T17:31:28Z",
+  "generated_at": "2026-10-25T06:59:56Z",
   "metrics": {
     ".\\api\\index.py": {
       "CONFIDENCE.HIGH": 0,
@@ -16,17 +16,17 @@
       "skipped_tests": 0
     },
     ".\\engine.py": {
-      "CONFIDENCE.HIGH": 2,
+      "CONFIDENCE.HIGH": 0,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 0,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 2,
+      "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 856,
+      "loc": 962,
       "nosec": 0,
-      "skipped_tests": 0
+      "skipped_tests": 3
     },
     ".\\extract.py": {
       "CONFIDENCE.HIGH": 0,
@@ -37,22 +37,22 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 799,
+      "loc": 955,
       "nosec": 0,
       "skipped_tests": 0
     },
     ".\\grade.py": {
-      "CONFIDENCE.HIGH": 1,
+      "CONFIDENCE.HIGH": 0,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 0,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 1,
+      "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 701,
+      "loc": 883,
       "nosec": 0,
-      "skipped_tests": 0
+      "skipped_tests": 1
     },
     ".\\grade_exam.py": {
       "CONFIDENCE.HIGH": 0,
@@ -68,17 +68,17 @@
       "skipped_tests": 0
     },
     ".\\ingest.py": {
-      "CONFIDENCE.HIGH": 1,
+      "CONFIDENCE.HIGH": 0,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 0,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 1,
+      "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
       "loc": 225,
       "nosec": 0,
-      "skipped_tests": 0
+      "skipped_tests": 1
     },
     ".\\pipeline.py": {
       "CONFIDENCE.HIGH": 0,
@@ -107,30 +107,30 @@
       "skipped_tests": 0
     },
     ".\\search.py": {
-      "CONFIDENCE.HIGH": 4,
+      "CONFIDENCE.HIGH": 0,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 0,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 2,
-      "SEVERITY.MEDIUM": 2,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 299,
+      "loc": 303,
       "nosec": 0,
-      "skipped_tests": 0
+      "skipped_tests": 4
     },
     ".\\server.py": {
       "CONFIDENCE.HIGH": 0,
       "CONFIDENCE.LOW": 0,
-      "CONFIDENCE.MEDIUM": 5,
+      "CONFIDENCE.MEDIUM": 0,
       "CONFIDENCE.UNDEFINED": 0,
-      "SEVERITY.HIGH": 1,
-      "SEVERITY.LOW": 1,
-      "SEVERITY.MEDIUM": 3,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 710,
+      "loc": 758,
       "nosec": 0,
-      "skipped_tests": 0
+      "skipped_tests": 1
     },
     ".\\streamlit_app.py": {
       "CONFIDENCE.HIGH": 0,
@@ -141,7 +141,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 248,
+      "loc": 250,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -155,6 +155,110 @@
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
       "loc": 279,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    ".\\tests\\test_alignment_geometry.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 94,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    ".\\tests\\test_grade_fastpath.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 46,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    ".\\tests\\test_step_grading.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 165,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    ".\\tests\\test_vision_answers.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 196,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    ".\\tests\\test_vision_arbiter.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 73,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    ".\\tests\\test_vision_layout.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 89,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    ".\\tests\\test_vision_ocr.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 166,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    ".\\tests\\test_vision_providers.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 73,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -193,22 +297,22 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 150,
+      "loc": 352,
       "nosec": 0,
       "skipped_tests": 0
     },
     ".\\vision\\arbiter.py": {
-      "CONFIDENCE.HIGH": 1,
+      "CONFIDENCE.HIGH": 0,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 0,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 1,
+      "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
       "loc": 325,
       "nosec": 0,
-      "skipped_tests": 0
+      "skipped_tests": 1
     },
     ".\\vision\\facade.py": {
       "CONFIDENCE.HIGH": 0,
@@ -232,7 +336,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 232,
+      "loc": 236,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -258,7 +362,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 93,
+      "loc": 125,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -271,311 +375,23 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 206,
+      "loc": 287,
       "nosec": 0,
       "skipped_tests": 0
     },
     "_totals": {
-      "CONFIDENCE.HIGH": 9,
+      "CONFIDENCE.HIGH": 0,
       "CONFIDENCE.LOW": 0,
-      "CONFIDENCE.MEDIUM": 5,
+      "CONFIDENCE.MEDIUM": 0,
       "CONFIDENCE.UNDEFINED": 0,
-      "SEVERITY.HIGH": 1,
-      "SEVERITY.LOW": 8,
-      "SEVERITY.MEDIUM": 5,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 5778,
+      "loc": 7497,
       "nosec": 0,
-      "skipped_tests": 0
+      "skipped_tests": 11
     }
   },
-  "results": [
-    {
-      "code": "337                     img_doc.close()\n338                 except Exception:\n339                     pass\n340         if len(data) > 8 * 1024 * 1024:\n",
-      "col_offset": 16,
-      "end_col_offset": 24,
-      "filename": ".\\engine.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 703,
-        "link": "https://cwe.mitre.org/data/definitions/703.html"
-      },
-      "issue_severity": "LOW",
-      "issue_text": "Try, Except, Pass detected.",
-      "line_number": 338,
-      "line_range": [
-        338,
-        339
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
-      "test_id": "B110",
-      "test_name": "try_except_pass"
-    },
-    {
-      "code": "493                     continue\n494             except Exception:\n495                 pass\n496             # Fallback: keep first image so single-image model doesn't HTTP 400\n",
-      "col_offset": 12,
-      "end_col_offset": 20,
-      "filename": ".\\engine.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 703,
-        "link": "https://cwe.mitre.org/data/definitions/703.html"
-      },
-      "issue_severity": "LOW",
-      "issue_text": "Try, Except, Pass detected.",
-      "line_number": 494,
-      "line_range": [
-        494,
-        495
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
-      "test_id": "B110",
-      "test_name": "try_except_pass"
-    },
-    {
-      "code": "210                 return True\n211         except Exception:\n212             continue\n213     return False\n",
-      "col_offset": 8,
-      "end_col_offset": 20,
-      "filename": ".\\grade.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 703,
-        "link": "https://cwe.mitre.org/data/definitions/703.html"
-      },
-      "issue_severity": "LOW",
-      "issue_text": "Try, Except, Continue detected.",
-      "line_number": 211,
-      "line_range": [
-        211,
-        212
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b112_try_except_continue.html",
-      "test_id": "B112",
-      "test_name": "try_except_continue"
-    },
-    {
-      "code": "244                 mime = \"image/jpeg\"\n245         except Exception:\n246             pass\n247 \n",
-      "col_offset": 8,
-      "end_col_offset": 16,
-      "filename": ".\\ingest.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 703,
-        "link": "https://cwe.mitre.org/data/definitions/703.html"
-      },
-      "issue_severity": "LOW",
-      "issue_text": "Try, Except, Pass detected.",
-      "line_number": 245,
-      "line_range": [
-        245,
-        246
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
-      "test_id": "B110",
-      "test_name": "try_except_pass"
-    },
-    {
-      "code": "117         try:\n118             with urllib.request.urlopen(req, timeout=SEARCH_TIMEOUT) as resp:\n119                 data = json.loads(resp.read().decode(\"utf-8\"))\n",
-      "col_offset": 17,
-      "end_col_offset": 68,
-      "filename": ".\\search.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 22,
-        "link": "https://cwe.mitre.org/data/definitions/22.html"
-      },
-      "issue_severity": "MEDIUM",
-      "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
-      "line_number": 118,
-      "line_range": [
-        118
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
-      "test_id": "B310",
-      "test_name": "blacklist"
-    },
-    {
-      "code": "164         try:\n165             with urllib.request.urlopen(req, timeout=SEARCH_TIMEOUT) as resp:\n166                 data = json.loads(resp.read().decode(\"utf-8\"))\n",
-      "col_offset": 17,
-      "end_col_offset": 68,
-      "filename": ".\\search.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 22,
-        "link": "https://cwe.mitre.org/data/definitions/22.html"
-      },
-      "issue_severity": "MEDIUM",
-      "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
-      "line_number": 165,
-      "line_range": [
-        165
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
-      "test_id": "B310",
-      "test_name": "blacklist"
-    },
-    {
-      "code": "289                     return kws[:max_keywords]\n290         except Exception:\n291             pass  # fall through to heuristic\n292 \n",
-      "col_offset": 8,
-      "end_col_offset": 16,
-      "filename": ".\\search.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 703,
-        "link": "https://cwe.mitre.org/data/definitions/703.html"
-      },
-      "issue_severity": "LOW",
-      "issue_text": "Try, Except, Pass detected.",
-      "line_number": 290,
-      "line_range": [
-        290,
-        291
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
-      "test_id": "B110",
-      "test_name": "try_except_pass"
-    },
-    {
-      "code": "324                 return str(result[\"expected_answer\"]).strip()\n325         except Exception:\n326             pass\n327 \n",
-      "col_offset": 8,
-      "end_col_offset": 16,
-      "filename": ".\\search.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 703,
-        "link": "https://cwe.mitre.org/data/definitions/703.html"
-      },
-      "issue_severity": "LOW",
-      "issue_text": "Try, Except, Pass detected.",
-      "line_number": 325,
-      "line_range": [
-        325,
-        326
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
-      "test_id": "B110",
-      "test_name": "try_except_pass"
-    },
-    {
-      "code": "72 \n73 _SECRET_TOKEN = \"__VERCEL_APP_SECRET__\"\n74 \n",
-      "col_offset": 16,
-      "end_col_offset": 39,
-      "filename": ".\\server.py",
-      "issue_confidence": "MEDIUM",
-      "issue_cwe": {
-        "id": 259,
-        "link": "https://cwe.mitre.org/data/definitions/259.html"
-      },
-      "issue_severity": "LOW",
-      "issue_text": "Possible hardcoded password: '__VERCEL_APP_SECRET__'",
-      "line_number": 73,
-      "line_range": [
-        73
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html",
-      "test_id": "B105",
-      "test_name": "hardcoded_password_string"
-    },
-    {
-      "code": "825         probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n826         probe.bind((\"0.0.0.0\", port))\n827         probe.close()\n",
-      "col_offset": 20,
-      "end_col_offset": 29,
-      "filename": ".\\server.py",
-      "issue_confidence": "MEDIUM",
-      "issue_cwe": {
-        "id": 605,
-        "link": "https://cwe.mitre.org/data/definitions/605.html"
-      },
-      "issue_severity": "MEDIUM",
-      "issue_text": "Possible binding to all interfaces.",
-      "line_number": 826,
-      "line_range": [
-        826
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
-      "test_id": "B104",
-      "test_name": "hardcoded_bind_all_interfaces"
-    },
-    {
-      "code": "829         fallback = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n830         fallback.bind((\"0.0.0.0\", 0))\n831         port = fallback.getsockname()[1]\n",
-      "col_offset": 23,
-      "end_col_offset": 32,
-      "filename": ".\\server.py",
-      "issue_confidence": "MEDIUM",
-      "issue_cwe": {
-        "id": 605,
-        "link": "https://cwe.mitre.org/data/definitions/605.html"
-      },
-      "issue_severity": "MEDIUM",
-      "issue_text": "Possible binding to all interfaces.",
-      "line_number": 830,
-      "line_range": [
-        830
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
-      "test_id": "B104",
-      "test_name": "hardcoded_bind_all_interfaces"
-    },
-    {
-      "code": "833         print(f\"* Port busy \u2014 serving on {port} instead.\")\n834     app.run(host=\"0.0.0.0\", port=port, debug=True, use_reloader=False, threaded=True)\n",
-      "col_offset": 4,
-      "end_col_offset": 85,
-      "filename": ".\\server.py",
-      "issue_confidence": "MEDIUM",
-      "issue_cwe": {
-        "id": 94,
-        "link": "https://cwe.mitre.org/data/definitions/94.html"
-      },
-      "issue_severity": "HIGH",
-      "issue_text": "A Flask app appears to be run with debug=True, which exposes the Werkzeug debugger and allows the execution of arbitrary code.",
-      "line_number": 834,
-      "line_range": [
-        834
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b201_flask_debug_true.html",
-      "test_id": "B201",
-      "test_name": "flask_debug_true"
-    },
-    {
-      "code": "833         print(f\"* Port busy \u2014 serving on {port} instead.\")\n834     app.run(host=\"0.0.0.0\", port=port, debug=True, use_reloader=False, threaded=True)\n",
-      "col_offset": 17,
-      "end_col_offset": 26,
-      "filename": ".\\server.py",
-      "issue_confidence": "MEDIUM",
-      "issue_cwe": {
-        "id": 605,
-        "link": "https://cwe.mitre.org/data/definitions/605.html"
-      },
-      "issue_severity": "MEDIUM",
-      "issue_text": "Possible binding to all interfaces.",
-      "line_number": 834,
-      "line_range": [
-        834
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
-      "test_id": "B104",
-      "test_name": "hardcoded_bind_all_interfaces"
-    },
-    {
-      "code": "238             return True\n239     except Exception:\n240         pass\n241     try:\n",
-      "col_offset": 4,
-      "end_col_offset": 12,
-      "filename": ".\\vision\\arbiter.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 703,
-        "link": "https://cwe.mitre.org/data/definitions/703.html"
-      },
-      "issue_severity": "LOW",
-      "issue_text": "Try, Except, Pass detected.",
-      "line_number": 239,
-      "line_range": [
-        239,
-        240
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
-      "test_id": "B110",
-      "test_name": "try_except_pass"
-    }
-  ]
+  "results": []
 }

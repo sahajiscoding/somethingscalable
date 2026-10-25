@@ -1,0 +1,14 @@
+---
+engines:
+  bandit:
+    enabled: true
+  pylint:
+    enabled: false
+  pylintpython3:
+    enabled: false
+  prospector:
+    enabled: false
+  csslint:
+    enabled: false
+  stylelint:
+    enabled: false

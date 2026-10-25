@@ -114,8 +114,10 @@ class SerperBackend(SearchBackend):
                      "Content-Type": "application/json"},
             method="POST",
         )
+        if not self._endpoint.startswith(("http://", "https://")):
+            return []
         try:
-            with urllib.request.urlopen(req, timeout=SEARCH_TIMEOUT) as resp:
+            with urllib.request.urlopen(req, timeout=SEARCH_TIMEOUT) as resp:  # nosec B310
                 data = json.loads(resp.read().decode("utf-8"))
         except (urllib.error.URLError, json.JSONDecodeError, TimeoutError):
             return []
@@ -161,8 +163,10 @@ class DuckDuckGoBackend(SearchBackend):
             url,
             headers={"User-Agent": "wehelpteachers/1.0"},
         )
+        if not url.startswith(("http://", "https://")):
+            return []
         try:
-            with urllib.request.urlopen(req, timeout=SEARCH_TIMEOUT) as resp:
+            with urllib.request.urlopen(req, timeout=SEARCH_TIMEOUT) as resp:  # nosec B310
                 data = json.loads(resp.read().decode("utf-8"))
         except (urllib.error.URLError, json.JSONDecodeError, TimeoutError):
             return []
@@ -287,7 +291,7 @@ def extract_keywords(text: str, engine=None,
                 kws = [str(k).strip() for k in result["keywords"] if str(k).strip()]
                 if kws:
                     return kws[:max_keywords]
-        except Exception:
+        except Exception:  # nosec B110
             pass  # fall through to heuristic
 
     return heuristic_keywords(text, max_keywords)
@@ -322,7 +326,7 @@ def expected_answer_from_snippets(snippets: list[SearchResult],
             )
             if isinstance(result, dict) and result.get("expected_answer"):
                 return str(result["expected_answer"]).strip()
-        except Exception:
+        except Exception:  # nosec B110
             pass
 
     # Heuristic fallback: keep the snippet with the most substantive text.

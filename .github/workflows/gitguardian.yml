@@ -2,10 +2,15 @@ name: GitGuardian scan
 
 on: [push, pull_request]
 
+permissions:
+  contents: read
+
 jobs:
   scanning:
     name: GitGuardian scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v3

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -76,7 +77,7 @@ app = Flask(__name__)
 # unset = open access. Stops strangers from burning your NVIDIA quota.
 APP_SECRET = os.environ.get("APP_SECRET", "").strip()
 
-_SECRET_TOKEN = "__VERCEL_APP_SECRET__"
+_SECRET_TOKEN = "__VERCEL_APP_SECRET__"  # nosec B105
 
 # React + Tailwind frontend (frontend/dist).
 _DIST_DIR = _BASE_DIR / "frontend" / "dist"
@@ -120,14 +121,15 @@ def _has_key() -> bool:
 def _api_error(exc: Exception):
     """Map pipeline exceptions to JSON error responses."""
     if isinstance(exc, (IngestError, ExtractionError)):
-        return jsonify({"error": str(exc)}), 400
+        msg = str(exc.args[0]) if exc.args else "Invalid input document."
+        return jsonify({"error": msg}), 400
     if isinstance(exc, EngineError):
         if "429" in str(exc):
             return jsonify({
                 "error": "NVIDIA is rate-limiting the model right now (429). "
                          "Wait a moment and try again."}), 429
-        return jsonify({"error": str(exc)}), 502
-    return jsonify({"error": f"Could not reach the API: {exc}"}), 502
+        return jsonify({"error": "Model inference failed. Please check your model configuration and try again."}), 502
+    return jsonify({"error": "Failed to process request. Please try again later."}), 502
 
 
 def _params(body: dict) -> GradeParams:
@@ -364,8 +366,8 @@ def api_compress():
             "saved_percent": saved_pct,
             "data_url": f"data:{mime};base64,{b64}",
         })
-    except Exception as exc:
-        return jsonify({"error": f"Compression failed: {exc}"}), 500
+    except Exception:
+        return jsonify({"error": "Image compression failed. Please verify the image file and retry."}), 500
 
 
 def _student_page_previews(data: bytes, kind: str, max_pages: int = 20, max_dim: int = 1400) -> list[str]:
@@ -412,10 +414,15 @@ def api_extract():
         return jsonify({"error": f"{upload.filename} exceeds 25 MB."}), 400
 
     page_images: list[str] = []
+    raw_ext = Path(upload.filename).suffix.lower()
+    safe_ext = raw_ext if raw_ext in (".pdf", ".png", ".jpg", ".jpeg", ".webp", ".txt", ".md") else ".bin"
+    safe_display_name = Path(upload.filename).name or f"{role}{safe_ext}"
     try:
         with tempfile.TemporaryDirectory(prefix="examcheck_") as tmp:
-            safe = Path(upload.filename).name or f"{role}.bin"
-            target = Path(tmp) / f"{role}_{safe}"
+            tmp_dir = Path(tmp).resolve()
+            target = (tmp_dir / f"{role}_{uuid.uuid4().hex}{safe_ext}").resolve()
+            if not target.is_relative_to(tmp_dir):
+                return jsonify({"error": "Invalid upload path."}), 400
             target.write_bytes(data)
             doc = load_document(target, role)
             engine = make_engine(model=_model(request.form),
@@ -431,7 +438,7 @@ def api_extract():
         return _api_error(exc)
     payload = {
         "role": role,
-        "filename": doc.filename,
+        "filename": safe_display_name,
         "kind": doc.kind,
         "pages": doc.page_count,
         "warnings": doc.warnings,
@@ -469,8 +476,8 @@ def api_align():
                            ("number", "response", "page", "legibility",
                             "uncertain_spans", "crop_ids", "geometry"),
                            body.get("student"))
-    except (ValueError, TypeError) as exc:
-        return jsonify({"error": f"Malformed extraction payload: {exc}"}), 400
+    except (ValueError, TypeError):
+        return jsonify({"error": "Malformed extraction payload. Please ensure paper, key, and student arrays are properly structured."}), 400
     aligned = align_questions(paper, key, student)
     if not aligned:
         return jsonify({
@@ -689,7 +696,7 @@ def api_generate_exam():
                 for i in range(1, count + 1)
             ]
         }
-        note = (f"Generated with fallback template ({exc}); check NVIDIA NIM status."
+        note = ("Generated with fallback template; check NVIDIA NIM status."
                 if _has_key() else
                 "Generated with offline template; set NVIDIA_API_KEY in Vercel for live AI generation.")
         return jsonify({
@@ -832,7 +839,7 @@ def api_generate_exam_question():
             "marking_scheme": fb_scheme,
             "keywords": [topic.split()[0].lower(), "solution"]
         }
-        note = (f"Generated with fallback template ({exc}); check NVIDIA NIM status."
+        note = ("Generated with fallback template; check NVIDIA NIM status."
                 if _has_key() else
                 "Generated with offline template; set NVIDIA_API_KEY in Vercel for live AI generation.")
         return jsonify({
@@ -863,14 +870,15 @@ if __name__ == "__main__":
     import socket
 
     port = int(os.environ.get("PORT", 5050))
+    host = os.environ.get("HOST", "127.0.0.1")
     try:
         probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        probe.bind(("0.0.0.0", port))
+        probe.bind((host, port))
         probe.close()
     except OSError:
         fallback = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        fallback.bind(("0.0.0.0", 0))
+        fallback.bind((host, 0))
         port = fallback.getsockname()[1]
         fallback.close()
         print(f"* Port busy — serving on {port} instead.")
-    app.run(host="0.0.0.0", port=port, debug=True, use_reloader=False, threaded=True)
+    app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)

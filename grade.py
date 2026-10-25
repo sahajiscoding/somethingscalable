@@ -295,7 +295,7 @@ def _symbolically_equivalent(student: str, expected: str) -> bool:
         try:
             if agreement(candidate, expected) == "same":
                 return True
-        except Exception:
+        except Exception:  # nosec B112
             continue
     return False
 
