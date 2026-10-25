@@ -414,17 +414,36 @@ def api_extract():
         return jsonify({"error": f"{upload.filename} exceeds 25 MB."}), 400
 
     page_images: list[str] = []
-    raw_ext = Path(upload.filename).suffix.lower()
-    safe_ext = raw_ext if raw_ext in (".pdf", ".png", ".jpg", ".jpeg", ".webp", ".txt", ".md") else ".bin"
-    safe_display_name = Path(upload.filename).name or f"{role}{safe_ext}"
+    fname = (upload.filename or "").lower()
+    if fname.endswith(".pdf"):
+        safe_ext = ".pdf"
+    elif fname.endswith((".jpg", ".jpeg")):
+        safe_ext = ".jpg"
+    elif fname.endswith(".png"):
+        safe_ext = ".png"
+    elif fname.endswith(".webp"):
+        safe_ext = ".webp"
+    elif fname.endswith((".txt", ".md")):
+        safe_ext = ".txt"
+    else:
+        safe_ext = ".bin"
+
+    if role == "paper":
+        file_prefix = "paper"
+    elif role == "key":
+        file_prefix = "key"
+    else:
+        file_prefix = "student"
+
+    safe_display_name = Path(upload.filename or f"{file_prefix}{safe_ext}").name
+    target_filename = f"{file_prefix}_{uuid.uuid4().hex}{safe_ext}"
+
     try:
         with tempfile.TemporaryDirectory(prefix="examcheck_") as tmp:
             tmp_dir = Path(tmp).resolve()
-            target = (tmp_dir / f"{role}_{uuid.uuid4().hex}{safe_ext}").resolve()
-            if not target.is_relative_to(tmp_dir):
-                return jsonify({"error": "Invalid upload path."}), 400
+            target = tmp_dir / target_filename
             target.write_bytes(data)
-            doc = load_document(target, role)
+            doc = load_document(target, file_prefix)
             engine = make_engine(model=_model(request.form),
                                  backend=_backend(request.form))
             if role == "paper":

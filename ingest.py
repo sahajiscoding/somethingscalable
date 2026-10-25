@@ -100,11 +100,11 @@ class Document:
 
 def load_document(path: str | Path, role: str) -> Document:
     """Load one input document from disk, dispatching on file type."""
-    p = Path(path)
+    p = Path(path).resolve()
     if not p.exists():
-        raise IngestError(f"[{role}] file not found: {p}")
+        raise IngestError(f"[{role}] file not found: {p.name}")
     if not p.is_file():
-        raise IngestError(f"[{role}] not a file: {p}")
+        raise IngestError(f"[{role}] not a file: {p.name}")
 
     data = p.read_bytes()
     if not data:
