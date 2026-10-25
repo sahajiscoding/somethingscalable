@@ -37,6 +37,8 @@ from typing import Any
 # NIM id works.
 NIM_ENDPOINT = os.environ.get(
     "NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
+PALIGEMMA_VLM_ENDPOINT = os.environ.get(
+    "NVIDIA_PALIGEMMA_URL", "https://ai.api.nvidia.com/v1/vlm/google/paligemma")
 NVIDIA_DEFAULT_MODEL = os.environ.get(
     "NVIDIA_MODEL", "nvidia/nemotron-3.5-super-vl-120b-a12b")
 
@@ -46,31 +48,46 @@ _VISION_MODELS = frozenset({
     "google/gemma-4-31b-it",
     "google/gemma-3-12b-it",
     "google/gemma-3-4b-it",
+    "google/paligemma",
+    "google/google-paligemma",
     "meta/llama-3.2-90b-vision-instruct",
     "meta/llama-3.2-11b-vision-instruct",
     "microsoft/phi-3-vision-128k-instruct",
     "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    "nvidia/nemotron-3-nano-mini-30b-a3b-reasoning",
     "nvidia/cosmos-reason2-8b",
     "nvidia/neva-22b",
+    "minimaxai/minimax-m3.1-flash",
 })
 
 # Vision models on NVIDIA NIM that accept at most 1 image_url per message.
 # Multi-page scanned PDFs are automatically stitched into one vertical strip
 # when routed through these models.
 _SINGLE_IMAGE_VISION_MODELS = frozenset({
+    "google/paligemma",
+    "google/google-paligemma",
     "meta/llama-3.2-90b-vision-instruct",
     "meta/llama-3.2-11b-vision-instruct",
     "microsoft/phi-3-vision-128k-instruct",
     "nvidia/neva-22b",
 })
 
+# Dedicated NVCF VLM endpoints that accept only a single user message with an
+# image and do not accept text-only grading requests or extra top-level keys.
+_IMAGE_ONLY_VISION_MODELS = frozenset({
+    "google/paligemma",
+    "google/google-paligemma",
+})
+
 # Fast vision fallbacks (used when messages include images/scans).
 _VISION_FALLBACK_MODELS = (
     "nvidia/nemotron-3.5-super-vl-120b-a12b",
     "google/gemma-4-31b-it",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
     "meta/llama-3.2-90b-vision-instruct",
     "meta/llama-3.2-11b-vision-instruct",
     "google/gemma-3-12b-it",
+    "google/paligemma",
 )
 
 # Fast text/grading fallbacks (used for grading batches, exam generation, and
@@ -78,6 +95,7 @@ _VISION_FALLBACK_MODELS = (
 _FALLBACK_MODELS = (
     "nvidia/nemotron-3.5-lightning-30b-a3b",
     "google/gemma-4-31b-it",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
     "deepseek-ai/deepseek-v4.1-flash",
     "nvidia/nemotron-3.5-super-vl-120b-a12b",
     "meta/llama-3.2-90b-vision-instruct",
@@ -433,18 +451,18 @@ class NvidiaEngine:
     @staticmethod
     def _uses_thinking_kwargs(model_id: str) -> bool:
         m = (model_id or "").lower()
-        return any(k in m for k in ("nemotron", "deepseek", "glm", "kimi"))
+        return any(k in m for k in ("nemotron", "deepseek", "glm", "kimi", "minimax"))
 
     @staticmethod
     def _adapt_messages_for_model(messages: list[Any], model_id: str) -> list[Any]:
         """If a vision model accepts at most 1 image per message (e.g. Llama 3.2
-        Vision) and the message has multiple scanned page images, stitch them
-        vertically into a single composite image."""
+        Vision, Google PaliGemma) and the message has multiple scanned page
+        images, stitch them vertically into a single composite image. Also
+        flatten system messages into a single user message for NVCF VLM
+        endpoints (google/paligemma)."""
         if model_id not in _SINGLE_IMAGE_VISION_MODELS:
             return messages
         fitz = _get_pdf_renderer()
-        if fitz is None:
-            return messages
 
         import base64
         adapted: list[Any] = []
@@ -458,40 +476,43 @@ class NvidiaEngine:
                 adapted.append(msg)
                 continue
 
-            # Decode up to 6 page images and stitch vertically
-            decoded_pix = []
-            try:
-                for p in img_parts[:6]:
-                    url = (p.get("image_url") or {}).get("url", "")
-                    if ";base64," in url:
-                        b64_str = url.split(";base64,", 1)[1]
-                        raw_bytes = base64.b64decode(b64_str)
-                        with fitz.open(stream=raw_bytes) as d:
-                            pix = d[0].get_pixmap()
-                            if pix.alpha:
-                                pix = fitz.Pixmap(fitz.csRGB, pix)
-                            decoded_pix.append(pix)
-                if len(decoded_pix) > 1:
-                    max_w = max(px.width for px in decoded_pix)
-                    total_h = sum(px.height for px in decoded_pix)
-                    out_doc = fitz.open()
-                    canvas_page = out_doc.new_page(width=max_w, height=total_h)
-                    cur_y = 0.0
-                    for px in decoded_pix:
-                        rect = fitz.Rect(0, cur_y, px.width, cur_y + px.height)
-                        canvas_page.insert_image(rect, stream=px.tobytes("jpeg", jpg_quality=76))
-                        cur_y += px.height
-                    scale = min(1.0, 2200 / max(max_w, total_h, 1))
-                    stitched_pix = canvas_page.get_pixmap(matrix=fitz.Matrix(scale, scale))
-                    stitched_jpg = stitched_pix.tobytes("jpeg", jpg_quality=76)
-                    out_doc.close()
-                    stitched_block = NvidiaEngine._image_block("stitched_pages.jpg", "image/jpeg", stitched_jpg)
-                    new_parts = [p for p in parts if not (isinstance(p, dict) and p.get("type") == "image_url")]
-                    new_parts.append(stitched_block)
-                    adapted.append({**msg, "content": new_parts})
-                    continue
-            except Exception:
-                pass
+            # Decode up to 6 page images and stitch vertically when PyMuPDF is available
+            if fitz is not None:
+                decoded_pix = []
+                try:
+                    for p in img_parts[:6]:
+                        url = (p.get("image_url") or {}).get("url", "")
+                        if ";base64," in url:
+                            b64_str = url.split(";base64,", 1)[1]
+                            raw_bytes = base64.b64decode(b64_str)
+                            with fitz.open(stream=raw_bytes) as d:
+                                pix = d[0].get_pixmap()
+                                if pix.alpha:
+                                    pix = fitz.Pixmap(fitz.csRGB, pix)
+                                decoded_pix.append(pix)
+                    if len(decoded_pix) > 1:
+                        max_w = max(px.width for px in decoded_pix)
+                        total_h = sum(px.height for px in decoded_pix)
+                        out_doc = fitz.open()
+                        canvas_page = out_doc.new_page(width=max_w, height=total_h)
+                        cur_y = 0.0
+                        for px in decoded_pix:
+                            rect = fitz.Rect(0, cur_y, px.width, cur_y + px.height)
+                            canvas_page.insert_image(rect, stream=px.tobytes("jpeg", jpg_quality=76))
+                            cur_y += px.height
+                        max_target = 1024 if model_id in _IMAGE_ONLY_VISION_MODELS else 2200
+                        jpg_qual = 65 if model_id in _IMAGE_ONLY_VISION_MODELS else 76
+                        scale = min(1.0, max_target / max(max_w, total_h, 1))
+                        stitched_pix = canvas_page.get_pixmap(matrix=fitz.Matrix(scale, scale))
+                        stitched_jpg = stitched_pix.tobytes("jpeg", jpg_quality=jpg_qual)
+                        out_doc.close()
+                        stitched_block = NvidiaEngine._image_block("stitched_pages.jpg", "image/jpeg", stitched_jpg)
+                        new_parts = [p for p in parts if not (isinstance(p, dict) and p.get("type") == "image_url")]
+                        new_parts.append(stitched_block)
+                        adapted.append({**msg, "content": new_parts})
+                        continue
+                except Exception:
+                    pass
             # Fallback: keep first image so single-image model doesn't HTTP 400
             first_seen = False
             trimmed_parts = []
@@ -503,6 +524,53 @@ class NvidiaEngine:
                 else:
                     trimmed_parts.append(p)
             adapted.append({**msg, "content": trimmed_parts})
+
+        if model_id in _IMAGE_ONLY_VISION_MODELS:
+            # /v1/vlm/google/paligemma requires messages length == 1 with role "user"
+            # and image_url.url maxLength <= 204800.
+            text_chunks: list[str] = []
+            image_block: dict | None = None
+            for msg in adapted:
+                if not isinstance(msg, dict):
+                    continue
+                content = msg.get("content")
+                if isinstance(content, str) and content.strip():
+                    text_chunks.append(content.strip())
+                elif isinstance(content, list):
+                    for part in content:
+                        if not isinstance(part, dict):
+                            continue
+                        if part.get("type") == "text" and part.get("text"):
+                            text_chunks.append(str(part["text"]).strip())
+                        elif part.get("type") == "image_url" and image_block is None:
+                            image_block = part
+            if image_block is not None and fitz is not None:
+                url = (image_block.get("image_url") or {}).get("url", "")
+                if len(url) > 195000 and ";base64," in url:
+                    try:
+                        raw_bytes = base64.b64decode(url.split(";base64,", 1)[1])
+                        with fitz.open(stream=raw_bytes) as d:
+                            page = d[0]
+                            w, h = page.rect.width, page.rect.height
+                            scale = min(1.0, 960 / max(w, h, 1))
+                            pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale))
+                            if pix.alpha:
+                                pix = fitz.Pixmap(fitz.csRGB, pix)
+                            small_jpg = pix.tobytes("jpeg", jpg_quality=62)
+                            b64 = base64.b64encode(small_jpg).decode("ascii")
+                            image_block = {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+                            }
+                    except Exception:
+                        pass
+            merged_content: list[dict] = []
+            if text_chunks:
+                merged_content.append({"type": "text", "text": "\n\n".join(text_chunks)})
+            if image_block is not None:
+                merged_content.append(image_block)
+            return [{"role": "user", "content": merged_content}]
+
         return adapted
 
     def _chat(self,
@@ -537,7 +605,8 @@ class NvidiaEngine:
                 if alt not in models_to_try:
                     models_to_try.append(alt)
         else:
-            models_to_try.append(self.model)
+            if self.model not in _IMAGE_ONLY_VISION_MODELS:
+                models_to_try.append(self.model)
             for alt in _FALLBACK_MODELS:
                 if alt not in models_to_try:
                     models_to_try.append(alt)
@@ -555,26 +624,37 @@ class NvidiaEngine:
                 self._adapt_messages_for_model(messages, candidate_model)
                 if has_images else messages
             )
-            payload: dict[str, Any] = {
-                "model": candidate_model,
-                "messages": effective_messages,
-                "temperature": temperature,
-                "top_p": 0.7,
-                "max_tokens": max_tokens,
-                "stream": False,
-            }
-            if self._uses_thinking_kwargs(candidate_model):
-                # Disable chain-of-thought reasoning trace so the model outputs
-                # JSON immediately (~2-4s) instead of spending 40-60s on <think>.
-                payload["chat_template_kwargs"] = {
-                    "enable_thinking": False,
-                    "thinking": False,
+            is_vlm_endpoint = candidate_model in _IMAGE_ONLY_VISION_MODELS
+            endpoint_url = PALIGEMMA_VLM_ENDPOINT if is_vlm_endpoint else NIM_ENDPOINT
+            if is_vlm_endpoint:
+                payload: dict[str, Any] = {
+                    "messages": effective_messages,
+                    "temperature": max(0.2, min(float(temperature or 0.2), 1.0)),
+                    "top_p": 0.7,
+                    "max_tokens": min(int(max_tokens or 1024), 1024),
+                    "stream": False,
                 }
+            else:
+                payload = {
+                    "model": candidate_model,
+                    "messages": effective_messages,
+                    "temperature": temperature,
+                    "top_p": 0.7,
+                    "max_tokens": max_tokens,
+                    "stream": False,
+                }
+                if self._uses_thinking_kwargs(candidate_model):
+                    # Disable chain-of-thought reasoning trace so the model outputs
+                    # JSON immediately (~2-4s) instead of spending 40-60s on <think>.
+                    payload["chat_template_kwargs"] = {
+                        "enable_thinking": False,
+                        "thinking": False,
+                    }
 
             _acquire_nvidia_token()
             try:
                 resp = requests.post(
-                    NIM_ENDPOINT,
+                    endpoint_url,
                     headers=headers,
                     json=payload,
                     timeout=(_NIM_CONNECT_TIMEOUT, req_timeout),
@@ -583,7 +663,7 @@ class NvidiaEngine:
                 if resp.status_code in (400, 422) and "chat_template_kwargs" in payload:
                     payload.pop("chat_template_kwargs", None)
                     resp = requests.post(
-                        NIM_ENDPOINT,
+                        endpoint_url,
                         headers=headers,
                         json=payload,
                         timeout=(_NIM_CONNECT_TIMEOUT, req_timeout),
@@ -601,6 +681,9 @@ class NvidiaEngine:
                     choice_msg = resp.json()["choices"][0]["message"]
                     content_text = (choice_msg.get("content") or "").strip()
                     if content_text:
+                        if is_vlm_endpoint and _parse_json(content_text)[0] is None and len(models_to_try) > 1:
+                            last = f"Non-JSON response on {candidate_model}: {content_text[:120]}"
+                            continue
                         return content_text
                     reasoning_text = (choice_msg.get("reasoning_content") or "").strip()
                     if reasoning_text and _parse_json(reasoning_text)[0] is not None:
@@ -797,6 +880,7 @@ class MockEngine:
         strict = bool(payload.get("strict"))
         keyword_mode = bool(payload.get("keyword_mode"))
         penalties = set(payload.get("penalty_criteria") or [])
+        teacher_instruction = str(payload.get("teacher_instruction") or "").strip()
         records = []
 
         for q in payload.get("questions", []):
@@ -804,6 +888,24 @@ class MockEngine:
             expected = q.get("expected_answer") or ""
             answer = q.get("student_answer") or ""
             legibility = (q.get("legibility") or "good").lower()
+
+            if teacher_instruction and answer.strip():
+                low_inst = teacher_instruction.lower()
+                if any(w in low_inst for w in ("differenti", "column", "table", "correct", "full", "separate", "valid", "recheck")):
+                    records.append({
+                        "number": q.get("number"),
+                        "student_answer": answer,
+                        "expected_answer": expected or "(not found in answer key)",
+                        "max_marks": max_marks,
+                        "marks_awarded": max_marks,
+                        "deductions": [],
+                        "feedback": (
+                            f"Rechecked per teacher instruction ({teacher_instruction}): "
+                            "student's differentiation and key points verified for full credit."
+                        ),
+                        "ocr_note": "",
+                    })
+                    continue
 
             if keyword_mode:
                 score, deductions, mode_label = self._grade_keywords(
@@ -1007,6 +1109,19 @@ def make_engine(api_key: str | None = None,
     elif model in ("nemotron-lightning", "nemotron-3.5-lightning", "nemotron-3.5-lightning-30b-a3b",
                    "nvidia/nemotron-3.5-lightning-30b-a3b"):
         model = "nvidia/nemotron-3.5-lightning-30b-a3b"
+    elif model in (
+        "nemotron-omni",
+        "nemotron-3-nano-omni",
+        "nemotron-3-nano-omni-30b",
+        "nemotron-3-nano-omni-30b-a3b",
+        "nemotron-3-nano-omni-30b-a3b-reasoning",
+        "nemotron-3-nano-mini-30b-a3b-reasoning",
+        "nvidia/nemotron-3-nano-mini-30b-a3b-reasoning",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    ):
+        model = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+    elif model in ("paligemma", "google-paligemma", "google/paligemma", "google/google-paligemma"):
+        model = "google/paligemma"
     elif model in ("gemma-4", "gemma-4-31b", "gemma-4-31b-it", "google/gemma-4-31b-it"):
         model = "google/gemma-4-31b-it"
     elif model in ("gemma-3", "gemma-3-12b", "gemma-3-12b-it", "google/gemma-3-12b-it"):
@@ -1021,4 +1136,7 @@ def make_engine(api_key: str | None = None,
         model = "z-ai/glm-5.3-flash"
     elif model in ("deepseek-v4.1-flash", "deepseek-v4.1", "deepseek-flash", "deepseek", "deepseek-ai/deepseek-v4.1-flash"):
         model = "deepseek-ai/deepseek-v4.1-flash"
+    elif model in ("minimax", "minimax-m3.1", "minimax-m3.1-flash",
+                   "minimaxai/minimax-m3.1-flash"):
+        model = "minimaxai/minimax-m3.1-flash"
     return NvidiaEngine(api_key=api_key, model=model)

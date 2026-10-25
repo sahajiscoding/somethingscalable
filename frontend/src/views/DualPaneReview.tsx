@@ -20,6 +20,8 @@ export interface ReviewQuestionVM {
   accepted?: boolean;
   flagged?: boolean;
   teacherFeedback?: string;
+  rechecked?: boolean;
+  lastRecheckInstruction?: string;
 }
 
 export interface ReviewImpactItem {
@@ -70,15 +72,38 @@ interface DualPaneReviewProps {
     patch: { awarded?: number; accepted?: boolean; flagged?: boolean; teacherFeedback?: string },
   ) => void;
   onAcceptAll: () => void;
+  onRecheckQuestion?: (qNo: string, instruction: string) => Promise<void>;
+  recheckingQNo?: string | null;
   onDownloadJson?: () => void;
   onDownloadMd?: () => void;
   onDownloadPdf?: () => void;
 }
 
+const RECHECK_PRESETS = [
+  {
+    label: 'Two-column differentiation',
+    text: 'The student differentiated between the two topics in two side-by-side columns (table layout), not in the same answer. Separate the points for each topic and recheck.',
+  },
+  {
+    label: 'Separate topic points',
+    text: 'The student wrote distinct points for each topic separately. Do not merge them; re-evaluate each point against the rubric.',
+  },
+  {
+    label: 'OCR misread handwriting',
+    text: "OCR misread parts of the student's handwriting, but the intended answer is correct. Please recheck generously.",
+  },
+  {
+    label: 'Valid alternative phrasing',
+    text: 'The student used valid alternative wording/method that satisfies the core concept in the answer key. Please recheck for full/partial credit.',
+  },
+];
+
 export default function DualPaneReview({
   vm,
   onUpdateQuestion,
   onAcceptAll,
+  onRecheckQuestion,
+  recheckingQNo,
   onDownloadJson,
   onDownloadMd,
   onDownloadPdf,
@@ -101,6 +126,8 @@ export default function DualPaneReview({
   const [activeCropId, setActiveCropId] = useState<string | null>(null);
   const [editingMarks, setEditingMarks] = useState<boolean>(false);
   const [markDraft, setMarkDraft] = useState<string>('');
+  const [recheckDrafts, setRecheckDrafts] = useState<Record<string, string>>({});
+  const [recheckStatus, setRecheckStatus] = useState<Record<string, { ok: boolean; msg: string }>>({});
 
   // Collapsed state per question+step key: correct steps default collapsed when the question has errors; error steps default expanded
   const [collapsedSteps, setCollapsedSteps] = useState<Record<string, boolean>>({});
@@ -236,6 +263,49 @@ export default function DualPaneReview({
       onUpdateQuestion(activeQuestion.no, { awarded: clamped });
     }
     setEditingMarks(false);
+  };
+
+  const currentRecheckDraft = activeQuestion ? (recheckDrafts[activeQuestion.no] ?? '') : '';
+  const isRecheckingThis = Boolean(activeQuestion && recheckingQNo === activeQuestion.no);
+
+  const handleTriggerRecheck = async () => {
+    if (!activeQuestion || !onRecheckQuestion || isRecheckingThis) return;
+    const qNo = activeQuestion.no;
+    const instruction = (recheckDrafts[qNo] ?? '').trim();
+    setRecheckStatus(prev => {
+      const next = { ...prev };
+      delete next[qNo];
+      return next;
+    });
+    try {
+      await onRecheckQuestion(qNo, instruction);
+      // Expand all steps for this question so the teacher sees the updated breakdown immediately
+      setCollapsedSteps(prev => {
+        const next = { ...prev };
+        Object.keys(next).forEach(k => {
+          if (k.startsWith(`${qNo}::`)) {
+            next[k] = false;
+          }
+        });
+        return next;
+      });
+      setRecheckStatus(prev => ({
+        ...prev,
+        [qNo]: {
+          ok: true,
+          msg: `✓ Rechecked ${qNo} with AI — step-by-step evaluation and marks updated.`,
+        },
+      }));
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err || 'Recheck failed');
+      setRecheckStatus(prev => ({
+        ...prev,
+        [qNo]: {
+          ok: false,
+          msg: `Could not recheck ${qNo}: ${errMsg}`,
+        },
+      }));
+    }
   };
 
   return (
@@ -378,6 +448,7 @@ export default function DualPaneReview({
                         className={`cursor-pointer rounded-full border px-2.5 py-0.5 text-xs font-extrabold tabular-nums transition ${pillTone}`}
                       >
                         {q.no} {fmt(q.awarded)}/{fmt(q.total)}
+                        {q.rechecked && <span className="ml-1 text-[10px]" title="Rechecked by AI">↻</span>}
                         {q.accepted && <span className="ml-1 text-[10px]">✓</span>}
                         {q.flagged && <span className="ml-1 text-[10px]">⚑</span>}
                       </button>
@@ -818,6 +889,115 @@ export default function DualPaneReview({
                       })}
                     </div>
                   </div>
+
+                  {/* AI RECHECK SINGLE QUESTION PANEL (just below Step-by-Step Breakdown) */}
+                  {onRecheckQuestion && (
+                    <div className="mt-4 rounded-xl border border-mint/30 bg-[#12161e] p-3.5 shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-md border border-mint/40 bg-mint/15 text-xs text-mint">
+                            ↻
+                          </span>
+                          <span className="text-[11px] font-extrabold tracking-[0.14em] text-white/90 uppercase">
+                            Recheck {activeQuestion.no} with AI
+                          </span>
+                          {activeQuestion.rechecked && (
+                            <span className="rounded-full border border-mint/45 bg-mint/15 px-2 py-0.5 text-[10px] font-bold text-[#d8f5db]">
+                              ✓ Rechecked
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10.5px] font-medium text-white/45">
+                          Re-evaluates only {activeQuestion.no}
+                        </span>
+                      </div>
+
+                      <p className="mt-1.5 text-[11.5px] leading-relaxed text-white/55">
+                        If the AI missed a two-column differentiation table, layout, or valid point, add instructions below and recheck just this question.
+                      </p>
+
+                      {/* Quick Preset Instruction Chips */}
+                      <div className="mt-2.5 flex flex-wrap gap-1.5">
+                        {RECHECK_PRESETS.map(preset => (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            disabled={isRecheckingThis}
+                            onClick={() =>
+                              setRecheckDrafts(prev => ({
+                                ...prev,
+                                [activeQuestion.no]: preset.text,
+                              }))
+                            }
+                            className="cursor-pointer rounded-full border border-white/12 bg-white/[0.04] px-2.5 py-1 text-[10.5px] font-semibold text-white/75 transition hover:border-mint/45 hover:bg-mint/10 hover:text-[#d8f5db] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            + {preset.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="mt-2.5">
+                        <textarea
+                          id={`recheck-instruction-${activeQuestion.no}`}
+                          aria-label={`Instructions to recheck ${activeQuestion.no}`}
+                          rows={2}
+                          disabled={isRecheckingThis}
+                          value={currentRecheckDraft}
+                          onChange={e =>
+                            setRecheckDrafts(prev => ({
+                              ...prev,
+                              [activeQuestion.no]: e.target.value,
+                            }))
+                          }
+                          onKeyDown={e => {
+                            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                              e.preventDefault();
+                              void handleTriggerRecheck();
+                            }
+                          }}
+                          placeholder={`Add instructions for ${activeQuestion.no} (e.g., "The student differentiated between the two topics in two side-by-side columns, not in the same answer. Recheck.")...`}
+                          className="w-full resize-none rounded-lg border border-white/15 bg-black/45 px-3 py-2 text-xs leading-relaxed text-white placeholder-white/35 outline-none transition focus:border-mint focus:shadow-[0_0_0_3px_rgba(129,199,132,0.2)] disabled:opacity-60"
+                        />
+                      </div>
+
+                      <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-[11px] text-white/40">
+                          {recheckStatus[activeQuestion.no] ? (
+                            <span
+                              className={
+                                recheckStatus[activeQuestion.no].ok
+                                  ? 'font-semibold text-mint'
+                                  : 'font-semibold text-crimson'
+                              }
+                            >
+                              {recheckStatus[activeQuestion.no].msg}
+                            </span>
+                          ) : (
+                            <span>Tip: Press Ctrl+Enter to recheck</span>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={isRecheckingThis}
+                          onClick={() => void handleTriggerRecheck()}
+                          className="cursor-pointer inline-flex items-center gap-1.5 rounded-lg border border-mint/55 bg-mint/20 px-3.5 py-1.5 text-xs font-extrabold text-[#d8f5db] shadow-[0_2px_12px_rgba(129,199,132,0.2)] transition hover:bg-mint/30 disabled:cursor-wait disabled:opacity-60"
+                        >
+                          {isRecheckingThis ? (
+                            <>
+                              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#d8f5db]/30 border-t-[#d8f5db]" />
+                              <span>Rechecking {activeQuestion.no}…</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>↻</span>
+                              <span>Recheck {activeQuestion.no} with AI</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Official Answer Key Reference (collapsible/compact) */}
                   <details className="mt-4 rounded-xl border border-white/10 bg-black/25 px-3.5 py-2.5 text-xs text-white/70">

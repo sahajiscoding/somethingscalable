@@ -59,7 +59,13 @@ from extract import (  # noqa: E402
     extract_paper,
     extract_student,
 )
-from grade import GradeParams, grade_batch_records, grade_one_record, summarise  # noqa: E402
+from grade import (  # noqa: E402
+    GradeParams,
+    grade_batch_records,
+    grade_one_record,
+    recheck_one_record,
+    summarise,
+)
 from ingest import IngestError, load_document  # noqa: E402
 from report import build_report, render_markdown  # noqa: E402
 
@@ -482,9 +488,45 @@ def api_grade_one():
     question = body.get("question") or {}
     if not isinstance(question, dict) or not question.get("number"):
         return jsonify({"error": "question (with number) is required."}), 400
+    teacher_instruction = str(body.get("teacher_instruction") or "").strip()
     try:
         engine = make_engine(model=_model(body), backend=_backend(body))
-        record = grade_one_record(engine, question, _params(body))
+        if teacher_instruction:
+            record = recheck_one_record(
+                engine,
+                question,
+                _params(body),
+                teacher_instruction=teacher_instruction,
+                previous_record=body.get("previous_record") if isinstance(body.get("previous_record"), dict) else None,
+                page_image=str(body.get("page_image") or "").strip() or None,
+            )
+        else:
+            record = grade_one_record(engine, question, _params(body))
+    except Exception as exc:  # noqa: BLE001 - mapped to JSON below
+        return _api_error(exc)
+    return jsonify({"record": record})
+
+
+@app.post("/api/recheck-question")
+def api_recheck_question():
+    """Recheck a single aligned question using teacher instructions and optional page image."""
+    body = request.get_json(silent=True) or {}
+    question = body.get("question") or {}
+    if not isinstance(question, dict) or not question.get("number"):
+        return jsonify({"error": "question (with number) is required."}), 400
+    teacher_instruction = str(body.get("teacher_instruction") or "").strip()
+    previous_record = body.get("previous_record") if isinstance(body.get("previous_record"), dict) else None
+    page_image = str(body.get("page_image") or "").strip() or None
+    try:
+        engine = make_engine(model=_model(body), backend=_backend(body))
+        record = recheck_one_record(
+            engine,
+            question,
+            _params(body),
+            teacher_instruction=teacher_instruction,
+            previous_record=previous_record,
+            page_image=page_image,
+        )
     except Exception as exc:  # noqa: BLE001 - mapped to JSON below
         return _api_error(exc)
     return jsonify({"record": record})

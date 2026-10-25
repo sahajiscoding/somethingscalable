@@ -105,6 +105,48 @@ class TranscriptMappingTests(unittest.TestCase):
         self.assertEqual(answers[0].number, "Q3")
         self.assertEqual(answers[0].response, "b) Kala-azar")
 
+    def test_bullet_and_continuation_groups_merge_into_preceding_question(self):
+        page = _page([
+            ("p1c0", "Ans. 6) Vegetative propagation is practiced as :", 0.95),
+            ("p1c1", "* The plants grown by this method are more identical to parent plant.", 0.92),
+            ("p1c2", "* The plants like banana which have lost their capability to produce seeds can also be grown.", 0.91),
+            ("p1c3", "The plant of bryophyllum reproduces with buds on its leaves.", 0.93),
+            ("p1c4", "vivo X50 ZEISS Optics", 0.99),
+        ])
+        engine = FakeEngine({"groups": [
+            {"number": "Ans. 6)", "crop_ids": ["p1c0"]},
+            {"number": "#1", "crop_ids": ["p1c1"]},
+            {"number": "#2", "crop_ids": ["p1c2"]},
+            {"number": "#3", "crop_ids": ["p1c3"]},
+        ]})
+
+        answers = answers_from_transcript(engine, [page])
+
+        self.assertEqual(len(answers), 1)
+        self.assertEqual(answers[0].number, "Ans. 6)")
+        self.assertEqual(answers[0].crop_ids, ["p1c0", "p1c1", "p1c2", "p1c3"])
+        self.assertIn("Vegetative propagation is practiced as :", answers[0].response)
+        self.assertIn("identical to parent plant", answers[0].response)
+        self.assertIn("banana", answers[0].response)
+        self.assertIn("bryophyllum", answers[0].response)
+        self.assertNotIn("vivo X50", answers[0].response)
+
+    def test_splits_crop_containing_two_explicit_question_numbers(self):
+        page = _page([
+            ("p1c0", "Ans. 3) b) Kala-azar\nAns. 4) d) Variations", 0.94),
+        ])
+        engine = FakeEngine({"groups": [
+            {"number": "3", "crop_ids": ["p1c0", "p1c0_2"]},
+        ]})
+
+        answers = answers_from_transcript(engine, [page])
+
+        self.assertEqual(len(answers), 2)
+        self.assertEqual(answers[0].number, "3")
+        self.assertEqual(answers[0].response, "Ans. 3) b) Kala-azar")
+        self.assertEqual(answers[1].number, "4")
+        self.assertEqual(answers[1].response, "Ans. 4) d) Variations")
+
 
 class VisionFlagTests(unittest.TestCase):
     def _document(self, kind: str = "image") -> Document:

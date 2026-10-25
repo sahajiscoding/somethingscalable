@@ -3,9 +3,10 @@ import unittest
 
 from PIL import Image
 
+from engine import MockEngine
 from extract import AlignedQuestion
-from grade import GradeParams, normalise_record
-from server import _student_page_previews
+from grade import GradeParams, normalise_record, recheck_one_record
+from server import _student_page_previews, app
 
 
 class StepGradingTests(unittest.TestCase):
@@ -96,6 +97,81 @@ class StepGradingTests(unittest.TestCase):
         previews = _student_page_previews(buf.getvalue(), "image")
         self.assertEqual(len(previews), 1)
         self.assertTrue(previews[0].startswith("data:image/jpeg;base64,"))
+
+    def test_splits_single_line_bullet_points_into_steps(self):
+        flattened_answer = (
+            "Self Pollination Cross Pollination "
+            "* When pollen grains of one flower travels to the stigma of same flower, it's called Self pollination "
+            "* Even if they pollinate from one flower to another of the same plant, it is called Self Pollination "
+            "* When pollen grains from anther of one flower strikes to the stigma of another flower of another plant, it is called Cross pollination."
+        )
+        q = AlignedQuestion(
+            number="9",
+            question="Differentiate between self-pollination and cross-pollination.",
+            max_marks=2.0,
+            expected_answer="Self-pollination occurs within the same flower/plant; cross-pollination occurs between different plants.",
+            student_answer=flattened_answer,
+            page=1,
+        )
+        raw_item = {
+            "number": "9",
+            "max_marks": 2.0,
+            "marks_awarded": 1.0,
+            "deductions": [{"category": "content", "marks": 1.0, "reason": "Distinction unclear."}],
+            "feedback": "Distinction between the two processes is unclear.",
+        }
+        rec = normalise_record(raw_item, q, GradeParams())
+        self.assertGreaterEqual(len(rec["steps"]), 3)
+        self.assertEqual(rec["steps"][0]["status"], "correct")
+
+    def test_recheck_one_record_with_teacher_instruction(self):
+        flattened_answer = (
+            "Self Pollination Cross Pollination "
+            "* When pollen grains of one flower travels to the stigma of same flower, it's called Self pollination "
+            "* When pollen grains from anther of one flower strikes to the stigma of another flower of another plant, it is called Cross pollination."
+        )
+        aligned_dict = {
+            "number": "Q9",
+            "question": "Differentiate between self-pollination and cross-pollination.",
+            "max_marks": 2.0,
+            "expected_answer": "Self-pollination transfers pollen on the same plant; cross-pollination transfers pollen between two different plants.",
+            "student_answer": flattened_answer,
+            "page": 1,
+        }
+        rec = recheck_one_record(
+            MockEngine(),
+            aligned_dict,
+            GradeParams(),
+            teacher_instruction="The student differentiated between the two topics in two side-by-side columns.",
+        )
+        self.assertEqual(rec["marks_awarded"], 2.0)
+        self.assertEqual(rec["marks_deducted"], 0.0)
+        self.assertTrue(all(s["status"] == "correct" for s in rec["steps"]))
+
+    def test_api_recheck_question_endpoint(self):
+        client = app.test_client()
+        resp = client.post(
+            "/api/recheck-question",
+            json={
+                "backend": "mock",
+                "question": {
+                    "number": "Q9",
+                    "question": "Differentiate between self-pollination and cross-pollination.",
+                    "max_marks": 2.0,
+                    "expected_answer": "Self-pollination vs Cross-pollination.",
+                    "student_answer": (
+                        "Self Pollination Cross Pollination "
+                        "* When pollen grains travel to the stigma of same flower "
+                        "* When pollen grains travel to another plant"
+                    ),
+                },
+                "teacher_instruction": "The student differentiated between the two topics in two columns, recheck again.",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn("record", data)
+        self.assertEqual(data["record"]["marks_awarded"], 2.0)
 
 
 if __name__ == "__main__":

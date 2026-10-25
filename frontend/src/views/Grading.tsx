@@ -4,7 +4,9 @@ import {
   DEFAULT_MODEL_ID,
   downloadText,
   modelLabel,
+  recheckSingleQuestion,
   runLiveEvaluation,
+  type AlignedQuestion,
   type BackendState,
   type CropGeometry,
   type GradeRecord,
@@ -77,6 +79,8 @@ interface QVM {
   accepted?: boolean;
   flagged?: boolean;
   teacherFeedback?: string;
+  rechecked?: boolean;
+  lastRecheckInstruction?: string;
 }
 
 interface ImpactItem {
@@ -821,6 +825,8 @@ export default function Grading(props: GradingProps) {
   const [loaderStatus, setLoaderStatus] = useState<'working' | 'done' | 'error' | null>(null);
   const [compressing, setCompressing] = useState<DocKey | null>(null);
   const [shrinkInfo, setShrinkInfo] = useState<Partial<Record<DocKey, string>>>({});
+  const [recheckingQNo, setRecheckingQNo] = useState<string | null>(null);
+  const alignedQuestionsRef = useRef<AlignedQuestion[]>([]);
   const missingTimer = useRef<number | null>(null);
 
   const flagMissing = useCallback((docs: DocKey[]) => {
@@ -916,6 +922,7 @@ export default function Grading(props: GradingProps) {
           else setStage({ done: s, active: s });
         },
         onQuestionsAligned: qs => {
+          alignedQuestionsRef.current = qs;
           setRunLabel(`Checking ${qs.length} questions in batches of 5 (3 at a time)\u2026`);
         },
         onQuestionDone: (_record, _idx, total, allGraded) => {
@@ -1128,6 +1135,174 @@ export default function Grading(props: GradingProps) {
       };
     });
   }, []);
+
+  const handleRecheckQuestion = useCallback(
+    async (qNo: string, instruction: string) => {
+      if (!vm || recheckingQNo) return;
+      const targetQ = vm.questions.find(q => q.no === qNo);
+      if (!targetQ) return;
+
+      setRecheckingQNo(qNo);
+      try {
+        const penalties = Object.keys(criteria).filter(k => criteria[k]);
+        const norm = (s: string | number) =>
+          String(s).toUpperCase().startsWith('Q') ? String(s).toUpperCase() : `Q${s}`.toUpperCase();
+
+        if (live && backend.ok) {
+          const rawNum = targetQ.no.replace(/^Q/i, '') || targetQ.no;
+          const alignedMatch = alignedQuestionsRef.current.find(
+            a => norm(a.number) === qNo.toUpperCase(),
+          );
+          const pageImg =
+            vm.pageImages[(targetQ.page || 1) - 1] || vm.pageImages[0] || undefined;
+
+          const newRecord = await recheckSingleQuestion({
+            question: {
+              number: alignedMatch?.number ?? rawNum,
+              question: (alignedMatch?.question as string | undefined) || targetQ.questionText,
+              max_marks: targetQ.total,
+              expected_answer: targetQ.target,
+              marking_scheme: Array.isArray(alignedMatch?.marking_scheme)
+                ? alignedMatch.marking_scheme
+                : [],
+              student_answer: targetQ.student,
+              legibility: (alignedMatch?.legibility as string | undefined) || 'good',
+              uncertain_spans: Array.isArray(alignedMatch?.uncertain_spans)
+                ? (alignedMatch.uncertain_spans as string[])
+                : [],
+              keywords: Array.isArray(alignedMatch?.keywords)
+                ? (alignedMatch.keywords as string[])
+                : [],
+              page: targetQ.page || 1,
+              geometry: targetQ.geometry || [],
+            },
+            teacher_instruction: instruction,
+            previous_record: {
+              marks_awarded: targetQ.awarded,
+              max_marks: targetQ.total,
+              feedback: targetQ.body,
+              steps: targetQ.steps,
+            },
+            page_image: pageImg,
+            strict,
+            penalties,
+            marking_mode: markingMode,
+            negative_marks_value: negativeMarksValue,
+            model: modelOverride.trim() || undefined,
+          });
+
+          const recheckedQVM: QVM = {
+            ...recordToQVM(newRecord),
+            no: targetQ.no,
+            teacherFeedback: targetQ.teacherFeedback,
+            rechecked: true,
+            lastRecheckInstruction: instruction,
+          };
+
+          setVm(prev => {
+            if (!prev) return prev;
+            const questions = prev.questions.map(q => (q.no === qNo ? recheckedQVM : q));
+            const total = Math.round(questions.reduce((s, q) => s + q.total, 0) * 100) / 100;
+            const awarded = Math.round(questions.reduce((s, q) => s + q.awarded, 0) * 100) / 100;
+            const deducted = Math.max(0, Math.round((total - awarded) * 100) / 100);
+            const pct = total > 0 ? (awarded / total) * 100 : 0;
+            return {
+              ...prev,
+              questions,
+              awarded,
+              total,
+              deducted,
+              pct,
+              grade: gradeLetter(pct),
+              pass: pct >= 60,
+            };
+          });
+
+          setLiveReport(prev => {
+            if (!prev) return prev;
+            const questions = prev.questions.map(r =>
+              norm(r.number) === qNo.toUpperCase() ? newRecord : r,
+            );
+            const total_marks = Math.round(questions.reduce((s, r) => s + r.max_marks, 0) * 100) / 100;
+            const marks_awarded =
+              Math.round(questions.reduce((s, r) => s + r.marks_awarded, 0) * 100) / 100;
+            const marks_deducted = Math.max(
+              0,
+              Math.round((total_marks - marks_awarded) * 100) / 100,
+            );
+            const percentage =
+              total_marks > 0 ? Math.round((marks_awarded / total_marks) * 1000) / 10 : 0;
+            const byCat: Record<string, number> = {};
+            for (const r of questions) {
+              for (const d of r.deductions || []) {
+                byCat[d.category] = Math.round(((byCat[d.category] || 0) + d.marks) * 100) / 100;
+              }
+            }
+            const updated: LiveReport = {
+              ...prev,
+              questions,
+              summary: {
+                ...prev.summary,
+                total_marks,
+                marks_awarded,
+                marks_deducted,
+                percentage,
+                deductions_by_category: byCat,
+              },
+            };
+            setLiveBlobs(b => (b ? { ...b, json: JSON.stringify(updated, null, 2) } : b));
+            return updated;
+          });
+        } else {
+          // Offline Demo simulation fallback for recheck
+          await new Promise(r => setTimeout(r, 550));
+          setVm(prev => {
+            if (!prev) return prev;
+            const questions = prev.questions.map(q => {
+              if (q.no !== qNo) return q;
+              const nextSteps: GradeStep[] = q.steps.map(s => ({
+                ...s,
+                status: 'correct' as const,
+                lines: s.lines.map(ln => ({ ...ln, ok: true, error_tag: '' })),
+                explanation: '',
+              }));
+              const note = instruction
+                ? `Rechecked per teacher instruction ("${instruction}"): full credit awarded after verifying topic differentiation and step structure.`
+                : 'Rechecked question step-by-step: full credit awarded.';
+              return {
+                ...q,
+                awarded: q.total,
+                good: true,
+                tags: [{ label: `${fmt(q.total)} awarded`, amount: 0, tone: 'awarded' }],
+                title: 'Full marks awarded (AI Recheck):',
+                body: note,
+                steps: nextSteps,
+                rechecked: true,
+                lastRecheckInstruction: instruction,
+              };
+            });
+            const total = Math.round(questions.reduce((s, q) => s + q.total, 0) * 100) / 100;
+            const awarded = Math.round(questions.reduce((s, q) => s + q.awarded, 0) * 100) / 100;
+            const deducted = Math.max(0, Math.round((total - awarded) * 100) / 100);
+            const pct = total > 0 ? (awarded / total) * 100 : 0;
+            return {
+              ...prev,
+              questions,
+              awarded,
+              total,
+              deducted,
+              pct,
+              grade: gradeLetter(pct),
+              pass: pct >= 60,
+            };
+          });
+        }
+      } finally {
+        setRecheckingQNo(null);
+      }
+    },
+    [vm, recheckingQNo, criteria, live, backend.ok, strict, markingMode, negativeMarksValue, modelOverride],
+  );
 
   const buildExportJson = useCallback(() => {
     if (!vm) return '{}';
@@ -1404,6 +1579,22 @@ export default function Grading(props: GradingProps) {
                   match: (m: string) => m.includes('gemma-4-31b'),
                 },
                 {
+                  id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
+                  name: 'Nemotron 3 Nano Omni 30B',
+                  tag: 'Omni Reasoning MoE · 30B (3B Active)',
+                  tagTone: 'text-mint/90',
+                  desc: 'NVIDIA’s omni-modal reasoning model (images, video, speech & text) for OCR reading and rubric grading.',
+                  match: (m: string) => m.includes('nano-omni') || m.includes('nano-mini') || m.includes('omni-30b'),
+                },
+                {
+                  id: 'google/paligemma',
+                  name: 'Google PaliGemma',
+                  tag: 'Image-to-Text VLM · OCR Reader',
+                  tagTone: 'text-mint/90',
+                  desc: 'Google’s vision-language model on NVIDIA Build adapted to comprehend visual & text inputs for OCR reading.',
+                  match: (m: string) => m.includes('paligemma'),
+                },
+                {
                   id: 'meta/llama-3.2-90b-vision-instruct',
                   name: 'Llama 3.2 90B Vision',
                   tag: 'Zero-Thinking VLM · High Accuracy',
@@ -1418,6 +1609,14 @@ export default function Grading(props: GradingProps) {
                   tagTone: 'text-mint/90',
                   desc: 'Lowest-latency vision model on build.nvidia.com for clean scans and printed keys.',
                   match: (m: string) => m.includes('llama-3.2-11b'),
+                },
+                {
+                  id: 'minimaxai/minimax-m3.1-flash',
+                  name: 'MiniMax M3.1 Flash',
+                  tag: 'Multimodal MoE · 23B Active',
+                  tagTone: 'text-mint/90',
+                  desc: 'Native image + text MoE with long-context reasoning. Strong on dense pages & mixed diagrams.',
+                  match: (m: string) => m.includes('minimax'),
                 },
                 {
                   id: 'nvidia/nemotron-3.5-lightning-30b-a3b',
@@ -1584,6 +1783,8 @@ export default function Grading(props: GradingProps) {
             vm={vm}
             onUpdateQuestion={handleUpdateQuestion}
             onAcceptAll={handleAcceptAll}
+            onRecheckQuestion={handleRecheckQuestion}
+            recheckingQNo={recheckingQNo}
             onDownloadPdf={
               liveReport
                 ? async () => {

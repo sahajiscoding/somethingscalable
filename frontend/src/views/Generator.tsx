@@ -258,6 +258,14 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
                     match: (m: string) => m.includes('gemma-4-31b'),
                   },
                   {
+                    id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
+                    name: 'Nemotron 3 Nano Omni 30B',
+                    tag: 'Omni Reasoning · 30B (3B active)',
+                    tagTone: 'text-mint/90',
+                    desc: 'Omni-modal reasoning MoE (images, video, speech & text) for structured exam & rubric authoring.',
+                    match: (m: string) => m.includes('nano-omni') || m.includes('nano-mini') || m.includes('omni-30b'),
+                  },
+                  {
                     id: 'nvidia/nemotron-3.5-lightning-30b-a3b',
                     name: 'Nemotron 3.5 Lightning',
                     tag: 'Ultra-Fast · 30B (3B active)',
@@ -272,6 +280,14 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
                     tagTone: 'text-sand/90',
                     desc: 'MoE architecture. Rapid syllabus generation without timeouts.',
                     match: (m: string) => m.includes('deepseek'),
+                  },
+                  {
+                    id: 'minimaxai/minimax-m3.1-flash',
+                    name: 'MiniMax M3.1 Flash',
+                    tag: 'Long-Context MoE · 1M tokens',
+                    tagTone: 'text-sand/90',
+                    desc: 'Native multimodal MoE (image + text) with configurable reasoning effort.',
+                    match: (m: string) => m.includes('minimax'),
                   },
                 ].map(preset => {
                   const active = preset.match(modelOverride);
@@ -320,11 +336,7 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
           >
             {running
               ? `Generating (${exam?.questions.length || 0}/${count} ready)…`
-              : modelOverride.includes('deepseek')
-              ? 'Generate Exam with DeepSeek V4.1 Flash'
-              : modelOverride.includes('glm')
-              ? 'Generate Exam with GLM 5.3 Flash'
-              : 'Generate Exam with Nemotron 3.5 Super VL'}
+              : `Generate Exam with ${modelLabel(modelOverride)}`}
           </button>
 
           {loaderStatus && (

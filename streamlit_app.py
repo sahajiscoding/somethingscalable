@@ -34,10 +34,12 @@ from pipeline import SessionError, run_session, write_reports
 
 PAGE_ICON = "📝"
 MODEL_OPTIONS = [
-    "nvidia/nemotron-3.5-super-vl-120b-a12b",  # NVIDIA NIM (default — fast vision/OCR)
-    "z-ai/glm-5.3-flash",                      # NVIDIA NIM, needs nvapi- key
-    "meta/llama-3.2-11b-vision-instruct",      # NVIDIA NIM
-    "meta/llama-3.2-90b-vision-instruct",      # NVIDIA NIM, larger + slower
+    "nvidia/nemotron-3.5-super-vl-120b-a12b",       # NVIDIA NIM (default — fast vision/OCR)
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", # NVIDIA NIM Omni reasoning (images, video, speech, text)
+    "google/paligemma",                             # Google PaliGemma Image-to-Text OCR on NVIDIA NIM
+    "z-ai/glm-5.3-flash",                           # NVIDIA NIM, needs nvapi- key
+    "meta/llama-3.2-11b-vision-instruct",           # NVIDIA NIM
+    "meta/llama-3.2-90b-vision-instruct",           # NVIDIA NIM, larger + slower
 ]
 
 UPLOAD_TYPES = ["pdf", "png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff",

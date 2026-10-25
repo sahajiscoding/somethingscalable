@@ -13,12 +13,15 @@ export const DEFAULT_MODEL_ID = 'nvidia/nemotron-3.5-super-vl-120b-a12b';
 /* Human-readable name for a NIM model id; empty/unknown → default model name. */
 export function modelLabel(id?: string): string {
   const v = (id || '').toLowerCase();
+  if (v.includes('paligemma')) return 'Google PaliGemma';
+  if (v.includes('nano-omni') || v.includes('nano-mini') || v.includes('omni-30b')) return 'Nemotron 3 Nano Omni 30B';
   if (v.includes('gemma-4-31b')) return 'Gemma 4 31B Vision';
   if (v.includes('gemma-3-12b') || v.includes('gemma-3-27b')) return 'Gemma 3 Vision';
   if (v.includes('llama-3.2-90b')) return 'Llama 3.2 90B Vision';
   if (v.includes('llama-3.2-11b')) return 'Llama 3.2 11B Vision';
   if (v.includes('lightning')) return 'Nemotron 3.5 Lightning';
   if (v.includes('deepseek')) return 'DeepSeek V4.1 Flash';
+  if (v.includes('minimax')) return 'MiniMax M3.1 Flash';
   if (v.includes('glm')) return 'GLM 5.3 Flash';
   if (v.includes('qwen')) return 'Qwen 3.6 35B';
   if (v.includes('nemotron')) return 'Nemotron 3.5 Super VL';
@@ -466,6 +469,76 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
     reportData.report.pageImages = pageImages;
   }
   return reportData;
+}
+
+export interface RecheckQuestionInput {
+  question: {
+    number: string | number;
+    question?: string;
+    max_marks: number;
+    expected_answer: string;
+    marking_scheme?: unknown[];
+    student_answer: string;
+    legibility?: string;
+    uncertain_spans?: string[];
+    keywords?: string[];
+    page?: number;
+    geometry?: CropGeometry[];
+  };
+  teacher_instruction: string;
+  previous_record?: {
+    marks_awarded: number;
+    max_marks: number;
+    feedback: string;
+    deductions?: Deduction[];
+    steps?: GradeStep[];
+  };
+  page_image?: string;
+  strict: boolean;
+  penalties: string[];
+  marking_mode?: 'standard' | 'negative' | 'non_negative';
+  negative_marks_value?: number;
+  model?: string;
+}
+
+export async function resolvePageImageDataUrl(url?: string): Promise<string | undefined> {
+  if (!url) return undefined;
+  if (url.startsWith('data:image/')) return url;
+  if (url.startsWith('blob:')) {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      return await new Promise<string | undefined>(resolve => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : undefined);
+        reader.onerror = () => resolve(undefined);
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+export async function recheckSingleQuestion(input: RecheckQuestionInput): Promise<GradeRecord> {
+  const pageImage = await resolvePageImageDataUrl(input.page_image);
+  const data = await apiJson<{ record: GradeRecord }>('/api/recheck-question', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      question: input.question,
+      teacher_instruction: input.teacher_instruction,
+      previous_record: input.previous_record,
+      page_image: pageImage,
+      strict: input.strict,
+      penalties: input.penalties,
+      marking_mode: input.marking_mode || 'standard',
+      negative_marks_value: input.negative_marks_value || 0,
+      model: input.model,
+    }),
+  });
+  return data.record;
 }
 
 /* ---------------- Exam generator ---------------- */

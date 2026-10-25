@@ -170,7 +170,9 @@ def otsu_threshold(gray: np.ndarray) -> int:
 
 
 def binarize(gray: np.ndarray) -> np.ndarray:
-    return gray < otsu_threshold(gray)
+    # Cap at 182 so faint notebook ruled lines after flatten_illumination
+    # (~185..235) are not misclassified as handwriting ink.
+    return gray < min(otsu_threshold(gray), 182)
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +210,7 @@ def _crop_page(gray: np.ndarray, page: int, dpi: int,
         row_ink[rule_rows] = 0
     row_threshold = max(2, int(width * 0.0015))
     bands = _runs(row_ink > row_threshold, min_len=max(8, int(height * 0.006)))
-    bands = _merge_gaps(bands, max_gap=max(10, int(height * 0.012)))
+    bands = _merge_gaps(bands, max_gap=max(4, int(height * 0.006)))
 
     blocks: list[tuple[int, int, int, int]] = []
     column_gap = max(16, int(width * 0.04))
@@ -218,10 +220,17 @@ def _crop_page(gray: np.ndarray, page: int, dpi: int,
         # noise floor, and dropping them before merging shreds the block.
         segments = _runs(column_ink > 0, min_len=1)
         segments = _merge_gaps(segments, max_gap=column_gap)
-        for left, right in segments:
-            if right - left < width * 0.015:
-                continue
-            blocks.append((left, top, right, bottom))
+        kept = [
+            (left, right)
+            for left, right in segments
+            if right - left >= width * 0.015
+        ]
+        if not kept:
+            continue
+        # Span the full horizontal extent of the band so margin question
+        # numbers ("Ans. 6)") and multi-line prose paragraphs with aligned
+        # word gaps are kept intact in one crop rather than sliced vertically.
+        blocks.append((kept[0][0], top, kept[-1][1], bottom))
 
     blocks = _limit_blocks(blocks, max_blocks)
 

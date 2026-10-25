@@ -22,9 +22,10 @@ USER_PROMPT = """Transcribe each image exactly as written.
 
 Rules:
 - Copy the answer verbatim, including spelling, grammar and mistakes.
-- Write prose and one-word answers as plain text.
+- Always include any written question number, "Ans." prefix, option letter ((a), (b), (c), (d)), or bullet marker (*, -, •) at the start of a line.
+- Write prose and one-word answers as plain text in "plain" (leave "latex" empty for prose).
 - Write mathematics as LaTeX: \\frac{{a}}{{b}}, \\sqrt{{x}}, ^{{}} for powers, \\cdot for multiplication.
-- One image may contain several lines; separate them with \\\\ .
+- One image may contain several lines; separate distinct mathematical steps or distinct numbered answers with \\\\ , and join wrapped lines of a single prose sentence with spaces.
 - If a symbol cannot be read, write \\square for it and list the image id.
 - Do not add commentary, units that were not written, or your own answer.
 
@@ -48,7 +49,7 @@ def extract_json(text: str):
     """Pull the first JSON object out of a model response."""
     if not text:
         return None
-    cleaned = text.strip()
+    cleaned = re.sub(r"<think>[\s\S]*?</think>", "", text).strip()
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```[a-zA-Z]*\s*", "", cleaned)
         cleaned = re.sub(r"\s*```$", "", cleaned)
@@ -70,6 +71,27 @@ def extract_json(text: str):
     return None
 
 
+_NEW_BLOCK_RE = re.compile(
+    r"^\s*(?:(?:Q(?:ues(?:tion)?)?|Ans(?:wer)?)\s*[.:\-]?\s*\d+|\d+\s*[.):\-]|[*•\-]\s+)",
+    re.I,
+)
+
+
+def _clean_plain(plain: str) -> str:
+    if "\\\\" not in plain:
+        return plain
+    parts = [p.strip() for p in re.split(r"\s*\\\\\s*", plain) if p.strip()]
+    if not parts:
+        return plain
+    out = parts[0]
+    for part in parts[1:]:
+        if _NEW_BLOCK_RE.match(part):
+            out += "\n" + part
+        else:
+            out += " " + part
+    return out
+
+
 def parse_items(raw: str, crops: list[Crop], provider: str) -> dict[str, Transcription]:
     payload = extract_json(raw)
     results: dict[str, Transcription] = {}
@@ -78,6 +100,16 @@ def parse_items(raw: str, crops: list[Crop], provider: str) -> dict[str, Transcr
         items = payload["items"]
     elif isinstance(payload, list):
         items = payload
+    elif payload is None and len(crops) == 1 and (raw or "").strip():
+        fallback_text = re.sub(r"<think>[\s\S]*?</think>", "", raw).strip()
+        if fallback_text.startswith("```"):
+            fallback_text = re.sub(r"^```[a-zA-Z]*\s*", "", fallback_text)
+            fallback_text = re.sub(r"\s*```$", "", fallback_text).strip()
+        items = (
+            [{"id": crops[0].crop_id, "plain": fallback_text}]
+            if fallback_text
+            else []
+        )
     else:
         items = []
 
@@ -94,10 +126,14 @@ def parse_items(raw: str, crops: list[Crop], provider: str) -> dict[str, Transcr
             crop_id = crops[position].crop_id if position < len(crops) else ""
         if not crop_id:
             continue
+        latex_val = str(item.get("latex") or "").strip()
+        plain_val = str(item.get("plain") or item.get("text") or "").strip()
+        if plain_val and not latex_val:
+            plain_val = _clean_plain(plain_val)
         results[crop_id] = Transcription(
             crop_id=crop_id,
-            latex=str(item.get("latex") or "").strip(),
-            plain=str(item.get("plain") or item.get("text") or "").strip(),
+            latex=latex_val,
+            plain=plain_val,
             provider=provider,
             confidence=0.0,
             note="unreadable" if crop_id in unreadable else "",

@@ -31,6 +31,13 @@ class JsonExtractionTests(unittest.TestCase):
     def test_unparseable_returns_none(self):
         self.assertIsNone(ocr.extract_json("not json at all"))
 
+    def test_strips_thinking_tags_before_extracting_json(self):
+        raw = '<think>\nLet me read the crop carefully: {"fake": 1}\n</think>\n{"items": [{"id": "p1c0", "plain": "42"}]}'
+        self.assertEqual(
+            ocr.extract_json(raw),
+            {"items": [{"id": "p1c0", "plain": "42"}]},
+        )
+
 
 class ParseItemsTests(unittest.TestCase):
     def setUp(self):
@@ -75,6 +82,12 @@ class ParseItemsTests(unittest.TestCase):
         results = ocr.parse_items(raw, self.crops, "nvidia")
         self.assertTrue(results["p1c0"].ok)
         self.assertEqual(results["p1c0"].text, "b) Kala-azar")
+
+    def test_single_crop_plain_text_fallback(self):
+        single = [_crop(1, 0)]
+        results = ocr.parse_items("Ans 1: Photosynthesis", single, "nvidia")
+        self.assertTrue(results["p1c0"].ok)
+        self.assertEqual(results["p1c0"].plain, "Ans 1: Photosynthesis")
 
 
 class ProviderConfigTests(unittest.TestCase):
@@ -126,6 +139,59 @@ class ProviderConfigTests(unittest.TestCase):
             model="meta/llama-3.2-90b-vision-instruct",
         )
         self.assertEqual(providers[0].config.batch_size, 1)
+
+    def test_paligemma_uses_nvcf_vlm_endpoint_and_single_image_batch(self):
+        for alias in ("google/paligemma", "google/google-paligemma", "paligemma"):
+            providers = build_providers(
+                {"NVIDIA_API_KEY": "test-key"},
+                model=alias,
+            )
+            cfg = providers[0].config
+            self.assertEqual(cfg.model, "google/paligemma")
+            self.assertEqual(cfg.url, "https://ai.api.nvidia.com/v1/vlm/google/paligemma")
+            self.assertEqual(cfg.batch_size, 1)
+            self.assertEqual(cfg.max_tokens, 1024)
+            self.assertEqual(cfg.extra_payload, {})
+
+    def test_nemotron_3_nano_omni_normalizes_and_disables_thinking_overhead(self):
+        for alias in (
+            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+            "nemotron-3-nano-mini-30b-a3b-reasoning",
+            "nemotron-3-nano-omni",
+        ):
+            providers = build_providers(
+                {"NVIDIA_API_KEY": "test-key"},
+                model=alias,
+            )
+            cfg = providers[0].config
+            self.assertEqual(cfg.model, "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning")
+            self.assertEqual(cfg.batch_size, 4)
+            self.assertIn("chat_template_kwargs", cfg.extra_payload)
+
+    def test_engine_make_engine_and_message_adaptation_for_new_models(self):
+        import engine
+
+        eng_pali = engine.make_engine(api_key="nvapi-test", model="google/google-paligemma")
+        self.assertEqual(eng_pali.model, "google/paligemma")
+
+        eng_omni = engine.make_engine(api_key="nvapi-test", model="nemotron-3-nano-mini-30b-a3b-reasoning")
+        self.assertEqual(eng_omni.model, "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning")
+
+        raw_messages = [
+            {"role": "system", "content": "System instruction."},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Transcribe this page."},
+                    {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AAAA"}},
+                ],
+            },
+        ]
+        adapted = engine.NvidiaEngine._adapt_messages_for_model(raw_messages, "google/paligemma")
+        self.assertEqual(len(adapted), 1)
+        self.assertEqual(adapted[0]["role"], "user")
+        self.assertIn("System instruction.", adapted[0]["content"][0]["text"])
+        self.assertEqual(adapted[0]["content"][1]["type"], "image_url")
 
 
 if __name__ == "__main__":

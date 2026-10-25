@@ -100,6 +100,7 @@ class AlignedQuestion:
             "legibility": self.legibility,
             "uncertain_spans": self.uncertain_spans,
             "keywords": self.keywords,
+            "page": self.page,
             "warnings": self.warnings,
             "geometry": self.geometry,
         }
@@ -174,11 +175,31 @@ Rules:
   NEVER return an empty "answers" list just because the document is an answer
   key or rubric. If both "Question Text" and "Model Target Answer" appear,
   transcribe ONLY the answer/solution into "response".
+- MULTI-LINE, BULLETED & MULTI-PARAGRAPH ANSWERS (critical): Students often
+  begin an answer with a short introductory heading line (e.g. "Ans. 6)
+  Vegetative propagation is practiced as :") followed by bullet points
+  ("*", "-", "•"), sub-points, working steps, or concluding paragraphs on the
+  lines below that do NOT repeat the question number. You MUST include the
+  introductory line AND every following bullet point, sub-point, and concluding
+  paragraph inside that same question's "response" (separated by "\n") until
+  the next explicit question number begins. Never truncate an answer after its
+  introductory heading line, and never emit unnumbered bullet points or
+  continuation paragraphs as separate entries.
+- TWO-COLUMN / COMPARISON TABLES (critical): Students frequently write
+  differentiation or comparison answers in two side-by-side columns (e.g.
+  "Self Pollination | Cross Pollination" with bullet points under each column).
+  NEVER merge both column headings together at the top or interleave left and
+  right columns across a single flat line. Instead, transcribe all bullet
+  points of Column 1 under its heading, followed by a newline ("\n"), then all
+  bullet points of Column 2 under its heading, followed by a newline ("\n") for
+  any concluding paragraph written across the bottom. Separate distinct bullet
+  points or working lines with "\n".
+- Ignore camera watermarks (e.g. "vivo X50", "Shot on ...", device stamps).
 - If part of a handwritten answer is smudged or hard to read, keep the readable
   parts, place your best guess inside square brackets, and add the uncertain
   text to "uncertain_spans".
 - "legibility" overall for that answer: "good", "fair" or "poor".
-- Never merge two answers, never drop a response.
+- Never merge two different questions' answers, never drop a response.
 - "page" is the 1-based page the answer starts on.
 
 Return ONLY this JSON shape:
@@ -623,12 +644,26 @@ def _vision_student_answers(engine, doc) -> list[StudentAnswer]:
     pages = transcribe_document(doc, providers=build_providers(model=model or None))
     if not pages or not any(page.crops for page in pages):
         return []
+    total_crops = 0
+    failed_crops = 0
     for page in pages:
         for warning in page.warnings:
             note = f"Vision page {page.page}: {warning}"
             if note not in doc.warnings:
                 doc.warnings.append(note)
-    return answers_from_transcript(engine, pages)
+        for crop in page.crops:
+            total_crops += 1
+            tr = page.transcriptions.get(crop.crop_id)
+            if tr is None or not tr.ok:
+                failed_crops += 1
+    if total_crops >= 4 and failed_crops / total_crops > 0.25:
+        _warn(
+            doc,
+            f"Vision OCR dropped {failed_crops}/{total_crops} crop(s); "
+            "falling back to whole-document extraction.",
+        )
+        return []
+    return _merge_continuation_answers(answers_from_transcript(engine, pages))
 
 
 def extract_student(engine, doc, *, vision: bool | None = None) -> list[StudentAnswer]:
@@ -707,6 +742,7 @@ def extract_student(engine, doc, *, vision: bool | None = None) -> list[StudentA
                 uncertain_spans=[str(s) for s in (it.get("uncertain_spans") or [])],
             )
         )
+    answers = _merge_continuation_answers(answers)
     if not answers:
         raise ExtractionError(
             f"No answers could be transcribed from {doc.filename}. "
@@ -721,6 +757,138 @@ def extract_student(engine, doc, *, vision: bool | None = None) -> list[StudentA
 
 _ROMAN = {"i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5, "vi": 6, "vii": 7,
           "viii": 8, "ix": 9, "x": 10, "xi": 11, "xii": 12}
+
+_LEGIBILITY_RANK = {"poor": 0, "fair": 1, "good": 2}
+
+
+def _worse_legibility(a: str, b: str) -> str:
+    ra = _LEGIBILITY_RANK.get((a or "good").lower(), 2)
+    rb = _LEGIBILITY_RANK.get((b or "good").lower(), 2)
+    inv = {0: "poor", 1: "fair", 2: "good"}
+    return inv[min(ra, rb)]
+
+
+def _append_student_answer(target: StudentAnswer, extra: StudentAnswer) -> None:
+    extra_resp = (extra.response or "").strip()
+    if extra_resp:
+        if not target.response:
+            target.response = extra_resp
+        elif extra_resp not in target.response:
+            target.response = f"{target.response.rstrip()}\n{extra_resp}"
+    for cid in extra.crop_ids or []:
+        if cid not in target.crop_ids:
+            target.crop_ids.append(cid)
+    seen_geom_ids = {
+        str(g.get("crop_id"))
+        for g in (target.geometry or [])
+        if isinstance(g, dict) and g.get("crop_id")
+    }
+    for g in extra.geometry or []:
+        if not isinstance(g, dict):
+            continue
+        cid = str(g.get("crop_id") or "")
+        if not cid or cid not in seen_geom_ids:
+            target.geometry.append(dict(g))
+            if cid:
+                seen_geom_ids.add(cid)
+    for span in extra.uncertain_spans or []:
+        if span not in target.uncertain_spans:
+            target.uncertain_spans.append(span)
+    target.legibility = _worse_legibility(target.legibility, extra.legibility)
+    if target.page is None and extra.page is not None:
+        target.page = extra.page
+
+
+def _merge_continuation_answers(
+    student: list[StudentAnswer],
+    official_nums: set[str] | None = None,
+) -> list[StudentAnswer]:
+    """Attach unnumbered continuation blocks, bullet points, sub-parts, and duplicate question numbers."""
+    if not student:
+        return []
+    from vision.answers import (
+        _is_placeholder_number,
+        _is_watermark,
+        _leading_question_number,
+    )
+
+    cleaned: list[StudentAnswer] = []
+    for ans in student:
+        raw_lines = [
+            ln for ln in (ans.response or "").splitlines()
+            if ln.strip() and not _is_watermark(ln)
+        ]
+        resp = "\n".join(raw_lines).strip()
+        if not resp and not _is_watermark(ans.response or ""):
+            resp = (ans.response or "").strip()
+        if not resp:
+            continue
+
+        raw_num = str(ans.number or "").strip()
+        explicit_num = _leading_question_number(resp)
+        if (_is_placeholder_number(raw_num) or raw_num.startswith(("~", "#"))) and explicit_num:
+            raw_num = explicit_num
+
+        cleaned.append(StudentAnswer(
+            number=raw_num,
+            response=resp,
+            page=ans.page,
+            legibility=ans.legibility,
+            uncertain_spans=list(ans.uncertain_spans or []),
+            crop_ids=list(ans.crop_ids or []),
+            geometry=[dict(g) for g in (ans.geometry or []) if isinstance(g, dict)],
+        ))
+
+    merged: list[StudentAnswer] = []
+    by_norm: dict[str, StudentAnswer] = {}
+
+    for ans in cleaned:
+        raw_num = str(ans.number or "").strip()
+        is_placeholder = _is_placeholder_number(raw_num) or raw_num.startswith(("~", "#"))
+        norm_num = "" if is_placeholder else normalize_number(raw_num)
+        explicit_in_text = _leading_question_number(ans.response)
+
+        # 1. Exact duplicate question number (adjacent or non-adjacent): merge into existing
+        if norm_num and norm_num in by_norm:
+            _append_student_answer(by_norm[norm_num], ans)
+            continue
+
+        # 2. Sub-part number (e.g. "6a", "6b", "6.1", "6(i)") when only parent "6" is in official_nums
+        if norm_num and official_nums and norm_num not in official_nums:
+            parent_m = re.match(r"^(\d+)(?:[a-z]+|\.\d+|\([a-z0-9]+\))$", norm_num)
+            if parent_m:
+                parent_num = parent_m.group(1)
+                if parent_num in official_nums and parent_num in by_norm:
+                    _append_student_answer(by_norm[parent_num], ans)
+                    continue
+
+        # 3. Unnumbered / placeholder / bullet continuation following a numbered answer
+        if (is_placeholder or not norm_num) and explicit_in_text is None and merged:
+            prev = merged[-1]
+            prev_raw = str(prev.number or "").strip()
+            if not _is_placeholder_number(prev_raw):
+                _append_student_answer(prev, ans)
+                continue
+
+        # 4. Bullet-prefixed response that got auto-assigned an unmatched number
+        if (
+            official_nums
+            and norm_num not in official_nums
+            and explicit_in_text is None
+            and merged
+            and re.match(r"^\s*[*•\-]\s+", ans.response)
+        ):
+            prev = merged[-1]
+            prev_norm = normalize_number(prev.number)
+            if prev_norm in official_nums:
+                _append_student_answer(prev, ans)
+                continue
+
+        merged.append(ans)
+        if norm_num:
+            by_norm[norm_num] = ans
+
+    return merged
 
 
 def normalize_number(raw: Any) -> str:
@@ -761,8 +929,19 @@ def align_questions(paper: list[QuestionSpec],
     silently dropping data.
     """
     key_by_num = {normalize_number(e.number): e for e in key}
-    stu_by_num = {normalize_number(a.number): a for a in student}
     paper_nums = [normalize_number(q.number) for q in paper]
+    official_nums = {n for n in paper_nums + list(key_by_num) if n}
+    merged_student = _merge_continuation_answers(student, official_nums=official_nums)
+
+    stu_by_num: dict[str, StudentAnswer] = {}
+    for a in merged_student:
+        norm_a = normalize_number(a.number)
+        if not norm_a:
+            continue
+        if norm_a in stu_by_num:
+            _append_student_answer(stu_by_num[norm_a], a)
+        else:
+            stu_by_num[norm_a] = a
 
     ordered: list[str] = []
     seen: set[str] = set()
@@ -809,7 +988,7 @@ def align_questions(paper: list[QuestionSpec],
             legibility=(ans.legibility if ans else "unknown"),
             uncertain_spans=(ans.uncertain_spans if ans else []),
             keywords=(entry.keywords if entry else []),
-            page=(spec.page if spec else None),
+            page=(ans.page if (ans and ans.page) else (spec.page if spec else None)),
             warnings=warnings,
             geometry=(ans.geometry if ans else []),
         ))

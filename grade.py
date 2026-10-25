@@ -17,8 +17,11 @@ internally consistent.
 
 from __future__ import annotations
 
+import base64
 import math
+import re
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 
 from engine import PENALTY_CATEGORIES
@@ -124,8 +127,70 @@ MARKING RULES:
    what is written. If the expected answer is empty, award 0 under
    "content" and say so. Every deduction must quote or directly reference
    the provided texts.
+8. TWO-COLUMN & DIFFERENTIATION ANSWERS (critical): When a question asks to
+   differentiate or compare two topics, OCR frequently flattens a student's
+   two-column table so both column headings appear together at the start
+   (e.g. "Topic A Topic B * point 1 ... * point 2 ..."). Recognise when the
+   bullet points define or describe the two respective topics separately, do
+   NOT claim the student confused the topics if each bullet point accurately
+   states which topic it describes, and break each topic/point into its own
+   distinct step in "steps".
+9. MULTI-LINE & BULLETED ANSWERS (critical): Students frequently begin an
+   answer with a short introductory heading line (e.g. "Ans. 6) Vegetative
+   propagation is practiced as :") followed by bullet points ("*", "-", "•"),
+   sub-parts, or concluding sentences on subsequent lines. Always evaluate ALL
+   lines, bullet points, and paragraphs of "student_answer" together against
+   the rubric, and include EVERY line/bullet of the student's response across
+   your "steps" breakdown (never stop after the introductory heading line).
 
 Return ONLY a JSON array of question objects (no prose, no fences).
+"""
+
+RECHECK_PROMPT_TEMPLATE = """\
+TARGETED QUESTION RECHECK TASK: Re-evaluate a single exam question using the teacher's instructions.
+
+You are an experienced, fair senior examiner performing a targeted recheck of ONE question.
+
+- STRICT MODE: {strict}
+- PENALTY CRITERIA ENABLED BY THE TEACHER: {penalties}
+- VISUAL PAGE SCAN ATTACHED: {has_image}
+
+TEACHER RECHECK INSTRUCTIONS (HIGHEST PRIORITY):
+{teacher_directive}
+
+CRITICAL RECHECK RULES:
+1. FOLLOW THE TEACHER'S INSTRUCTIONS ABOVE: The teacher requested this recheck
+   because the initial automated grading misunderstood the student's layout,
+   two-column differentiation structure, handwriting, or valid method. Treat
+   the teacher's explanation of how the student structured or wrote the answer
+   as authoritative context.
+2. TWO-COLUMN & DIFFERENTIATION ANSWERS: Students often write comparisons or
+   differentiations in two side-by-side columns (e.g. Left column: Topic A,
+   Right column: Topic B) which OCR may have flattened into a single paragraph
+   starting with both headings (e.g. "Self Pollination Cross Pollination * ...").
+   - Separate the points belonging to each topic logically.
+   - Do NOT claim the student confused the two topics when each bullet point
+     accurately defines and names its respective topic.
+   - If a page scan image is attached, visually inspect the target question on
+     the scan to verify the two-column/table layout, headings, and handwriting.
+3. GRANULAR STEP-BY-STEP BREAKDOWN (required):
+   - Always break "steps" into clear, distinct step objects for each logical
+     part, topic column, or working stage of the student's answer (e.g.,
+     "Step 1: Self-Pollination definition & points",
+     "Step 2: Cross-Pollination definition & points",
+     "Step 3: Genetic variation explanation") rather than lumping the entire
+     response into a single step.
+   - Mark each valid step with "status": "correct" and "ok": true on its lines.
+   - Only mark a step "status": "error" if that specific step is genuinely
+     wrong after accounting for the teacher's recheck instructions.
+4. You may include an updated "student_answer" field (with newlines "\\n"
+   separating distinct points or columns) if the original transcription
+   flattened a two-column table or misread the scan.
+5. Penalties: use deduction categories ONLY from "content" and enabled criteria
+   ({penalty_map}). Ensure deductions sum to (max_marks - marks_awarded). If
+   full marks are awarded, deductions MUST be [].
+
+Return ONLY a JSON array containing the single rechecked question object (no prose, no fences).
 """
 
 
@@ -182,6 +247,28 @@ def build_prompt(params: GradeParams) -> str:
         if penalties else "none (content deductions only)",
         penalty_map=", ".join(f'"{p}" = {PENALTY_CATEGORIES[p]}'
                               for p in PENALTY_CATEGORIES),
+    )
+
+
+def build_recheck_prompt(params: GradeParams, teacher_instruction: str = "",
+                         has_image: bool = False) -> str:
+    penalties = params.penalty_list
+    inst = (teacher_instruction or "").strip()
+    directive = (
+        f'"{inst}"'
+        if inst else
+        "Carefully re-verify this question's layout, two-column/table structure, "
+        "and step-by-step rubric alignment. Separate any merged points into clear "
+        "steps and re-evaluate fairly."
+    )
+    return RECHECK_PROMPT_TEMPLATE.format(
+        strict="ON" if params.strict else "OFF",
+        penalties=(", " + ", ".join(PENALTY_CATEGORIES[p] for p in penalties))
+        if penalties else "none (content deductions only)",
+        penalty_map=", ".join(f'"{p}" = {PENALTY_CATEGORIES[p]}'
+                              for p in PENALTY_CATEGORIES),
+        has_image="YES (inspect the attached page image for this question)" if has_image else "NO",
+        teacher_directive=directive,
     )
 
 
@@ -363,6 +450,104 @@ def aligned_from_dict(aligned: dict) -> AlignedQuestion:
     if not isinstance(question.get("warnings"), list):
         question["warnings"] = []
     return AlignedQuestion(**question)
+
+
+def _page_image_to_doc(page_image: str | None, q_number: str):
+    """Convert a data:image/...;base64,... URL into a duck-typed image document for Vision engines."""
+    if not page_image or not isinstance(page_image, str):
+        return None
+    raw = page_image.strip()
+    if not raw.startswith("data:image/") or ";base64," not in raw:
+        return None
+    try:
+        header, b64_str = raw.split(";base64,", 1)
+        mime = header.replace("data:", "", 1).strip() or "image/jpeg"
+        img_bytes = base64.b64decode(b64_str)
+        if not img_bytes:
+            return None
+        return SimpleNamespace(
+            filename=f"student_q{q_number}_page.jpg",
+            kind="image",
+            pages=[SimpleNamespace(mime=mime, data=img_bytes)],
+            page_count=1,
+            warnings=[],
+        )
+    except Exception:
+        return None
+
+
+def recheck_one_record(
+    engine,
+    aligned: dict,
+    params: GradeParams | None = None,
+    *,
+    teacher_instruction: str = "",
+    previous_record: dict | None = None,
+    page_image: str | None = None,
+) -> dict:
+    """Re-evaluate a single aligned question with custom teacher instructions and optional page scan."""
+    params = params or GradeParams()
+    q = aligned_from_dict(aligned)
+    inst = (teacher_instruction or "").strip()
+
+    payload: dict[str, Any] = {
+        "strict": params.strict,
+        "keyword_mode": params.keyword_mode,
+        "penalty_criteria": params.penalty_list,
+        "teacher_instruction": inst,
+        "questions": [q.to_payload()],
+    }
+    if isinstance(previous_record, dict):
+        payload["previous_evaluation"] = {
+            "marks_awarded": previous_record.get("marks_awarded"),
+            "max_marks": previous_record.get("max_marks"),
+            "feedback": previous_record.get("feedback"),
+            "deductions": previous_record.get("deductions"),
+        }
+
+    doc = None
+    if getattr(engine, "name", "") != "mock":
+        doc = _page_image_to_doc(page_image, q.number)
+
+    raw = None
+    if doc is not None:
+        try:
+            raw = engine.generate_json(
+                "grade",
+                document=doc,
+                data=payload,
+                instruction=build_recheck_prompt(params, inst, has_image=True),
+                temperature=0.1,
+                max_tokens=1500,
+            )
+        except Exception:
+            raw = None
+
+    if raw is None:
+        raw = engine.generate_json(
+            "grade",
+            data=payload,
+            instruction=build_recheck_prompt(params, inst, has_image=False),
+            temperature=0.1,
+            max_tokens=1500,
+        )
+
+    item: dict | None = None
+    if isinstance(raw, dict):
+        inner = raw.get("questions") or raw.get("results") or raw.get("grades") or raw.get("record")
+        if isinstance(inner, list) and inner and isinstance(inner[0], dict):
+            item = inner[0]
+        elif isinstance(inner, dict):
+            item = inner
+        elif any(k in raw for k in ("marks_awarded", "steps", "feedback", "deductions", "number")):
+            item = raw
+    elif isinstance(raw, list) and raw and isinstance(raw[0], dict):
+        item = raw[0]
+
+    if item is None:
+        raise GradingError("Recheck engine returned no valid question record.")
+
+    return normalise_record(item, q, params)
 
 
 def grade_one_record(engine, aligned: dict,
@@ -702,21 +887,38 @@ def _normalise_steps(
         if out:
             return out
 
+    def _split_prose_bullets(text: str) -> list[str]:
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        if len(lines) == 1 and len(lines[0]) > 60 and (" * " in lines[0] or " • " in lines[0]):
+            parts = [p.strip() for p in re.split(r"\s+(?:\*|•)\s+(?=[A-Z])", lines[0]) if p.strip()]
+            if len(parts) > 1:
+                return parts
+        if len(lines) == 1 and ";" in lines[0]:
+            parts = [s.strip() for s in lines[0].split(";") if s.strip()]
+            if len(parts) > 1:
+                return parts
+        return lines
+
     # Deterministic fallback when model omits steps or fast-grading ran
     source_lines: list[tuple[str, str]] = []
+    seen_norm: set[str] = set()
     for g in geometry:
         cid = str(g.get("crop_id") or "")
         txt = str(g.get("latex") or "").strip()
         if txt:
-            for sub in [ln.strip() for ln in txt.splitlines() if ln.strip()]:
+            for sub in _split_prose_bullets(txt):
+                norm_sub = _loose(sub)
+                if norm_sub:
+                    seen_norm.add(norm_sub)
                 source_lines.append((cid, sub))
-    if not source_lines:
-        raw_ans = student_answer if student_answer != "(no answer transcribed)" else ""
-        split_ans = [ln.strip() for ln in raw_ans.splitlines() if ln.strip()]
-        if not split_ans and raw_ans:
-            split_ans = [s.strip() for s in raw_ans.split(";") if s.strip()] or [raw_ans]
-        for idx, ln in enumerate(split_ans):
-            cid = crop_ids[min(idx, len(crop_ids) - 1)] if crop_ids else ""
+    raw_ans = student_answer if student_answer != "(no answer transcribed)" else ""
+    split_ans = _split_prose_bullets(raw_ans) if raw_ans else []
+    for idx, ln in enumerate(split_ans):
+        norm_ln = _loose(ln)
+        if not source_lines or (norm_ln and norm_ln not in seen_norm):
+            cid = _match_crop_id(ln, idx) if crop_ids else ""
+            if norm_ln:
+                seen_norm.add(norm_ln)
             source_lines.append((cid, ln))
 
     if not source_lines:

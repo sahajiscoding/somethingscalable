@@ -93,6 +93,18 @@ class LayoutTests(unittest.TestCase):
         self.assertLessEqual(len(page.crops), 2)
         self.assertGreaterEqual(len(page.crops), 1)
 
+    def test_margin_question_number_and_prose_stay_in_single_horizontal_crop(self):
+        image = Image.new("L", (1000, 400), 255)
+        draw = ImageDraw.Draw(image)
+        font = _font(28)
+        # Margin question number separated from prose by >4% horizontal gap
+        draw.text((60, 120), "Ans. 6)", fill=0, font=font)
+        draw.text((220, 120), "Vegetative propagation is practiced as :", fill=0, font=font)
+        page = layout._crop_page(np.asarray(image), 1, 240, 32)
+        self.assertEqual(len(page.crops), 1)
+        self.assertLessEqual(page.crops[0].rect.x, 0.08)
+        self.assertGreaterEqual(page.crops[0].rect.x + page.crops[0].rect.w, 0.50)
+
 
 if __name__ == "__main__":
     unittest.main()
