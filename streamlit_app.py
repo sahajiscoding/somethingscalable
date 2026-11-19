@@ -16,7 +16,7 @@ used by the grade_exam.py CLI and test_real_exam.py runner.
 
 Run locally:
     pip install -r requirements.txt
-    export KILO_API_KEY=...
+    export WHT_ENGINE_API_KEY=...
     streamlit run streamlit_app.py
 """
 
@@ -34,7 +34,7 @@ from pipeline import SessionError, run_session, write_reports
 
 PAGE_ICON = "📝"
 MODEL_OPTIONS = [
-    # Kilo AI Gateway — this build offers one model only.
+    # WHT Engine AI Gateway — this build offers one model only.
     "nvidia/nemotron-3.5-super-vl:free",
 ]
 
@@ -107,17 +107,17 @@ with st.sidebar:
     api_key = st.text_input(
         "API Key",
         type="password",
-        help="Kilo Gateway key. "
-             "Sent to ai-gateway.kilo.ai on each run; never stored. "
-             "You can also set KILO_API_KEY as an env var.",
+        help="WHT Engine AI Gateway key. "
+             "Sent to ai-gateway.wht-engine.ai on each run; never stored. "
+             "You can also set WHT_ENGINE_API_KEY as an env var.",
     )
     if not api_key:
-        api_key = os.environ.get("KILO_API_KEY")
+        api_key = os.environ.get("WHT_ENGINE_API_KEY")
 
     model = st.selectbox("Model", MODEL_OPTIONS, index=0,
-                         help="Nemotron 3.5 Super VL via the Kilo AI "
+                         help="Nemotron 3.5 Super VL via the WHT Engine AI "
                               "Gateway — the only model this build offers. "
-                              "Override with the KILO_MODEL env var.")
+                              "Override with the WHT_ENGINE_MODEL env var.")
     st.caption("No API key? Runs with `--mock` are available from the "
                "CLI (text documents only) via test_real_exam.py.")
     st.divider()

@@ -977,7 +977,7 @@ export default function Grading(props: GradingProps) {
     }
     if (!backend.ok) {
       setAlert({
-        msg: 'Live backend is unreachable, so nothing was graded. Set KILO_API_KEY on the server and redeploy for real grading. Uncheck “Use live AI grading” only to preview the UI with sample data.',
+        msg: 'Live backend is unreachable, so nothing was graded. Set WHT_ENGINE_API_KEY on the server and redeploy for real grading. Uncheck “Use live AI grading” only to preview the UI with sample data.',
         ok: false,
       });
       return;
@@ -1553,7 +1553,7 @@ export default function Grading(props: GradingProps) {
 
           <div aria-label="Live backend settings" className="mt-4 rounded-xl border border-white/10 bg-black/10 p-3.5">
             <div className="flex items-center justify-between">
-              <div className="text-[11px] font-bold tracking-[.16em] text-white/45 uppercase">Live AI Engine &amp; Model (Kilo AI Gateway)</div>
+              <div className="text-[11px] font-bold tracking-[.16em] text-white/45 uppercase">Live AI Engine &amp; Model (WHT Engine AI Gateway)</div>
               <span className="rounded-full border border-mint/30 bg-mint/10 px-2 py-0.5 text-[10px] font-bold text-mint">
                 Fast Direct Mode
               </span>
@@ -1564,16 +1564,16 @@ export default function Grading(props: GradingProps) {
               {[
                 {
                   id: '',
-                  name: 'Kilo Auto',
-                  tag: 'Kilo Gateway · Auto-select model',
+                  name: 'WHT Engine Auto',
+                  tag: 'WHT Engine Gateway · Auto-select model',
                   tagTone: 'text-mint/90',
-                  desc: "Let Kilo pick the best model for your paper (no model override sent).",
-                  match: (m: string) => !m.trim() || m === 'kilo-auto',
+                  desc: "Let WHT Engine pick the best model for your paper (no model override sent).",
+                  match: (m: string) => !m.trim() || m === 'wht-engine-auto',
                 },
                 {
                   id: DEFAULT_MODEL_ID,
                   name: 'Nemotron 3.5 Super VL',
-                  tag: 'Kilo Gateway · Multi-Page VLM · 12B Active',
+                  tag: 'WHT Engine Gateway · Multi-Page VLM · 12B Active',
                   tagTone: 'text-mint/90',
                   desc: 'Native multi-page OCR + rubric grading with chain-of-thought overhead disabled.',
                   match: (m: string) => m.includes('super-vl'),
@@ -1617,7 +1617,7 @@ export default function Grading(props: GradingProps) {
 
             <div className="mt-3">
               <label htmlFor="modelId" className="block text-[11.5px] text-white/60">
-                Custom Model ID <span className="text-white/35">(any model on the Kilo AI Gateway)</span>:
+                Custom Model ID <span className="text-white/35">(any model on the WHT Engine AI Gateway)</span>:
               </label>
               <input
                 type="text"
@@ -1654,7 +1654,7 @@ export default function Grading(props: GradingProps) {
             </div>
             <div className={`mt-2 text-xs ${backend.ok ? 'text-mint' : 'text-crimson'}`}>
               {backend.ok
-                ? `● Live backend connected (Active: ${modelOverride.trim() || 'Kilo Auto (gateway default)'}).`
+                ? `● Live backend connected (Active: ${modelOverride.trim() || 'WHT Engine Auto (gateway default)'}).`
                 : '○ No live backend (offline demo mode). Deploy with `vercel` to enable AI grading.'}
             </div>
           </div>

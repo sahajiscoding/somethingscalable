@@ -5,6 +5,6 @@ Developer: sahajiscoding
 Site: https://github.com/sahajiscoding/somethingscalable
 
 /* Stack */
-Backend: Python, Flask, Kilo AI Gateway (nvidia/nemotron-3.5-super-vl:free)
+Backend: Python, Flask, WHT Engine AI Gateway (nvidia/nemotron-3.5-super-vl:free)
 Frontend: plain HTML/CSS/JS, no build step
 Realtime grading of handwritten answer sheets.

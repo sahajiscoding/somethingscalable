@@ -232,9 +232,9 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
           {setModelOverride && (
             <div className="mb-4 rounded-xl border border-white/10 bg-black/20 p-3.5">
               <div className="flex items-center justify-between">
-                <div className="text-[11px] font-bold tracking-[.14em] text-white/50 uppercase">Generation Model (Kilo AI Gateway)</div>
+                <div className="text-[11px] font-bold tracking-[.14em] text-white/50 uppercase">Generation Model (WHT Engine AI Gateway)</div>
                 <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[10px] font-medium text-white/40">
-                  Kilo Gateway
+                  WHT Engine Gateway
                 </span>
               </div>
               <div className="mt-1 text-xs text-white/45">One model for generating questions &amp; rubric:</div>
@@ -244,7 +244,7 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
                   {
                     id: DEFAULT_MODEL_ID,
                     name: 'Nemotron 3.5 Super VL',
-                    tag: 'Kilo Gateway · 120B (12B active)',
+                    tag: 'WHT Engine Gateway · 120B (12B active)',
                     tagTone: 'text-mint/90',
                     desc: 'The only model this build offers — a VL model with thinking overhead disabled for fast generation.',
                     match: (m: string) => !m.trim() || m.includes('super-vl'),
@@ -366,7 +366,7 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
                     </div>
                     <h4 className="mb-1.5 text-base font-semibold text-white/80">Generating Questions…</h4>
                     <p className="mx-auto max-w-[36ch] text-[13px] text-white/45">
-                      Contacting the Kilo AI Gateway {modelLabel(modelOverride)}. Questions will appear here live as each request completes.
+                      Contacting the WHT Engine AI Gateway {modelLabel(modelOverride)}. Questions will appear here live as each request completes.
                     </p>
                   </>
                 ) : (

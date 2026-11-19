@@ -7,7 +7,7 @@ a scoreboard plus a question-by-question report (target vs student answer,
 deductions, reasoning) downloadable as JSON and Markdown.
 
 - Web UI: `/` (works offline as a demo; live grading via the API below)
-- Grading backend: Kilo AI Gateway (`nvidia/nemotron-3.5-super-vl:free` by default)
+- Grading backend: WHT Engine AI Gateway (`nvidia/nemotron-3.5-super-vl:free` by default)
 - API keys live ONLY in server environment variables — never in the client
 
 ## API (split pipeline — every call is ~1 AI request, safe for capped hosts)

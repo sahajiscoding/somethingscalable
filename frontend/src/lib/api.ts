@@ -6,7 +6,7 @@ export const APP_SECRET: string = (() => {
   return v.startsWith('__VERCEL') ? '' : v;
 })();
 
-/* Default model id used by the server (engine.KILO_DEFAULT_MODEL) — kept here
+/* Default model id used by the server (engine.WHT_ENGINE_DEFAULT_MODEL) — kept here
  * so preset buttons and status lines match the backend when no override is set. */
 export const DEFAULT_MODEL_ID = 'nvidia/nemotron-3.5-super-vl:free';
 
@@ -44,7 +44,7 @@ export async function api(path: string, opts: RequestInit = {}, retries = 2): Pr
   const rawMsg = String((lastErr as Error)?.message || lastErr || '');
   if (/failed to fetch|networkerror|load failed/i.test(rawMsg)) {
     throw new Error(
-      'Connection to the grading server dropped or timed out (Failed to fetch). Ensure the backend server is running and KILO_API_KEY is set.'
+      'Connection to the grading server dropped or timed out (Failed to fetch). Ensure the backend server is running and WHT_ENGINE_API_KEY is set.'
     );
   }
   throw lastErr instanceof Error ? lastErr : new Error(rawMsg || 'Network request failed');
@@ -60,7 +60,7 @@ export async function apiJson<T>(path: string, opts: RequestInit = {}): Promise<
 export interface BackendHealth {
   ok: boolean;
   hasApiKey: boolean;
-  hasKiloKey: boolean;
+  hasWhtEngineKey: boolean;
   model: string;
 }
 
@@ -459,7 +459,7 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
       marking_mode: input.marking_mode || 'standard',
       negative_marks_value: input.negative_marks_value || 0,
       warnings: docWarnings.concat(aligned.warnings || []),
-      engine: 'kilo',
+      engine: 'WHT Engine',
       model: usedModel,
     }),
   });

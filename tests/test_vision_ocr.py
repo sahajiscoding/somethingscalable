@@ -50,10 +50,10 @@ class ParseItemsTests(unittest.TestCase):
             '{"id": "p1c0", "latex": "a"}'
             ']}'
         )
-        results = ocr.parse_items(raw, self.crops, "kilo")
+        results = ocr.parse_items(raw, self.crops, "WHT Engine")
         self.assertEqual(results["p1c0"].latex, "a")
         self.assertEqual(results["p1c1"].latex, "b")
-        self.assertEqual(results["p1c0"].provider, "kilo")
+        self.assertEqual(results["p1c0"].provider, "WHT Engine")
 
     def test_falls_back_to_positional_order(self):
         raw = '{"items": [{"latex": "first"}, {"latex": "second"}]}'
@@ -63,7 +63,7 @@ class ParseItemsTests(unittest.TestCase):
 
     def test_missing_item_becomes_an_error(self):
         raw = '{"items": [{"id": "p1c0", "latex": "a"}]}'
-        results = ocr.parse_items(raw, self.crops, "kilo")
+        results = ocr.parse_items(raw, self.crops, "WHT Engine")
         self.assertTrue(results["p1c0"].ok)
         self.assertFalse(results["p1c1"].ok)
         self.assertIn("no transcription", results["p1c1"].error)
@@ -73,19 +73,19 @@ class ParseItemsTests(unittest.TestCase):
             '{"items": [{"id": "p1c0", "latex": "\\\\square"}],'
             '"unreadable": ["p1c0"]}'
         )
-        results = ocr.parse_items(raw, self.crops, "kilo")
+        results = ocr.parse_items(raw, self.crops, "WHT Engine")
         self.assertAlmostEqual(results["p1c0"].confidence, 0.2)
         self.assertEqual(results["p1c0"].note, "unreadable")
 
     def test_accepts_plain_text_for_prose(self):
         raw = '{"items": [{"id": "p1c0", "text": "b) Kala-azar"}]}'
-        results = ocr.parse_items(raw, self.crops, "kilo")
+        results = ocr.parse_items(raw, self.crops, "WHT Engine")
         self.assertTrue(results["p1c0"].ok)
         self.assertEqual(results["p1c0"].text, "b) Kala-azar")
 
     def test_single_crop_plain_text_fallback(self):
         single = [_crop(1, 0)]
-        results = ocr.parse_items("Ans 1: Photosynthesis", single, "kilo")
+        results = ocr.parse_items("Ans 1: Photosynthesis", single, "WHT Engine")
         self.assertTrue(results["p1c0"].ok)
         self.assertEqual(results["p1c0"].plain, "Ans 1: Photosynthesis")
 
@@ -93,7 +93,7 @@ class ParseItemsTests(unittest.TestCase):
 class ProviderConfigTests(unittest.TestCase):
     def test_no_keys_means_no_providers(self):
         providers = build_providers({
-            "KILO_API_KEY": "",
+            "WHT_ENGINE_API_KEY": "",
             "GROQ_API_KEY": "",
             "GROQ_MODEL": "",
         })
@@ -101,7 +101,7 @@ class ProviderConfigTests(unittest.TestCase):
 
     def test_groq_needs_an_explicit_model(self):
         providers = build_providers({
-            "KILO_API_KEY": "",
+            "WHT_ENGINE_API_KEY": "",
             "GROQ_API_KEY": "test-key",
             "GROQ_MODEL": "",
         })
@@ -109,7 +109,7 @@ class ProviderConfigTests(unittest.TestCase):
 
     def test_groq_is_added_when_configured(self):
         providers = build_providers({
-            "KILO_API_KEY": "",
+            "WHT_ENGINE_API_KEY": "",
             "GROQ_API_KEY": "test-key",
             "GROQ_MODEL": "some-vision-model",
         })
@@ -117,17 +117,17 @@ class ProviderConfigTests(unittest.TestCase):
 
     def test_nvidia_is_preferred_first(self):
         providers = build_providers({
-            "KILO_API_KEY": "test-key",
+            "WHT_ENGINE_API_KEY": "test-key",
             "GROQ_API_KEY": "test-key",
             "GROQ_MODEL": "some-vision-model",
         })
         self.assertEqual(
-            [provider.name for provider in providers], ["kilo", "groq"]
+            [provider.name for provider in providers], ["WHT Engine", "groq"]
         )
 
     def test_nvidia_uses_the_selected_model(self):
         providers = build_providers(
-            {"KILO_API_KEY": "test-key"},
+            {"WHT_ENGINE_API_KEY": "test-key"},
             model="google/gemma-4-31b-it",
         )
         self.assertEqual(providers[0].config.model, "google/gemma-4-31b-it")
@@ -135,7 +135,7 @@ class ProviderConfigTests(unittest.TestCase):
 
     def test_single_image_model_sends_one_crop_per_call(self):
         providers = build_providers(
-            {"KILO_API_KEY": "test-key"},
+            {"WHT_ENGINE_API_KEY": "test-key"},
             model="meta/llama-3.2-90b-vision-instruct",
         )
         self.assertEqual(providers[0].config.batch_size, 1)
@@ -143,12 +143,12 @@ class ProviderConfigTests(unittest.TestCase):
     def test_paligemma_uses_nvcf_vlm_endpoint_and_single_image_batch(self):
         for alias in ("google/paligemma", "google/google-paligemma", "paligemma"):
             providers = build_providers(
-                {"KILO_API_KEY": "test-key"},
+                {"WHT_ENGINE_API_KEY": "test-key"},
                 model=alias,
             )
             cfg = providers[0].config
             self.assertEqual(cfg.model, "google/paligemma")
-            self.assertEqual(cfg.url, "https://ai-gateway.kilo.ai/api/v1/chat/completions")
+            self.assertEqual(cfg.url, "https://ai-gateway.wht-engine.ai/api/v1/chat/completions")
             self.assertEqual(cfg.batch_size, 1)
             self.assertEqual(cfg.max_tokens, 1024)
             self.assertEqual(cfg.extra_payload, {})
@@ -160,7 +160,7 @@ class ProviderConfigTests(unittest.TestCase):
             "nemotron-3-nano-omni",
         ):
             providers = build_providers(
-                {"KILO_API_KEY": "test-key"},
+                {"WHT_ENGINE_API_KEY": "test-key"},
                 model=alias,
             )
             cfg = providers[0].config
@@ -171,17 +171,17 @@ class ProviderConfigTests(unittest.TestCase):
     def test_engine_make_engine_and_message_adaptation_for_new_models(self):
         import engine
 
-        # Legacy model id resolves to the single Kilo gateway model.
-        eng_legacy = engine.make_engine(api_key="kilo-test", model="nvidia/nemotron-3.5-super-vl-120b-a12b")
+        # Legacy model id resolves to the single WHT Engine gateway model.
+        eng_legacy = engine.make_engine(api_key="wht-engine-test", model="nvidia/nemotron-3.5-super-vl-120b-a12b")
         self.assertEqual(eng_legacy.model, "nvidia/nemotron-3.5-super-vl:free")
 
-        # The Kilo id itself passes through untouched.
-        eng_kilo = engine.make_engine(api_key="kilo-test", model="nvidia/nemotron-3.5-super-vl:free")
-        self.assertEqual(eng_kilo.model, "nvidia/nemotron-3.5-super-vl:free")
+        # The WHT Engine id itself passes through untouched.
+        eng_wht_engine = engine.make_engine(api_key="wht-engine-test", model="nvidia/nemotron-3.5-super-vl:free")
+        self.assertEqual(eng_wht_engine.model, "nvidia/nemotron-3.5-super-vl:free")
 
         # No model at all → the build default.
-        eng_default = engine.make_engine(api_key="kilo-test")
-        self.assertEqual(eng_default.model, engine.KILO_DEFAULT_MODEL)
+        eng_default = engine.make_engine(api_key="wht-engine-test")
+        self.assertEqual(eng_default.model, engine.WHT_ENGINE_DEFAULT_MODEL)
 
         raw_messages = [
             {"role": "system", "content": "System instruction."},
@@ -193,7 +193,7 @@ class ProviderConfigTests(unittest.TestCase):
                 ],
             },
         ]
-        adapted = engine.KiloEngine._adapt_messages_for_model(raw_messages, "google/paligemma")
+        adapted = engine.WhtEngine._adapt_messages_for_model(raw_messages, "google/paligemma")
         self.assertEqual(len(adapted), 1)
         self.assertEqual(adapted[0]["role"], "user")
         self.assertIn("System instruction.", adapted[0]["content"][0]["text"])

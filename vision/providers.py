@@ -1,6 +1,6 @@
 """Provider clients for crop transcription.
 
-The Kilo AI Gateway and Groq expose an OpenAI-compatible chat-completions
+The WHT Engine AI Gateway and Groq expose an OpenAI-compatible chat-completions
 endpoint, so one client covers both.  A provider is optional: with no Groq
 key the arbiter simply runs with a single opinion.
 """
@@ -18,8 +18,8 @@ import requests
 from .models import Crop, Transcription
 from .ocr import build_prompt, parse_items
 
-KILO_DEFAULT_URL = "https://ai-gateway.kilo.ai/api/v1/chat/completions"
-KILO_DEFAULT_MODEL = "nvidia/nemotron-3.5-super-vl:free"
+WHT_ENGINE_DEFAULT_URL = "https://ai-gateway.wht-engine.ai/api/v1/chat/completions"
+WHT_ENGINE_DEFAULT_MODEL = "nvidia/nemotron-3.5-super-vl:free"
 GROQ_DEFAULT_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 # These NIM vision models accept at most one image_url per message, so crops
@@ -243,7 +243,7 @@ def _chunks(items: list, size: int):
         yield items[start:start + size]
 
 
-def _normalize_kilo_model(model_id: str) -> str:
+def _normalize_wht_engine_model(model_id: str) -> str:
     low = (model_id or "").strip().lower()
     if low in ("paligemma", "google-paligemma", "google/paligemma", "google/google-paligemma"):
         return "google/paligemma"
@@ -261,40 +261,40 @@ def _normalize_kilo_model(model_id: str) -> str:
     return (model_id or "").strip()
 
 
-def kilo_provider(api_key: str | None = None,
-                  model: str | None = None,
-                  url: str | None = None,
-                  timeout: float = 45.0,
-                  env: dict | None = None) -> VisionProvider | None:
+def wht_engine_provider(api_key: str | None = None,
+                        model: str | None = None,
+                        url: str | None = None,
+                        timeout: float = 45.0,
+                        env: dict | None = None) -> VisionProvider | None:
     source = env if env is not None else os.environ
     key = (
         api_key
-        or source.get("KILO_API_KEY")
+        or source.get("WHT_ENGINE_API_KEY")
         or ""
     ).strip()
     if not key and env is None:
         try:
             import engine as _engine
-            key = (_engine.get_kilo_key() or "").strip()
+            key = (_engine.get_wht_engine_key() or "").strip()
         except Exception:
             key = ""
     if not key:
         return None
     raw_chosen = (
         model
-        or source.get("KILO_MODEL")
-        or KILO_DEFAULT_MODEL
+        or source.get("WHT_ENGINE_MODEL")
+        or WHT_ENGINE_DEFAULT_MODEL
     ).strip()
-    chosen = _normalize_kilo_model(raw_chosen)
+    chosen = _normalize_wht_engine_model(raw_chosen)
     is_vlm = chosen in _VLM_ENDPOINT_MODELS
-    default_url = source.get("KILO_API_URL") or KILO_DEFAULT_URL
+    default_url = source.get("WHT_ENGINE_API_URL") or WHT_ENGINE_DEFAULT_URL
     extra = (
         {"chat_template_kwargs": {"enable_thinking": False, "thinking": False}}
         if (not is_vlm and _uses_thinking_kwargs(chosen))
         else {}
     )
     return VisionProvider(ProviderConfig(
-        name="kilo",
+        name="WHT Engine",
         url=url or default_url,
         model=chosen,
         api_key=key,
@@ -328,10 +328,10 @@ def groq_provider(api_key: str | None = None,
 
 def build_providers(env: dict | None = None,
                     model: str | None = None) -> list[VisionProvider]:
-    """Kilo first (accuracy), Groq second (speed). Missing keys are skipped.
+    """WHT Engine first (accuracy), Groq second (speed). Missing keys are skipped.
 
     ``model`` lets the caller reuse the model selected in the UI for crop OCR;
-    when omitted the Kilo provider falls back to ``KILO_MODEL``.
+    when omitted the WHT Engine provider falls back to ``WHT_ENGINE_MODEL``.
     """
     if env is not None:
         merged_env = dict(os.environ)
@@ -339,7 +339,7 @@ def build_providers(env: dict | None = None,
     else:
         merged_env = None
     providers = [
-        kilo_provider(model=model, env=merged_env),
+        wht_engine_provider(model=model, env=merged_env),
         groq_provider(env=merged_env),
     ]
     return [provider for provider in providers if provider is not None]

@@ -235,7 +235,7 @@ export default function App() {
 
         <footer className="mt-8 border-t border-white/10 pt-4 text-center text-xs text-white/45">
           WeHelpTeachers — offline demo runs fully in your browser. With <b>live AI grading</b> on, documents are sent
-          to your own deployment&apos;s <code>/api</code> (extract → grade) and on to Kilo&apos;s AI Gateway. API keys stay
+          to your own deployment&apos;s <code>/api</code> (extract → grade) and on to WHT Engine&apos;s AI Gateway. API keys stay
           on the server and are never hardcoded.
         </footer>
       </div>

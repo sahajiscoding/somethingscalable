@@ -352,7 +352,7 @@ export default function Home({ onNavigate, onTryDemo, backendModel, hasKey }: Ho
             <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {[
                 { k: 'Default Model', v: backendModel },
-                { k: 'Platform', v: 'Kilo AI Gateway (OpenAI-compatible)' },
+                { k: 'Platform', v: 'WHT Engine AI Gateway (OpenAI-compatible)' },
                 { k: 'API Key Status', v: hasKey === null ? 'Checking…' : hasKey ? 'Connected' : 'Not configured' },
                 { k: 'Execution Host', v: 'Vercel Serverless Function' },
               ].map(s => (

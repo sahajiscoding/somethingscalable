@@ -2,7 +2,7 @@
 
 Same proven layout as the reference AI project: one Flask WSGI app,
 re-exported from ``api/index.py`` for Vercel. API keys live ONLY in the
-environment (``KILO_API_KEY``) — they are never
+environment (``WHT_ENGINE_API_KEY``) — they are never
 hardcoded, never committed, and never sent to the browser.
 
 Split-pipeline endpoints keep every call to ~1 LLM request so capped hosts
@@ -43,10 +43,10 @@ if load_dotenv is not None:
     load_dotenv(_BASE_DIR / ".env")
 
 from engine import (  # noqa: E402
-    KILO_DEFAULT_MODEL,
+    WHT_ENGINE_DEFAULT_MODEL,
     PENALTY_CATEGORIES,
     EngineError,
-    get_kilo_key,
+    get_wht_engine_key,
     make_engine,
 )
 from extract import (  # noqa: E402
@@ -74,7 +74,7 @@ app = Flask(__name__)
 
 # Optional shared-secret protection for /api (same as the reference project).
 # If APP_SECRET is set, every /api call must carry it as X-App-Secret;
-# unset = open access. Stops strangers from burning your Kilo quota.
+# unset = open access. Stops strangers from burning your WHT Engine quota.
 APP_SECRET = os.environ.get("APP_SECRET", "").strip()
 
 _SECRET_TOKEN = "__VERCEL_APP_SECRET__"  # nosec B105
@@ -115,7 +115,7 @@ def _js_escape(value: str) -> str:
 
 
 def _has_key() -> bool:
-    return bool(get_kilo_key())
+    return bool(get_wht_engine_key())
 
 
 def _api_error(exc: Exception):
@@ -130,7 +130,7 @@ def _api_error(exc: Exception):
         print(f"[engine] {type(exc).__name__}: {detail}", flush=True)
         if "429" in str(exc):
             return jsonify({
-                "error": "Kilo Gateway is rate-limiting the model right now (429). "
+                "error": "WHT Engine AI Gateway is rate-limiting the model right now (429). "
                          "Wait a moment and try again."}), 429
         return jsonify({
             "error": f"Model inference failed — {detail}"}), 502
@@ -161,7 +161,7 @@ def _model(body: dict) -> str | None:
 def _backend(body) -> str | None:
     get = body.get if isinstance(body, dict) else (lambda k, d=None: d)
     value = (get("backend") or "").strip() or None
-    return value or "kilo"
+    return value or "WHT Engine"
 
 
 # ---------------------------------------------------------------------------
@@ -271,8 +271,8 @@ def sitemap_xml():
 @app.get("/api/health")
 def api_health():
     return jsonify({"ok": True, "hasApiKey": _has_key(),
-                    "hasKiloKey": bool(get_kilo_key()),
-                    "model": KILO_DEFAULT_MODEL})
+                    "hasWhtEngineKey": bool(get_wht_engine_key()),
+                    "model": WHT_ENGINE_DEFAULT_MODEL})
 
 
 # ---------------------------------------------------------------------------
@@ -509,7 +509,7 @@ def api_align():
     return jsonify({"aligned": [q.to_payload() for q in aligned],
                     "warnings": alignment_warnings(aligned),
                     "documents": body.get("documents") or {},
-                    "model": _model(body) or KILO_DEFAULT_MODEL})
+                    "model": _model(body) or WHT_ENGINE_DEFAULT_MODEL})
 
 
 @app.post("/api/grade-one")
@@ -610,8 +610,8 @@ def api_report():
     summary = summarise(records)
     report = build_report(
         records, summary,
-        engine_name=body.get("engine") or "kilo",
-        model=body.get("model") or KILO_DEFAULT_MODEL,
+        engine_name=body.get("engine") or "WHT Engine",
+        model=body.get("model") or WHT_ENGINE_DEFAULT_MODEL,
         params=params, documents=docs,
         warnings=body.get("warnings") or [],
     )
@@ -720,9 +720,9 @@ def api_generate_exam():
                 for i in range(1, count + 1)
             ]
         }
-        note = ("Generated with fallback template; check Kilo Gateway status."
+        note = ("Generated with fallback template; check WHT Engine AI Gateway status."
                 if _has_key() else
-                "Generated with offline template; set KILO_API_KEY in Vercel for live AI generation.")
+                "Generated with offline template; set WHT_ENGINE_API_KEY in Vercel for live AI generation.")
         return jsonify({
             "ok": True,
             "exam": generated,
@@ -732,7 +732,7 @@ def api_generate_exam():
     return jsonify({
         "ok": True,
         "exam": generated,
-        "model": getattr(engine, "model", KILO_DEFAULT_MODEL),
+        "model": getattr(engine, "model", WHT_ENGINE_DEFAULT_MODEL),
     })
 
 
@@ -863,9 +863,9 @@ def api_generate_exam_question():
             "marking_scheme": fb_scheme,
             "keywords": [topic.split()[0].lower(), "solution"]
         }
-        note = ("Generated with fallback template; check Kilo Gateway status."
+        note = ("Generated with fallback template; check WHT Engine AI Gateway status."
                 if _has_key() else
-                "Generated with offline template; set KILO_API_KEY in Vercel for live AI generation.")
+                "Generated with offline template; set WHT_ENGINE_API_KEY in Vercel for live AI generation.")
         return jsonify({
             "ok": True,
             "question": generated,
@@ -875,7 +875,7 @@ def api_generate_exam_question():
     return jsonify({
         "ok": True,
         "question": generated,
-        "model": getattr(engine, "model", KILO_DEFAULT_MODEL),
+        "model": getattr(engine, "model", WHT_ENGINE_DEFAULT_MODEL),
     })
 
 

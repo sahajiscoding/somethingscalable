@@ -2,9 +2,9 @@
 
 Two engines expose the same interface:
 
-* ``KiloEngine`` - OCR/vision + grading through the Kilo AI Gateway
-  (``https://ai-gateway.kilo.ai/api/v1``, OpenAI-compatible).  Standard
-  library only (``urllib``), no extra dependency.  Any ``KILO_API_KEY``
+* ``WhtEngine`` - OCR/vision + grading through the WHT Engine AI Gateway
+  (``https://ai-gateway.wht-engine.ai/api/v1``, OpenAI-compatible).  Standard
+  library only (``urllib``), no extra dependency.  Any ``WHT_ENGINE_API_KEY``
   selects it automatically; text + images are fully supported, PDFs fall
   back to their text layer.
 * ``MockEngine`` - a fully offline engine used by
@@ -27,23 +27,23 @@ import re
 import threading
 from typing import Any
 
-# (Model default lives below as KILO_DEFAULT_MODEL.)
+# (Model default lives below as WHT_ENGINE_DEFAULT_MODEL.)
 
-# Kilo AI Gateway (OpenAI-compatible chat-completions endpoint) —
+# WHT Engine AI Gateway (OpenAI-compatible chat-completions endpoint) —
 # Nemotron 3.5 Super VL (nvidia/nemotron-3.5-super-vl:free) reads the
 # pages (native OCR/vision) and grades. It answers far faster than the
 # previous GLM/DeepSeek flash models, which hit the read timeout on real
 # exam papers. This build offers that single model only; override the id
-# with KILO_MODEL if Kilo ever renames it.
-# Kilo only: no legacy API_URL / MODEL overrides, so nothing can route
-# requests off the Kilo gateway again.
-KILO_DEFAULT_ENDPOINT = "https://ai-gateway.kilo.ai/api/v1/chat/completions"
-KILO_ENDPOINT = (
-    os.environ.get("KILO_API_URL")
-    or KILO_DEFAULT_ENDPOINT
+# with WHT_ENGINE_MODEL if WHT Engine ever renames it.
+# WHT Engine only: no legacy API_URL / MODEL overrides, so nothing can route
+# requests off the WHT Engine gateway again.
+WHT_ENGINE_DEFAULT_ENDPOINT = "https://ai-gateway.wht-engine.ai/api/v1/chat/completions"
+WHT_ENGINE_ENDPOINT = (
+    os.environ.get("WHT_ENGINE_API_URL")
+    or WHT_ENGINE_DEFAULT_ENDPOINT
 )
-KILO_DEFAULT_MODEL = (
-    os.environ.get("KILO_MODEL")
+WHT_ENGINE_DEFAULT_MODEL = (
+    os.environ.get("WHT_ENGINE_MODEL")
     or "nvidia/nemotron-3.5-super-vl:free"
 )
 
@@ -90,59 +90,59 @@ _IMAGE_ONLY_VISION_MODELS = frozenset({
 # Fast vision fallbacks (used when messages include images/scans). Only the
 # one offered model remains, so a "fallback" is a straight retry.
 _VISION_FALLBACK_MODELS = (
-    KILO_DEFAULT_MODEL,
+    WHT_ENGINE_DEFAULT_MODEL,
 )
 
 # Fast text/grading fallbacks (used for grading batches, exam generation, and
 # digital text extraction).
 _FALLBACK_MODELS = (
-    KILO_DEFAULT_MODEL,
+    WHT_ENGINE_DEFAULT_MODEL,
 )
 
-# Per-request HTTP timeout (seconds). The Kilo free tier routinely needs
+# Per-request HTTP timeout (seconds). The WHT Engine free tier routinely needs
 # 30-60 s for multi-page vision + JSON, so 24 s was aborting healthy
 # requests mid-flight ("Read timed out") and then retrying into the same
 # wall. Budgets must fit inside Vercel's 300 s function cap (vercel.json):
-# worst case ≈ two attempts × KILO_TIMEOUT inside KILO_WALL_BUDGET.
+# worst case ≈ two attempts × WHT_ENGINE_TIMEOUT inside WHT_ENGINE_WALL_BUDGET.
 try:
-    _KILO_TIMEOUT = int(float(str(os.environ.get("KILO_TIMEOUT", "90"))))
+    _WHT_ENGINE_TIMEOUT = int(float(str(os.environ.get("WHT_ENGINE_TIMEOUT", "90"))))
 except ValueError:
-    _KILO_TIMEOUT = 90
-_KILO_CONNECT_TIMEOUT = 8
-_KILO_WALL_BUDGET = int(float(str(os.environ.get("KILO_WALL_BUDGET", "200"))))
+    _WHT_ENGINE_TIMEOUT = 90
+_WHT_ENGINE_CONNECT_TIMEOUT = 8
+_WHT_ENGINE_WALL_BUDGET = int(float(str(os.environ.get("WHT_ENGINE_WALL_BUDGET", "200"))))
 # Rendered-PDF page cap — supports real-world exam papers with 20, 30, 50+ pages.
 _MAX_PDF_PAGES = int(os.environ.get("MAX_PDF_PAGES", "80"))
 
-_KILO_KEY_NAMES = (
-    "KILO_API_KEY",
-    "KILO_KEY",
+_WHT_ENGINE_KEY_NAMES = (
+    "WHT_ENGINE_API_KEY",
+    "WHT_ENGINE_KEY",
 )
 
 
-def get_kilo_key(explicit_key: str | None = None) -> str:
-    """Return explicit key or first discovered Kilo env var."""
+def get_wht_engine_key(explicit_key: str | None = None) -> str:
+    """Return explicit key or first discovered WHT Engine env var."""
     if explicit_key and explicit_key.strip():
         return explicit_key.strip()
-    for name in _KILO_KEY_NAMES:
+    for name in _WHT_ENGINE_KEY_NAMES:
         val = os.environ.get(name, "").strip()
         if val:
             return val
     return ""
 
-# The gateway rate-limits per key. A token bucket refilled at KILO_RPM/min
+# The gateway rate-limits per key. A token bucket refilled at WHT_ENGINE_RPM/min
 # (default 39) serialises bursts — parallel page OCR, per-question grading
-# calls — so callers wait instead of tripping 429s. Raise it if your Kilo
+# calls — so callers wait instead of tripping 429s. Raise it if your WHT Engine
 # plan allows more.
 try:
-    KILO_RPM = int(os.environ.get("KILO_RPM", 39))
+    WHT_ENGINE_RPM = int(os.environ.get("WHT_ENGINE_RPM", 39))
 except ValueError:  # a bad env value must never crash the import
-    KILO_RPM = 39
+    WHT_ENGINE_RPM = 39
 _bucket_lock = threading.Lock()
-_bucket_tokens = float(KILO_RPM)
+_bucket_tokens = float(WHT_ENGINE_RPM)
 _bucket_last: float | None = None
 
 
-def _acquire_kilo_token() -> None:
+def _acquire_wht_engine_token() -> None:
     """Block until a rate-limit token is available, then consume it."""
     import time
     global _bucket_tokens, _bucket_last
@@ -152,14 +152,14 @@ def _acquire_kilo_token() -> None:
             if _bucket_last is None:
                 _bucket_last = now
             _bucket_tokens = min(
-                float(KILO_RPM),
-                _bucket_tokens + (now - _bucket_last) * KILO_RPM / 60.0,
+                float(WHT_ENGINE_RPM),
+                _bucket_tokens + (now - _bucket_last) * WHT_ENGINE_RPM / 60.0,
             )
             _bucket_last = now
             if _bucket_tokens >= 1.0:
                 _bucket_tokens -= 1.0
                 return
-            wait = (1.0 - _bucket_tokens) * 60.0 / KILO_RPM
+            wait = (1.0 - _bucket_tokens) * 60.0 / WHT_ENGINE_RPM
         time.sleep(min(max(wait, 0.05), 2.0))
 
 
@@ -220,15 +220,15 @@ class EngineError(RuntimeError):
 
 
 # ---------------------------------------------------------------------------
-# Kilo AI Gateway engine: OpenAI-compatible chat-completions, stdlib only
+# WHT Engine AI Gateway engine: OpenAI-compatible chat-completions, stdlib only
 # ---------------------------------------------------------------------------
 
-class KiloEngine:
-    """Vision + grading through the Kilo AI Gateway (ai-gateway.kilo.ai).
+class WhtEngine:
+    """Vision + grading through the WHT Engine AI Gateway (ai-gateway.wht-engine.ai).
 
     Nemotron 3.5 Super VL (nvidia/nemotron-3.5-super-vl:free) reads the
     pages and grades (native vision + JSON), HTTP via ``requests``. The key
-    comes from ``KILO_API_KEY`` configured in Vercel or environment.
+    comes from ``WHT_ENGINE_API_KEY`` configured in Vercel or environment.
 
     Images go over as base64 data-URL blocks. PDF pages are rendered to PNG
     with PyMuPDF (digital pages with enough embedded text ride along as
@@ -236,17 +236,17 @@ class KiloEngine:
     fallback could never handle.
     """
 
-    name = "kilo"
+    name = "WHT Engine"
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
-        key = get_kilo_key(api_key)
+        key = get_wht_engine_key(api_key)
         if not key:
             raise EngineError(
-                "No Kilo API key found. Set KILO_API_KEY in Vercel Environment "
+                "No WHT Engine API key found. Set WHT_ENGINE_API_KEY in Vercel Environment "
                 "Variables (or pass --api-key)."
             )
         self.key = key
-        self.model = model or KILO_DEFAULT_MODEL
+        self.model = model or WHT_ENGINE_DEFAULT_MODEL
 
     # -- public API ---------------------------------------------------------
 
@@ -265,9 +265,9 @@ class KiloEngine:
         last_error = "unknown parse error"
         for attempt in range(max_attempts):
             elapsed = time.monotonic() - start_t
-            if attempt > 0 and elapsed >= _KILO_WALL_BUDGET - 6:
+            if attempt > 0 and elapsed >= _WHT_ENGINE_WALL_BUDGET - 6:
                 break
-            remaining_budget = max(10.0, _KILO_WALL_BUDGET - elapsed)
+            remaining_budget = max(10.0, _WHT_ENGINE_WALL_BUDGET - elapsed)
             text = self._chat(
                 messages,
                 temperature,
@@ -411,7 +411,7 @@ class KiloEngine:
                             if pix.alpha:
                                 pix = fitz.Pixmap(fitz.csRGB, pix)
                             jpg = pix.tobytes("jpeg", jpg_quality=jpg_quality)
-                            blocks.append(KiloEngine._image_block(
+                            blocks.append(WhtEngine._image_block(
                                 f"{document.filename} p{page_no}",
                                 "image/jpeg", jpg))
         except EngineError:
@@ -501,7 +501,7 @@ class KiloEngine:
                         stitched_pix = canvas_page.get_pixmap(matrix=fitz.Matrix(scale, scale))
                         stitched_jpg = stitched_pix.tobytes("jpeg", jpg_quality=jpg_qual)
                         out_doc.close()
-                        stitched_block = KiloEngine._image_block("stitched_pages.jpg", "image/jpeg", stitched_jpg)
+                        stitched_block = WhtEngine._image_block("stitched_pages.jpg", "image/jpeg", stitched_jpg)
                         new_parts = [p for p in parts if not (isinstance(p, dict) and p.get("type") == "image_url")]
                         new_parts.append(stitched_block)
                         adapted.append({**msg, "content": new_parts})
@@ -613,13 +613,13 @@ class KiloEngine:
             remaining = wall_budget - elapsed
             if idx > 0 and remaining < 6.0:
                 break
-            req_timeout = max(6, min(_KILO_TIMEOUT, int(remaining) - 1)) if idx > 0 else min(_KILO_TIMEOUT, max(10, int(remaining)))
+            req_timeout = max(6, min(_WHT_ENGINE_TIMEOUT, int(remaining) - 1)) if idx > 0 else min(_WHT_ENGINE_TIMEOUT, max(10, int(remaining)))
 
             effective_messages = (
                 self._adapt_messages_for_model(messages, candidate_model)
                 if has_images else messages
             )
-            endpoint_url = KILO_ENDPOINT
+            endpoint_url = WHT_ENGINE_ENDPOINT
             payload = {
                 "model": candidate_model,
                 "messages": effective_messages,
@@ -636,13 +636,13 @@ class KiloEngine:
                         "thinking": False,
                     }
 
-            _acquire_kilo_token()
+            _acquire_wht_engine_token()
             try:
                 resp = requests.post(
                     endpoint_url,
                     headers=headers,
                     json=payload,
-                    timeout=(_KILO_CONNECT_TIMEOUT, req_timeout),
+                    timeout=(_WHT_ENGINE_CONNECT_TIMEOUT, req_timeout),
                 )
                 # If a model rejects chat_template_kwargs with 400/422, retry immediately without it
                 if resp.status_code in (400, 422) and "chat_template_kwargs" in payload:
@@ -651,7 +651,7 @@ class KiloEngine:
                         endpoint_url,
                         headers=headers,
                         json=payload,
-                        timeout=(_KILO_CONNECT_TIMEOUT, req_timeout),
+                        timeout=(_WHT_ENGINE_CONNECT_TIMEOUT, req_timeout),
                     )
             except requests.Timeout as exc:
                 last = (f"Timed out after {req_timeout}s on {candidate_model} "
@@ -677,23 +677,46 @@ class KiloEngine:
                         if reasoning_text and _parse_json(reasoning_text)[0] is not None:
                             return reasoning_text
                     # 200 but the gateway returned no usable completion content.
-                    last = f"Gateway returned 200 with no usable completion on {candidate_model}: {resp.text[:200]}"
+                    # Retry the same model a couple times — it can be transient.
+                    for _retry in range(2):
+                        try:
+                            resp2 = requests.post(
+                                endpoint_url,
+                                headers=headers,
+                                json=payload,
+                                timeout=(_WHT_ENGINE_CONNECT_TIMEOUT, req_timeout),
+                            )
+                            body2 = resp2.json()
+                            choices2 = body2.get("choices") or []
+                            if choices2:
+                                msg2 = choices2[0].get("message") or {}
+                                ct2 = (msg2.get("content") or "").strip()
+                                if ct2:
+                                    return ct2
+                                rt2 = (msg2.get("reasoning_content") or "").strip()
+                                if rt2 and _parse_json(rt2)[0] is not None:
+                                    return rt2
+                        except Exception:
+                            pass
+                    # Still empty after retries — return empty so generate_json
+                    # can apply its own retry/correction logic instead of crashing.
+                    return ""
                 except (KeyError, IndexError, TypeError, ValueError):
-                    last = f"Gateway returned 200 with unreadable body on {candidate_model}: {resp.text[:200]}"
+                    return ""
             elif resp.status_code in (401, 403):
                 raise EngineError(
-                    f"Kilo Gateway rejected the key (HTTP {resp.status_code}). "
-                    "Check KILO_API_KEY."
+                    f"WHT Engine AI Gateway rejected the key (HTTP {resp.status_code}). "
+                    "Check WHT_ENGINE_API_KEY."
                 )
             elif resp.status_code == 429:
                 raise EngineError(
-                    "Kilo Gateway rate limit (HTTP 429) — wait a moment and "
-                    "retry, or raise KILO_RPM if your plan allows more."
+                    "WHT Engine AI Gateway rate limit (HTTP 429) — wait a moment and "
+                    "retry, or raise WHT_ENGINE_RPM if your plan allows more."
                 )
             else:
                 last = f"HTTP {resp.status_code} on {candidate_model}: {resp.text[:200]}"
 
-        raise EngineError(f"Kilo Gateway call failed: {last}")
+        raise EngineError(f"WHT Engine AI Gateway call failed: {last}")
 
 
 # ---------------------------------------------------------------------------
@@ -745,7 +768,7 @@ class MockEngine:
         if document is None or document.kind != "text" or not document.text:
             raise EngineError(
                 "Mock engine can only read plain-text documents. "
-                "Set KILO_API_KEY (or drop --mock) to OCR scanned PDFs "
+                "Set WHT_ENGINE_API_KEY (or drop --mock) to OCR scanned PDFs "
                 "and images."
             )
         blocks = _parse_blocks(document.text)
@@ -1082,26 +1105,26 @@ def make_engine(api_key: str | None = None,
                 backend: str | None = None):
     """Factory used by the CLI, test runners, Streamlit app and API.
 
-    Nemotron 3.5 Super VL on the Kilo AI Gateway
+    Nemotron 3.5 Super VL on the WHT Engine AI Gateway
     (``nvidia/nemotron-3.5-super-vl:free``) for checking papers, using the
-    API key configured in Vercel/environment (``KILO_API_KEY``) or provided
+    API key configured in Vercel/environment (``WHT_ENGINE_API_KEY``) or provided
     explicitly. Unknown ids pass through so the custom model box still works.
     """
     if mock or backend == "mock":
         return MockEngine(model=model)
-    if backend not in (None, "kilo"):
+    if backend not in (None, "WHT Engine"):
         raise EngineError(
-            f"Unknown backend {backend!r}: this build supports the Kilo "
+            f"Unknown backend {backend!r}: this build supports the WHT Engine "
             "AI Gateway only."
         )
     if not model or model.startswith("gemini-") or model in ("moonshotai/kimi-k3", "kimi-k3"):
-        model = KILO_DEFAULT_MODEL
+        model = WHT_ENGINE_DEFAULT_MODEL
     elif model in (
-        # Legacy NVIDIA NIM id → the Kilo gateway equivalent.
+        # Legacy NVIDIA NIM id → the WHT Engine gateway equivalent.
         "nemotron",
         "nemotron-3.5-super-vl",
         "nemotron-3.5-super-vl-120b-a12b",
         "nvidia/nemotron-3.5-super-vl-120b-a12b",
     ):
-        model = KILO_DEFAULT_MODEL
-    return KiloEngine(api_key=api_key, model=model)
+        model = WHT_ENGINE_DEFAULT_MODEL
+    return WhtEngine(api_key=api_key, model=model)
