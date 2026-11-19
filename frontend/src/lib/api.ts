@@ -202,7 +202,7 @@ export interface LiveEvalInput {
   onQuestionsAligned?: (questions: AlignedQuestion[]) => void;
   onQuestionStart?: (questionNumber: string | number, index: number, total: number) => void;
   onQuestionDone?: (
-    record: GradeRecord,
+    record: GradeRecord | null,
     index: number,
     total: number,
     allGraded: (GradeRecord | null)[]
@@ -325,7 +325,7 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
 
   const normKey = (v: unknown) => String(v ?? '').trim().toLowerCase();
 
-  async function gradeSingle(q: AlignedQuestion, idx: number): Promise<GradeRecord> {
+  async function gradeSingle(q: AlignedQuestion, idx: number): Promise<GradeRecord | null> {
     await rateLimiter.acquire();
     let lastErr: unknown;
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -357,12 +357,27 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
         }
       }
     }
-    throw lastErr;
+    // All retries exhausted — record a failed question instead of throwing,
+    // so one bad question never wipes out the questions that already passed.
+    const errRecord: GradeRecord = {
+      number: q.number,
+      question: String(q.text ?? ''),
+      max_marks: Number(q.max_marks ?? 0) || 0,
+      marks_awarded: 0,
+      marks_deducted: 0,
+      expected_answer: String(q.expected_answer ?? ''),
+      student_answer: '',
+      feedback: `Grading failed after retries — ${lastErr}`,
+      ocr_note: 'engine error',
+      deductions: [],
+    };
+    records[idx] = errRecord;
+    input.onQuestionDone?.(null, idx, totalQuestions, completedRecords);
+    return null;
   }
 
   async function gradeBatch(batch: AlignedQuestion[], baseIdx: number): Promise<void> {
     batch.forEach((q, i) => input.onQuestionStart?.(q.number, baseIdx + i, totalQuestions));
-    let lastErr: unknown;
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         await rateLimiter.acquire();
@@ -381,9 +396,6 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
         if (!Array.isArray(data.records) || data.records.length === 0) {
           throw new Error('batch returned an unexpected shape');
         }
-        // Tolerant matching: the model may reorder or restyle numbers, so
-        // match by normalised number first and position second. Anything
-        // still unmatched is graded individually below.
         const byNumber = new Map<string, GradeRecord>();
         data.records.forEach(r => {
           if (r && r.number != null) byNumber.set(normKey(r.number), r);
@@ -404,23 +416,18 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
         }
         return;
       } catch (err: unknown) {
-        lastErr = err;
         const msg = String((err as Error)?.message || err);
         if (msg.includes('504')) break;
         const is429 = msg.includes('429') || msg.toLowerCase().includes('rate');
         await new Promise(r => setTimeout(r, is429 ? 3000 : 1000));
       }
     }
-    // Batch failed twice — grade its questions one by one so a single bad
-    // batch never loses marks.
-    try {
-      for (let i = 0; i < batch.length; i++) {
-        if (!completedRecords[baseIdx + i]) {
-          await gradeSingle(batch[i], baseIdx + i);
-        }
+    // Batch failed twice — grade its questions one by one. Never throw:
+    // completed questions in other batches must be preserved.
+    for (let i = 0; i < batch.length; i++) {
+      if (!completedRecords[baseIdx + i]) {
+        await gradeSingle(batch[i], baseIdx + i);
       }
-    } catch (err: unknown) {
-      throw lastErr ?? err;
     }
   }
 
