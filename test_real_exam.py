@@ -277,9 +277,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if not args.mock and not (args.api_key
-                              or os.environ.get("NVIDIA_API_KEY")):
+                              or os.environ.get("KILO_API_KEY")):
         print("ERROR: no API key set.\n"
-              "  • export NVIDIA_API_KEY=...  to run real OCR + grading, or\n"
+              "  • export KILO_API_KEY=...  to run real OCR + grading, or\n"
               "  • re-run with --mock         for an offline text-only run.",
               file=sys.stderr)
         return 2
@@ -299,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"WeHelpTeachers - real exam test runner")
     print(f"  data dir : {data_dir}")
-    print(f"  engine   : {'mock (offline)' if args.mock else 'nvidia'}")
+    print(f"  engine   : {'mock (offline)' if args.mock else 'kilo'}")
     print(f"  cases    : {len(cases)}\n")
 
     results = []

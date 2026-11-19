@@ -112,7 +112,7 @@ with st.sidebar:
              "You can also set KILO_API_KEY as an env var.",
     )
     if not api_key:
-        api_key = os.environ.get("KILO_API_KEY") or os.environ.get("NVIDIA_API_KEY")
+        api_key = os.environ.get("KILO_API_KEY")
 
     model = st.selectbox("Model", MODEL_OPTIONS, index=0,
                          help="Nemotron 3.5 Super VL via the Kilo AI "

@@ -43,10 +43,10 @@ if load_dotenv is not None:
     load_dotenv(_BASE_DIR / ".env")
 
 from engine import (  # noqa: E402
-    NVIDIA_DEFAULT_MODEL,
+    KILO_DEFAULT_MODEL,
     PENALTY_CATEGORIES,
     EngineError,
-    get_nvidia_key,
+    get_kilo_key,
     make_engine,
 )
 from extract import (  # noqa: E402
@@ -74,7 +74,7 @@ app = Flask(__name__)
 
 # Optional shared-secret protection for /api (same as the reference project).
 # If APP_SECRET is set, every /api call must carry it as X-App-Secret;
-# unset = open access. Stops strangers from burning your NVIDIA quota.
+# unset = open access. Stops strangers from burning your Kilo quota.
 APP_SECRET = os.environ.get("APP_SECRET", "").strip()
 
 _SECRET_TOKEN = "__VERCEL_APP_SECRET__"  # nosec B105
@@ -115,7 +115,7 @@ def _js_escape(value: str) -> str:
 
 
 def _has_key() -> bool:
-    return bool(get_nvidia_key())
+    return bool(get_kilo_key())
 
 
 def _api_error(exc: Exception):
@@ -161,7 +161,7 @@ def _model(body: dict) -> str | None:
 def _backend(body) -> str | None:
     get = body.get if isinstance(body, dict) else (lambda k, d=None: d)
     value = (get("backend") or "").strip() or None
-    return value or "nvidia"
+    return value or "kilo"
 
 
 # ---------------------------------------------------------------------------
@@ -271,8 +271,8 @@ def sitemap_xml():
 @app.get("/api/health")
 def api_health():
     return jsonify({"ok": True, "hasApiKey": _has_key(),
-                    "hasNvidiaKey": bool(get_nvidia_key()),
-                    "model": NVIDIA_DEFAULT_MODEL})
+                    "hasKiloKey": bool(get_kilo_key()),
+                    "model": KILO_DEFAULT_MODEL})
 
 
 # ---------------------------------------------------------------------------
@@ -509,7 +509,7 @@ def api_align():
     return jsonify({"aligned": [q.to_payload() for q in aligned],
                     "warnings": alignment_warnings(aligned),
                     "documents": body.get("documents") or {},
-                    "model": _model(body) or NVIDIA_DEFAULT_MODEL})
+                    "model": _model(body) or KILO_DEFAULT_MODEL})
 
 
 @app.post("/api/grade-one")
@@ -610,8 +610,8 @@ def api_report():
     summary = summarise(records)
     report = build_report(
         records, summary,
-        engine_name=body.get("engine") or "nvidia",
-        model=body.get("model") or NVIDIA_DEFAULT_MODEL,
+        engine_name=body.get("engine") or "kilo",
+        model=body.get("model") or KILO_DEFAULT_MODEL,
         params=params, documents=docs,
         warnings=body.get("warnings") or [],
     )
@@ -732,7 +732,7 @@ def api_generate_exam():
     return jsonify({
         "ok": True,
         "exam": generated,
-        "model": getattr(engine, "model", NVIDIA_DEFAULT_MODEL),
+        "model": getattr(engine, "model", KILO_DEFAULT_MODEL),
     })
 
 
@@ -875,7 +875,7 @@ def api_generate_exam_question():
     return jsonify({
         "ok": True,
         "question": generated,
-        "model": getattr(engine, "model", NVIDIA_DEFAULT_MODEL),
+        "model": getattr(engine, "model", KILO_DEFAULT_MODEL),
     })
 
 

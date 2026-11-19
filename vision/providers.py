@@ -19,7 +19,6 @@ from .models import Crop, Transcription
 from .ocr import build_prompt, parse_items
 
 KILO_DEFAULT_URL = "https://ai-gateway.kilo.ai/api/v1/chat/completions"
-PALIGEMMA_DEFAULT_URL = "https://ai.api.nvidia.com/v1/vlm/google/paligemma"
 KILO_DEFAULT_MODEL = "nvidia/nemotron-3.5-super-vl:free"
 GROQ_DEFAULT_URL = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -244,7 +243,7 @@ def _chunks(items: list, size: int):
         yield items[start:start + size]
 
 
-def _normalize_nvidia_model(model_id: str) -> str:
+def _normalize_kilo_model(model_id: str) -> str:
     low = (model_id or "").strip().lower()
     if low in ("paligemma", "google-paligemma", "google/paligemma", "google/google-paligemma"):
         return "google/paligemma"
@@ -262,22 +261,21 @@ def _normalize_nvidia_model(model_id: str) -> str:
     return (model_id or "").strip()
 
 
-def nvidia_provider(api_key: str | None = None,
-                    model: str | None = None,
-                    url: str | None = None,
-                    timeout: float = 45.0,
-                    env: dict | None = None) -> VisionProvider | None:
+def kilo_provider(api_key: str | None = None,
+                  model: str | None = None,
+                  url: str | None = None,
+                  timeout: float = 45.0,
+                  env: dict | None = None) -> VisionProvider | None:
     source = env if env is not None else os.environ
     key = (
         api_key
         or source.get("KILO_API_KEY")
-        or source.get("NVIDIA_API_KEY")
         or ""
     ).strip()
     if not key and env is None:
         try:
             import engine as _engine
-            key = (_engine.get_nvidia_key() or "").strip()
+            key = (_engine.get_kilo_key() or "").strip()
         except Exception:
             key = ""
     if not key:
@@ -287,23 +285,16 @@ def nvidia_provider(api_key: str | None = None,
         or source.get("KILO_MODEL")
         or KILO_DEFAULT_MODEL
     ).strip()
-    chosen = _normalize_nvidia_model(raw_chosen)
+    chosen = _normalize_kilo_model(raw_chosen)
     is_vlm = chosen in _VLM_ENDPOINT_MODELS
-    default_url = (
-        source.get("NVIDIA_PALIGEMMA_URL", PALIGEMMA_DEFAULT_URL)
-        if is_vlm
-        else (
-            source.get("KILO_API_URL")
-            or KILO_DEFAULT_URL
-        )
-    )
+    default_url = source.get("KILO_API_URL") or KILO_DEFAULT_URL
     extra = (
         {"chat_template_kwargs": {"enable_thinking": False, "thinking": False}}
         if (not is_vlm and _uses_thinking_kwargs(chosen))
         else {}
     )
     return VisionProvider(ProviderConfig(
-        name="nvidia",
+        name="kilo",
         url=url or default_url,
         model=chosen,
         api_key=key,
@@ -348,7 +339,7 @@ def build_providers(env: dict | None = None,
     else:
         merged_env = None
     providers = [
-        nvidia_provider(model=model, env=merged_env),
+        kilo_provider(model=model, env=merged_env),
         groq_provider(env=merged_env),
     ]
     return [provider for provider in providers if provider is not None]

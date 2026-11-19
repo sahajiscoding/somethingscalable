@@ -6,7 +6,7 @@ export const APP_SECRET: string = (() => {
   return v.startsWith('__VERCEL') ? '' : v;
 })();
 
-/* Default model id used by the server (engine.NVIDIA_DEFAULT_MODEL) — kept here
+/* Default model id used by the server (engine.KILO_DEFAULT_MODEL) — kept here
  * so preset buttons and status lines match the backend when no override is set. */
 export const DEFAULT_MODEL_ID = 'nvidia/nemotron-3.5-super-vl:free';
 
@@ -60,7 +60,7 @@ export async function apiJson<T>(path: string, opts: RequestInit = {}): Promise<
 export interface BackendHealth {
   ok: boolean;
   hasApiKey: boolean;
-  hasNvidiaKey: boolean;
+  hasKiloKey: boolean;
   model: string;
 }
 
@@ -452,7 +452,7 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
       marking_mode: input.marking_mode || 'standard',
       negative_marks_value: input.negative_marks_value || 0,
       warnings: docWarnings.concat(aligned.warnings || []),
-      engine: 'nvidia',
+      engine: 'kilo',
       model: usedModel,
     }),
   });

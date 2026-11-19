@@ -58,38 +58,38 @@ class ChainTests(unittest.TestCase):
 
 
 class DecisionTests(unittest.TestCase):
-    def _transcription(self, latex: str, provider: str = "nvidia"):
+    def _transcription(self, latex: str, provider: str = "kilo"):
         return Transcription(crop_id="p1c0", latex=latex, provider=provider)
 
     def test_single_provider_is_medium_confidence(self):
-        result = arbiter.decide({"nvidia": self._transcription("2+2=4")})
+        result = arbiter.decide({"kilo": self._transcription("2+2=4")})
         self.assertEqual(result.confidence, 0.55)
         self.assertIn("single-provider", result.note)
 
     def test_two_agreeing_providers_are_high_confidence(self):
         result = arbiter.decide({
-            "nvidia": self._transcription("2+2=4"),
+            "kilo": self._transcription("2+2=4"),
             "groq": self._transcription("2+2=4", "groq"),
         })
         self.assertEqual(result.confidence, 0.95)
 
     def test_two_disagreeing_providers_are_low_confidence(self):
         result = arbiter.decide({
-            "nvidia": self._transcription("2+2"),
+            "kilo": self._transcription("2+2"),
             "groq": self._transcription("2+3", "groq"),
         })
         self.assertEqual(result.confidence, 0.35)
 
     def test_chain_contradiction_caps_confidence(self):
         result = arbiter.decide({
-            "nvidia": self._transcription(r"p(2) = 2^2 - 4 \\ = 22 - 4"),
+            "kilo": self._transcription(r"p(2) = 2^2 - 4 \\ = 22 - 4"),
         })
         self.assertEqual(result.confidence, 0.3)
         self.assertIn("chain", result.note)
 
     def test_all_failed_is_an_error_not_a_zero_mark(self):
-        failed = Transcription(crop_id="p1c0", provider="nvidia", error="timeout")
-        result = arbiter.decide({"nvidia": failed})
+        failed = Transcription(crop_id="p1c0", provider="kilo", error="timeout")
+        result = arbiter.decide({"kilo": failed})
         self.assertEqual(result.confidence, 0.0)
         self.assertTrue(result.error)
         self.assertFalse(result.ok)

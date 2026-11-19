@@ -2,7 +2,7 @@
 
 Two engines expose the same interface:
 
-* ``NvidiaEngine`` - OCR/vision + grading through the Kilo AI Gateway
+* ``KiloEngine`` - OCR/vision + grading through the Kilo AI Gateway
   (``https://ai-gateway.kilo.ai/api/v1``, OpenAI-compatible).  Standard
   library only (``urllib``), no extra dependency.  Any ``KILO_API_KEY``
   selects it automatically; text + images are fully supported, PDFs fall
@@ -27,7 +27,7 @@ import re
 import threading
 from typing import Any
 
-# (Model default lives below as NVIDIA_DEFAULT_MODEL.)
+# (Model default lives below as KILO_DEFAULT_MODEL.)
 
 # Kilo AI Gateway (OpenAI-compatible chat-completions endpoint) —
 # Nemotron 3.5 Super VL (nvidia/nemotron-3.5-super-vl:free) reads the
@@ -35,16 +35,14 @@ from typing import Any
 # previous GLM/DeepSeek flash models, which hit the read timeout on real
 # exam papers. This build offers that single model only; override the id
 # with KILO_MODEL if Kilo ever renames it.
-# Kilo only: the legacy NVIDIA_API_URL / NVIDIA_MODEL overrides are gone so a
-# stale Nvidia NIM env var can never route requests off the Kilo gateway again.
+# Kilo only: no legacy API_URL / MODEL overrides, so nothing can route
+# requests off the Kilo gateway again.
 KILO_DEFAULT_ENDPOINT = "https://ai-gateway.kilo.ai/api/v1/chat/completions"
-NIM_ENDPOINT = (
+KILO_ENDPOINT = (
     os.environ.get("KILO_API_URL")
     or KILO_DEFAULT_ENDPOINT
 )
-PALIGEMMA_VLM_ENDPOINT = os.environ.get(
-    "NVIDIA_PALIGEMMA_URL", "https://ai.api.nvidia.com/v1/vlm/google/paligemma")
-NVIDIA_DEFAULT_MODEL = (
+KILO_DEFAULT_MODEL = (
     os.environ.get("KILO_MODEL")
     or "nvidia/nemotron-3.5-super-vl:free"
 )
@@ -92,66 +90,59 @@ _IMAGE_ONLY_VISION_MODELS = frozenset({
 # Fast vision fallbacks (used when messages include images/scans). Only the
 # one offered model remains, so a "fallback" is a straight retry.
 _VISION_FALLBACK_MODELS = (
-    NVIDIA_DEFAULT_MODEL,
+    KILO_DEFAULT_MODEL,
 )
 
 # Fast text/grading fallbacks (used for grading batches, exam generation, and
 # digital text extraction).
 _FALLBACK_MODELS = (
-    NVIDIA_DEFAULT_MODEL,
+    KILO_DEFAULT_MODEL,
 )
 
 # Per-request HTTP timeout (seconds). The Kilo free tier routinely needs
 # 30-60 s for multi-page vision + JSON, so 24 s was aborting healthy
 # requests mid-flight ("Read timed out") and then retrying into the same
 # wall. Budgets must fit inside Vercel's 300 s function cap (vercel.json):
-# worst case ≈ two attempts × NVIDIA_TIMEOUT inside NVIDIA_WALL_BUDGET.
+# worst case ≈ two attempts × KILO_TIMEOUT inside KILO_WALL_BUDGET.
 try:
-    _NIM_TIMEOUT = int(float(str(os.environ.get("NVIDIA_TIMEOUT", "90"))))
+    _KILO_TIMEOUT = int(float(str(os.environ.get("KILO_TIMEOUT", "90"))))
 except ValueError:
-    _NIM_TIMEOUT = 90
-_NIM_CONNECT_TIMEOUT = 8
-_NIM_WALL_BUDGET = int(float(str(os.environ.get("NVIDIA_WALL_BUDGET", "200"))))
+    _KILO_TIMEOUT = 90
+_KILO_CONNECT_TIMEOUT = 8
+_KILO_WALL_BUDGET = int(float(str(os.environ.get("KILO_WALL_BUDGET", "200"))))
 # Rendered-PDF page cap — supports real-world exam papers with 20, 30, 50+ pages.
-_NVIDIA_MAX_PDF_PAGES = int(os.environ.get("MAX_PDF_PAGES", "80"))
+_MAX_PDF_PAGES = int(os.environ.get("MAX_PDF_PAGES", "80"))
 
-_NVIDIA_KEY_NAMES = (
+_KILO_KEY_NAMES = (
     "KILO_API_KEY",
     "KILO_KEY",
-    # Legacy aliases — still read so an existing deploy keeps working.
-    "NVIDIA_API_KEY",
-    "NVIDIA_KEY",
-    "NIM_API_KEY",
-    "NV_API_KEY",
-    "MOONSHOT_API_KEY",
-    "KIMI_API_KEY",
 )
 
 
-def get_nvidia_key(explicit_key: str | None = None) -> str:
-    """Return explicit key or first discovered Kilo/NVIDIA env var."""
+def get_kilo_key(explicit_key: str | None = None) -> str:
+    """Return explicit key or first discovered Kilo env var."""
     if explicit_key and explicit_key.strip():
         return explicit_key.strip()
-    for name in _NVIDIA_KEY_NAMES:
+    for name in _KILO_KEY_NAMES:
         val = os.environ.get(name, "").strip()
         if val:
             return val
     return ""
 
-# The gateway rate-limits per key. A token bucket refilled at NVIDIA_RPM/min
+# The gateway rate-limits per key. A token bucket refilled at KILO_RPM/min
 # (default 39) serialises bursts — parallel page OCR, per-question grading
 # calls — so callers wait instead of tripping 429s. Raise it if your Kilo
 # plan allows more.
 try:
-    NVIDIA_RPM = int(os.environ.get("NVIDIA_RPM", 39))
+    KILO_RPM = int(os.environ.get("KILO_RPM", 39))
 except ValueError:  # a bad env value must never crash the import
-    NVIDIA_RPM = 39
+    KILO_RPM = 39
 _bucket_lock = threading.Lock()
-_bucket_tokens = float(NVIDIA_RPM)
+_bucket_tokens = float(KILO_RPM)
 _bucket_last: float | None = None
 
 
-def _acquire_nvidia_token() -> None:
+def _acquire_kilo_token() -> None:
     """Block until a rate-limit token is available, then consume it."""
     import time
     global _bucket_tokens, _bucket_last
@@ -161,14 +152,14 @@ def _acquire_nvidia_token() -> None:
             if _bucket_last is None:
                 _bucket_last = now
             _bucket_tokens = min(
-                float(NVIDIA_RPM),
-                _bucket_tokens + (now - _bucket_last) * NVIDIA_RPM / 60.0,
+                float(KILO_RPM),
+                _bucket_tokens + (now - _bucket_last) * KILO_RPM / 60.0,
             )
             _bucket_last = now
             if _bucket_tokens >= 1.0:
                 _bucket_tokens -= 1.0
                 return
-            wait = (1.0 - _bucket_tokens) * 60.0 / NVIDIA_RPM
+            wait = (1.0 - _bucket_tokens) * 60.0 / KILO_RPM
         time.sleep(min(max(wait, 0.05), 2.0))
 
 
@@ -232,13 +223,12 @@ class EngineError(RuntimeError):
 # Kilo AI Gateway engine: OpenAI-compatible chat-completions, stdlib only
 # ---------------------------------------------------------------------------
 
-class NvidiaEngine:
+class KiloEngine:
     """Vision + grading through the Kilo AI Gateway (ai-gateway.kilo.ai).
 
     Nemotron 3.5 Super VL (nvidia/nemotron-3.5-super-vl:free) reads the
     pages and grades (native vision + JSON), HTTP via ``requests``. The key
-    comes from ``KILO_API_KEY`` (or aliases like NVIDIA_API_KEY /
-    NIM_API_KEY) configured in Vercel or environment.
+    comes from ``KILO_API_KEY`` configured in Vercel or environment.
 
     Images go over as base64 data-URL blocks. PDF pages are rendered to PNG
     with PyMuPDF (digital pages with enough embedded text ride along as
@@ -246,17 +236,17 @@ class NvidiaEngine:
     fallback could never handle.
     """
 
-    name = "nvidia"
+    name = "kilo"
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
-        key = get_nvidia_key(api_key)
+        key = get_kilo_key(api_key)
         if not key:
             raise EngineError(
                 "No Kilo API key found. Set KILO_API_KEY in Vercel Environment "
                 "Variables (or pass --api-key)."
             )
         self.key = key
-        self.model = model or NVIDIA_DEFAULT_MODEL
+        self.model = model or KILO_DEFAULT_MODEL
 
     # -- public API ---------------------------------------------------------
 
@@ -275,9 +265,9 @@ class NvidiaEngine:
         last_error = "unknown parse error"
         for attempt in range(max_attempts):
             elapsed = time.monotonic() - start_t
-            if attempt > 0 and elapsed >= _NIM_WALL_BUDGET - 6:
+            if attempt > 0 and elapsed >= _KILO_WALL_BUDGET - 6:
                 break
-            remaining_budget = max(10.0, _NIM_WALL_BUDGET - elapsed)
+            remaining_budget = max(10.0, _KILO_WALL_BUDGET - elapsed)
             text = self._chat(
                 messages,
                 temperature,
@@ -399,10 +389,10 @@ class NvidiaEngine:
                 with fitz.open(stream=chunk.data, filetype="pdf") as doc:
                     for page in doc:
                         page_no += 1
-                        if page_no > _NVIDIA_MAX_PDF_PAGES:
+                        if page_no > _MAX_PDF_PAGES:
                             raise EngineError(
                                 f"{document.filename} has more than "
-                                f"{_NVIDIA_MAX_PDF_PAGES} pages — split it and "
+                                f"{_MAX_PDF_PAGES} pages — split it and "
                                 "grade the parts separately."
                             )
                         text = (page.get_text() or "").strip()
@@ -421,7 +411,7 @@ class NvidiaEngine:
                             if pix.alpha:
                                 pix = fitz.Pixmap(fitz.csRGB, pix)
                             jpg = pix.tobytes("jpeg", jpg_quality=jpg_quality)
-                            blocks.append(NvidiaEngine._image_block(
+                            blocks.append(KiloEngine._image_block(
                                 f"{document.filename} p{page_no}",
                                 "image/jpeg", jpg))
         except EngineError:
@@ -511,7 +501,7 @@ class NvidiaEngine:
                         stitched_pix = canvas_page.get_pixmap(matrix=fitz.Matrix(scale, scale))
                         stitched_jpg = stitched_pix.tobytes("jpeg", jpg_quality=jpg_qual)
                         out_doc.close()
-                        stitched_block = NvidiaEngine._image_block("stitched_pages.jpg", "image/jpeg", stitched_jpg)
+                        stitched_block = KiloEngine._image_block("stitched_pages.jpg", "image/jpeg", stitched_jpg)
                         new_parts = [p for p in parts if not (isinstance(p, dict) and p.get("type") == "image_url")]
                         new_parts.append(stitched_block)
                         adapted.append({**msg, "content": new_parts})
@@ -623,32 +613,22 @@ class NvidiaEngine:
             remaining = wall_budget - elapsed
             if idx > 0 and remaining < 6.0:
                 break
-            req_timeout = max(6, min(_NIM_TIMEOUT, int(remaining) - 1)) if idx > 0 else min(_NIM_TIMEOUT, max(10, int(remaining)))
+            req_timeout = max(6, min(_KILO_TIMEOUT, int(remaining) - 1)) if idx > 0 else min(_KILO_TIMEOUT, max(10, int(remaining)))
 
             effective_messages = (
                 self._adapt_messages_for_model(messages, candidate_model)
                 if has_images else messages
             )
-            is_vlm_endpoint = candidate_model in _IMAGE_ONLY_VISION_MODELS
-            endpoint_url = PALIGEMMA_VLM_ENDPOINT if is_vlm_endpoint else NIM_ENDPOINT
-            if is_vlm_endpoint:
-                payload: dict[str, Any] = {
-                    "messages": effective_messages,
-                    "temperature": max(0.2, min(float(temperature or 0.2), 1.0)),
-                    "top_p": 0.7,
-                    "max_tokens": min(int(max_tokens or 1024), 1024),
-                    "stream": False,
-                }
-            else:
-                payload = {
-                    "model": candidate_model,
-                    "messages": effective_messages,
-                    "temperature": temperature,
-                    "top_p": 0.7,
-                    "max_tokens": max_tokens,
-                    "stream": False,
-                }
-                if self._uses_thinking_kwargs(candidate_model):
+            endpoint_url = KILO_ENDPOINT
+            payload = {
+                "model": candidate_model,
+                "messages": effective_messages,
+                "temperature": temperature,
+                "top_p": 0.7,
+                "max_tokens": max_tokens,
+                "stream": False,
+            }
+            if self._uses_thinking_kwargs(candidate_model):
                     # Disable chain-of-thought reasoning trace so the model outputs
                     # JSON immediately (~2-4s) instead of spending 40-60s on <think>.
                     payload["chat_template_kwargs"] = {
@@ -656,13 +636,13 @@ class NvidiaEngine:
                         "thinking": False,
                     }
 
-            _acquire_nvidia_token()
+            _acquire_kilo_token()
             try:
                 resp = requests.post(
                     endpoint_url,
                     headers=headers,
                     json=payload,
-                    timeout=(_NIM_CONNECT_TIMEOUT, req_timeout),
+                    timeout=(_KILO_CONNECT_TIMEOUT, req_timeout),
                 )
                 # If a model rejects chat_template_kwargs with 400/422, retry immediately without it
                 if resp.status_code in (400, 422) and "chat_template_kwargs" in payload:
@@ -671,7 +651,7 @@ class NvidiaEngine:
                         endpoint_url,
                         headers=headers,
                         json=payload,
-                        timeout=(_NIM_CONNECT_TIMEOUT, req_timeout),
+                        timeout=(_KILO_CONNECT_TIMEOUT, req_timeout),
                     )
             except requests.Timeout as exc:
                 last = (f"Timed out after {req_timeout}s on {candidate_model} "
@@ -683,18 +663,23 @@ class NvidiaEngine:
 
             if resp.status_code == 200:
                 try:
-                    choice_msg = resp.json()["choices"][0]["message"]
-                    content_text = (choice_msg.get("content") or "").strip()
-                    if content_text:
-                        if is_vlm_endpoint and _parse_json(content_text)[0] is None and len(models_to_try) > 1:
-                            last = f"Non-JSON response on {candidate_model}: {content_text[:120]}"
-                            continue
-                        return content_text
-                    reasoning_text = (choice_msg.get("reasoning_content") or "").strip()
-                    if reasoning_text and _parse_json(reasoning_text)[0] is not None:
-                        return reasoning_text
+                    body = resp.json()
+                    choices = body.get("choices") or []
+                    if choices:
+                        choice_msg = choices[0].get("message") or {}
+                        content_text = (choice_msg.get("content") or "").strip()
+                        if content_text:
+                            if _parse_json(content_text)[0] is None and len(models_to_try) > 1:
+                                last = f"Non-JSON response on {candidate_model}: {content_text[:120]}"
+                                continue
+                            return content_text
+                        reasoning_text = (choice_msg.get("reasoning_content") or "").strip()
+                        if reasoning_text and _parse_json(reasoning_text)[0] is not None:
+                            return reasoning_text
+                    # 200 but the gateway returned no usable completion content.
+                    last = f"Gateway returned 200 with no usable completion on {candidate_model}: {resp.text[:200]}"
                 except (KeyError, IndexError, TypeError, ValueError):
-                    pass
+                    last = f"Gateway returned 200 with unreadable body on {candidate_model}: {resp.text[:200]}"
             elif resp.status_code in (401, 403):
                 raise EngineError(
                     f"Kilo Gateway rejected the key (HTTP {resp.status_code}). "
@@ -703,9 +688,10 @@ class NvidiaEngine:
             elif resp.status_code == 429:
                 raise EngineError(
                     "Kilo Gateway rate limit (HTTP 429) — wait a moment and "
-                    "retry, or raise NVIDIA_RPM if your plan allows more."
+                    "retry, or raise KILO_RPM if your plan allows more."
                 )
-            last = f"HTTP {resp.status_code} on {candidate_model}: {resp.text[:200]}"
+            else:
+                last = f"HTTP {resp.status_code} on {candidate_model}: {resp.text[:200]}"
 
         raise EngineError(f"Kilo Gateway call failed: {last}")
 
@@ -1103,13 +1089,13 @@ def make_engine(api_key: str | None = None,
     """
     if mock or backend == "mock":
         return MockEngine(model=model)
-    if backend not in (None, "nvidia", "kilo"):
+    if backend not in (None, "kilo"):
         raise EngineError(
             f"Unknown backend {backend!r}: this build supports the Kilo "
             "AI Gateway only."
         )
     if not model or model.startswith("gemini-") or model in ("moonshotai/kimi-k3", "kimi-k3"):
-        model = NVIDIA_DEFAULT_MODEL
+        model = KILO_DEFAULT_MODEL
     elif model in (
         # Legacy NVIDIA NIM id → the Kilo gateway equivalent.
         "nemotron",
@@ -1117,5 +1103,5 @@ def make_engine(api_key: str | None = None,
         "nemotron-3.5-super-vl-120b-a12b",
         "nvidia/nemotron-3.5-super-vl-120b-a12b",
     ):
-        model = NVIDIA_DEFAULT_MODEL
-    return NvidiaEngine(api_key=api_key, model=model)
+        model = KILO_DEFAULT_MODEL
+    return KiloEngine(api_key=api_key, model=model)

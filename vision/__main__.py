@@ -24,7 +24,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-model", action="store_true",
                         help="layout only; no API calls")
     parser.add_argument("--providers", default="",
-                        help="comma separated subset: nvidia,groq")
+                        help="comma separated subset: kilo,groq")
     parser.add_argument("--json", dest="json_path", default="",
                         help="write the full result as JSON")
     args = parser.parse_args(argv)

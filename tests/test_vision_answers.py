@@ -157,7 +157,7 @@ class VisionFlagTests(unittest.TestCase):
             self.assertFalse(_vision_enabled(self._document()))
 
     def test_auto_on_with_nvidia_key(self):
-        with mock.patch.dict(os.environ, {"NVIDIA_API_KEY": "k"}, clear=True):
+        with mock.patch.dict(os.environ, {"KILO_API_KEY": "k"}, clear=True):
             self.assertTrue(_vision_enabled(self._document()))
 
     def test_groq_needs_a_model_too(self):
@@ -171,19 +171,19 @@ class VisionFlagTests(unittest.TestCase):
     def test_explicit_off_wins_over_a_key(self):
         with mock.patch.dict(
             os.environ,
-            {"NVIDIA_API_KEY": "k", "VISION_STUDENT": "0"},
+            {"KILO_API_KEY": "k", "VISION_STUDENT": "0"},
             clear=True,
         ):
             self.assertFalse(_vision_enabled(self._document()))
 
     def test_text_documents_never_use_vision(self):
-        with mock.patch.dict(os.environ, {"NVIDIA_API_KEY": "k"}, clear=True):
+        with mock.patch.dict(os.environ, {"KILO_API_KEY": "k"}, clear=True):
             self.assertFalse(_vision_enabled(self._document("text")))
 
     def test_override_can_force_either_way(self):
         with mock.patch.dict(os.environ, {}, clear=True):
             self.assertTrue(_vision_enabled(self._document(), override=True))
-        with mock.patch.dict(os.environ, {"NVIDIA_API_KEY": "k"}, clear=True):
+        with mock.patch.dict(os.environ, {"KILO_API_KEY": "k"}, clear=True):
             self.assertFalse(_vision_enabled(self._document(), override=False))
 
 
