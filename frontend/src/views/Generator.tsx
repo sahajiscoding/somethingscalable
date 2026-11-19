@@ -39,6 +39,7 @@ interface GeneratorProps {
 
 export default function Generator({ modelOverride, setModelOverride, onSendToGrader }: GeneratorProps) {
   const [topic, setTopic] = useState('Calculus — Quadratic Equations & Derivatives');
+  const [subtopic, setSubtopic] = useState('');
   const [grade, setGrade] = useState('Senior Secondary (Grade 11)');
   const [difficulty, setDifficulty] = useState('Medium');
   const [count, setCount] = useState('5');
@@ -73,6 +74,7 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
     try {
       const data = await generateExam({
         topic: topic.trim(),
+        subtopic: subtopic.trim() || undefined,
         grade,
         difficulty,
         count: totalCount,
@@ -173,12 +175,24 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
               Subject &amp; Curriculum Topic
             </label>
             <input id="genTopic" type="text" value={topic} onChange={e => setTopic(e.target.value)} placeholder="e.g. Calculus — Derivatives, Integrals & Roots" className={inputCls} />
+            <input
+              id="genSubtopic"
+              type="text"
+              value={subtopic}
+              onChange={e => setSubtopic(e.target.value)}
+              placeholder="Optional narrower focus, e.g. Snell's law (leave blank to cover the whole topic)"
+              aria-label="Optional subtopic focus"
+              className={`${inputCls} mt-2`}
+            />
             <div className="mt-2 flex flex-wrap gap-1.5">
               {TOPIC_TAGS.map(t => (
                 <button
                   key={t}
                   type="button"
-                  onClick={() => setTopic(t)}
+                  onClick={() => {
+                    setTopic(t);
+                    setSubtopic('');
+                  }}
                   className="cursor-pointer rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11.5px] text-white/60 transition hover:border-mint hover:bg-mint/10 hover:text-mint"
                 >
                   {TAG_SHORT[t]}

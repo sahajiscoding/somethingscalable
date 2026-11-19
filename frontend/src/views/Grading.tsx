@@ -1304,6 +1304,13 @@ export default function Grading(props: GradingProps) {
             };
           });
         }
+      } catch (err) {
+        // A failed recheck used to disappear into `finally`: the question kept
+        // its old marks with no feedback, looking like the recheck succeeded.
+        setAlert({
+          msg: `${qNo} could not be rechecked — ${err instanceof Error ? err.message : String(err)}. Its previous marks are unchanged.`,
+          ok: false,
+        });
       } finally {
         setRecheckingQNo(null);
       }

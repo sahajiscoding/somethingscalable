@@ -611,6 +611,7 @@ def normalise_record(item: dict | None, q: AlignedQuestion,
 
     allowed = {CONTENT_CATEGORY, *params.penalty_list}
     deductions: list[dict] = []
+    refunded = 0.0
     for d in (item.get("deductions") or []):
         if not isinstance(d, dict):
             continue
@@ -620,7 +621,10 @@ def normalise_record(item: dict | None, q: AlignedQuestion,
         if marks is None or marks <= 0:
             continue
         if category in FORBIDDEN_CATEGORIES:
-            # OCR noise must never deduct - fold it into the ocr note.
+            # OCR noise must never deduct. Dropping the entry alone is not
+            # enough: the award is re-derived from the remaining deductions,
+            # which would silently keep the mark lost. Refund it explicitly.
+            refunded += marks
             continue
         if category not in allowed:
             category = CONTENT_CATEGORY
@@ -633,6 +637,10 @@ def normalise_record(item: dict | None, q: AlignedQuestion,
 
     total_deducted = round(sum(d["marks"] for d in deductions), 2)
     awarded = _as_float(item.get("marks_awarded"))
+    if refunded and awarded is not None:
+        # Give the recognition-artefact marks back before the award is
+        # reconciled below.
+        awarded = round(awarded + refunded, 2)
 
     if max_marks <= 0:
         # Unknown maximum: keep the model's number but expose the problem.

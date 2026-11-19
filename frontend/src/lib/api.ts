@@ -566,6 +566,8 @@ export interface GenerateExamInput {
   difficulty: string;
   count: number;
   marks: number;
+  /** Optional narrower focus, e.g. "Snell's law" inside the topic "Optics". */
+  subtopic?: string;
   model?: string;
   onQuestionGenerated?: (
     question: GeneratedQuestion,
@@ -614,6 +616,7 @@ export async function generateExam(
             index: i + 1,
             total: count,
             marks: perQMarks,
+            subtopic: input.subtopic?.trim() || undefined,
             model: input.model,
           }),
         });

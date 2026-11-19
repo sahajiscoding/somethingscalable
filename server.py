@@ -717,13 +717,17 @@ def api_generate_exam_question():
         "Critical analysis, synthesis of concepts, and problem solving",
     ]
     aspect = ASPECTS[(index - 1) % len(ASPECTS)]
-    context_hint = f"Focus on aspect: {subtopic}. " if subtopic else f"Question pedagogical focus: {aspect}. "
+    # A teacher-supplied subtopic must reach the model: it used to be read from
+    # the request and then dropped, so the paper ignored it entirely.
+    focus = (
+        f"{subtopic} (while still exercising {aspect})" if subtopic else aspect
+    )
 
     instruction = (
         f"You are an expert school examiner setting an official exam paper for {grade}.\n"
         f"Topic: '{topic}'.\n"
         f"Generate Question {number} (Question {index} of {total} in the paper).\n"
-        f"Specific focus for this question: {aspect}.\n"
+        f"Specific focus for this question: {focus}.\n"
         f"Difficulty: {difficulty}. Marks: {marks:g}.\n"
         "Create an authentic, high-quality, syllabus-accurate question specifically about this topic and focus. "
         "Do NOT write generic placeholders. Output strictly valid JSON matching this schema:\n"

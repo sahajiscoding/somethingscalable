@@ -244,3 +244,101 @@ class GradingWrapperTests(unittest.TestCase):
             resp = client.post("/api/grade-one", json={"question": question})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.get_json()["record"]["marks_awarded"], 1.0)
+
+
+class OcrNoiseRefundTests(unittest.TestCase):
+    """Recognition artefacts must never cost the student a mark."""
+
+    def _normalise(self, record, **kwargs):
+        import grade
+        aligned = grade.aligned_from_dict({
+            "number": "1", "question": "Differentiate x^3.",
+            "max_marks": 5, "expected_answer": "3x^2",
+            "student_answer": "wrong prose", "marking_scheme": ["5m"],
+        })
+        return grade.normalise_record(record, aligned, grade.GradeParams(**kwargs))
+
+    def test_ocr_only_deduction_is_refunded(self):
+        out = self._normalise({
+            "number": "1", "marks_awarded": 4,
+            "deductions": [{"category": "ocr", "marks": 1, "reason": "blur"}],
+            "feedback": "scan noise",
+        })
+        self.assertEqual(out["marks_awarded"], 5.0)
+        self.assertEqual(out["marks_deducted"], 0.0)
+
+    def test_ocr_noise_does_not_cancel_real_content_loss(self):
+        out = self._normalise({
+            "number": "1", "marks_awarded": 3,
+            "deductions": [
+                {"category": "ocr", "marks": 1, "reason": "blur"},
+                {"category": "content", "marks": 1, "reason": "wrong sign"},
+            ],
+            "feedback": "one real error",
+        })
+        self.assertEqual(out["marks_awarded"], 4.0)
+        self.assertEqual(out["marks_deducted"], 1.0)
+
+    def test_award_is_clamped_to_the_maximum(self):
+        out = self._normalise({"number": "1", "marks_awarded": 99})
+        self.assertEqual(out["marks_awarded"], 5.0)
+
+    def test_negative_award_becomes_zero(self):
+        out = self._normalise({"number": "1", "marks_awarded": -5})
+        self.assertEqual(out["marks_awarded"], 0.0)
+
+    def test_disabled_criterion_is_reclassified_as_content(self):
+        out = self._normalise({
+            "number": "1", "marks_awarded": 4,
+            "deductions": [{"category": "handwriting", "marks": 1}],
+        })
+        self.assertEqual(out["deductions"][0]["category"], "content")
+
+
+class SubtopicPromptTests(unittest.TestCase):
+    """A teacher-supplied subtopic has to reach the model."""
+
+    def test_subtopic_appears_in_the_instruction(self):
+        sent: list[str] = []
+
+        class _Resp:
+            status_code = 200
+            text = ""
+
+            def json(self):
+                return {"choices": [{"message": {"content": json.dumps({
+                    "number": "Q1", "text": "State Snell's law.",
+                    "max_marks": 5, "expected_answer": "n1 sin i = n2 sin r",
+                    "marking_scheme": "5m", "keywords": ["snell"],
+                })}}]}
+
+        def fake_post(url, headers=None, json=None, timeout=None, **_kw):
+            for message in json["messages"]:
+                content = message.get("content")
+                if isinstance(content, str):
+                    sent.append(content)
+            return _Resp()
+
+        client = server.app.test_client()
+        with mock.patch.dict(os.environ, {"KILO_API_KEY": "k"}, clear=True), \
+                mock.patch.object(engine, "WHT_ENGINE_RPM", 100_000), \
+                mock.patch("requests.post", side_effect=fake_post):
+            resp = client.post("/api/generate-exam-question", json={
+                "topic": "Optics", "subtopic": "Snell's law",
+                "index": 1, "total": 3, "marks": 5,
+            })
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(any("Snell's law" in text for text in sent))
+
+    def test_blank_subtopic_still_generates(self):
+        answer = {"number": "Q1", "text": "Define optics.", "max_marks": 5,
+                  "expected_answer": "study of light", "marking_scheme": "5m",
+                  "keywords": ["light"]}
+        with mock.patch.dict(os.environ, {"KILO_API_KEY": "k"}, clear=True), \
+                mock.patch.object(engine.WhtEngine, "generate_json",
+                                  return_value=answer):
+            resp = server.app.test_client().post(
+                "/api/generate-exam-question",
+                json={"topic": "Optics", "subtopic": "", "index": 1},
+            )
+        self.assertEqual(resp.status_code, 200)
