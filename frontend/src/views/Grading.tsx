@@ -1563,18 +1563,26 @@ export default function Grading(props: GradingProps) {
             <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               {[
                 {
+                  id: '',
+                  name: 'Kilo Auto',
+                  tag: 'Kilo Gateway · Auto-select model',
+                  tagTone: 'text-mint/90',
+                  desc: "Let Kilo pick the best model for your paper (no model override sent).",
+                  match: (m: string) => !m.trim() || m === 'kilo-auto',
+                },
+                {
                   id: DEFAULT_MODEL_ID,
                   name: 'Nemotron 3.5 Super VL',
                   tag: 'Kilo Gateway · Multi-Page VLM · 12B Active',
                   tagTone: 'text-mint/90',
                   desc: 'Native multi-page OCR + rubric grading with chain-of-thought overhead disabled.',
-                  match: (m: string) => !m.trim() || m.includes('super-vl'),
+                  match: (m: string) => m.includes('super-vl'),
                 },
               ].map(preset => {
                 const active = preset.match(modelOverride);
                 return (
                   <button
-                    key={preset.id}
+                    key={preset.name}
                     type="button"
                     onClick={() => setModelOverride(preset.id)}
                     className={`group flex cursor-pointer flex-col rounded-xl border p-3 text-left transition-all duration-200 ${
@@ -1646,7 +1654,7 @@ export default function Grading(props: GradingProps) {
             </div>
             <div className={`mt-2 text-xs ${backend.ok ? 'text-mint' : 'text-crimson'}`}>
               {backend.ok
-                ? `● Live backend connected (Active: ${modelOverride.trim() || backend.model || DEFAULT_MODEL_ID}).`
+                ? `● Live backend connected (Active: ${modelOverride.trim() || 'Kilo Auto (gateway default)'}).`
                 : '○ No live backend (offline demo mode). Deploy with `vercel` to enable AI grading.'}
             </div>
           </div>
