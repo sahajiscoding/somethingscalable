@@ -7,12 +7,13 @@ a scoreboard plus a question-by-question report (target vs student answer,
 deductions, reasoning) downloadable as JSON and Markdown.
 
 - Web UI: `/` (works offline as a demo; live grading via the API below)
-- Grading backend: WHT Engine AI Gateway (`nvidia/nemotron-3.5-super-vl:free` by default)
+- Grading backend: WHT Engine AI Gateway, powered by the Kilo Gateway
+  (`nvidia/nemotron-3.5-super-vl:free` by default)
 - API keys live ONLY in server environment variables — never in the client
 
 ## API (split pipeline — every call is ~1 AI request, safe for capped hosts)
 
-- `GET /api/health` → `{ok, hasApiKey, hasNvidiaKey, model}`
+- `GET /api/health` → `{ok, hasApiKey, hasWhtEngineKey, model}`
 - `POST /api/extract` (multipart: `file`, `role` = paper|key|student,
   optional `model`) → `{role, filename, kind, pages, warnings,
   data: {questions|entries|answers}}`
@@ -24,6 +25,11 @@ deductions, reasoning) downloadable as JSON and Markdown.
   engine, model) → `{report, markdown}`
 - `POST /api/generate-exam` (JSON: topic, grade, difficulty, count, marks,
   model) → `{ok, exam, model}`
+- `POST /api/generate-exam-question` (JSON: topic, grade, difficulty, number,
+  index, total, marks, model) → `{ok, question, model}`
+
+Exam generation always returns real model-written questions. If the gateway
+fails, the endpoint returns an error — it never substitutes a template exam.
 
 If `APP_SECRET` is set on the server, every `/api` call must send it as the
 `X-App-Secret` header.

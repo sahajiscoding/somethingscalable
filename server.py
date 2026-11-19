@@ -62,6 +62,7 @@ from extract import (  # noqa: E402
 )
 from grade import (  # noqa: E402
     GradeParams,
+    GradingError,
     grade_batch_records,
     grade_one_record,
     recheck_one_record,
@@ -123,7 +124,7 @@ def _api_error(exc: Exception):
     if isinstance(exc, (IngestError, ExtractionError)):
         msg = str(exc.args[0]) if exc.args else "Invalid input document."
         return jsonify({"error": msg}), 400
-    if isinstance(exc, EngineError):
+    if isinstance(exc, (EngineError, GradingError)):
         # Keep the real cause: a generic "inference failed" hides whether the
         # key was rejected, the gateway timed out, or it returned 5xx/JSON.
         detail = " ".join(str(exc).split())[:300]
@@ -658,77 +659,20 @@ def api_generate_exam():
     )
     try:
         engine = make_engine(model=_model(body), backend=_backend(body))
-        generated = engine.generate_json("generate_exam", instruction=instruction, max_tokens=2048, max_attempts=2)
-    except Exception as exc:  # noqa: BLE001
-        per_q = round(marks / count, 1)
-        FALLBACK_TYPES = [
-            (
-                f"Define the key terms associated with '{topic}'. State two fundamental laws or primary characteristics governing it in {grade} curriculum.",
-                f"Accurate definitions with two correct governing characteristics for {topic}.",
-                f"Definitions: {round(per_q*0.5, 1)}m; Characteristics: {round(per_q*0.5, 1)}m."
-            ),
-            (
-                f"Explain the primary mechanism or sequence of stages involved in '{topic}'. Illustrate with a clear step-by-step explanation.",
-                f"Sequential step-by-step explanation covering all primary stages of {topic}.",
-                f"Step sequence: {round(per_q*0.6, 1)}m; Detail and clarity: {round(per_q*0.4, 1)}m."
-            ),
-            (
-                f"Differentiate between two main types or classifications observed in '{topic}'. Provide one relevant example or case for each.",
-                f"Comparative table or clear contrasting points with two valid examples in {topic}.",
-                f"Distinction points: {round(per_q*0.6, 1)}m; Examples: {round(per_q*0.4, 1)}m."
-            ),
-            (
-                f"Describe the structural components or schematic layout essential to '{topic}'. Explain the specific function of each part.",
-                f"Structural description with precise functional mapping for each component of {topic}.",
-                f"Structure: {round(per_q*0.5, 1)}m; Functions: {round(per_q*0.5, 1)}m."
-            ),
-            (
-                f"Describe a real-world scenario, practical application, or experimental setup that demonstrates '{topic}' in action.",
-                f"Realistic practical scenario with correct application of {topic} principles.",
-                f"Scenario setup: {round(per_q*0.4, 1)}m; Scientific explanation: {round(per_q*0.6, 1)}m."
-            ),
-            (
-                f"Provide a quantitative calculation or rigorous derivation demonstrating the mathematical/empirical relationships in '{topic}'.",
-                f"Step-by-step derivation or calculation with appropriate units and final value for {topic}.",
-                f"Formula: {round(per_q*0.3, 1)}m; Steps: {round(per_q*0.5, 1)}m; Final result: {round(per_q*0.2, 1)}m."
-            ),
-            (
-                f"Explain why specific conditions or triggers are necessary for '{topic}' to function effectively. What happens if these conditions are altered?",
-                f"Scientific justification of prerequisites and consequences of variation in {topic}.",
-                f"Prerequisites: {round(per_q*0.5, 1)}m; Consequence analysis: {round(per_q*0.5, 1)}m."
-            ),
-            (
-                f"Evaluate the significance of '{topic}' in broader scientific systems and summarize its overarching outcomes or impact.",
-                f"Comprehensive summary and critical evaluation of {topic}'s significance.",
-                f"Significance: {round(per_q*0.5, 1)}m; Outcomes summary: {round(per_q*0.5, 1)}m."
-            ),
-        ]
-        generated = {
-            "title": f"{topic} Examination",
-            "topic": topic,
-            "instructions": "Answer all questions. Show complete working steps.",
-            "total_marks": marks,
-            "questions": [
-                {
-                    "number": f"Q{i}",
-                    "text": FALLBACK_TYPES[(i - 1) % len(FALLBACK_TYPES)][0],
-                    "max_marks": per_q,
-                    "expected_answer": FALLBACK_TYPES[(i - 1) % len(FALLBACK_TYPES)][1],
-                    "marking_scheme": FALLBACK_TYPES[(i - 1) % len(FALLBACK_TYPES)][2],
-                    "keywords": [topic.split()[0].lower(), "solution"]
-                }
-                for i in range(1, count + 1)
-            ]
-        }
-        note = ("Generated with fallback template; check WHT Engine AI Gateway status."
-                if _has_key() else
-                "Generated with offline template; set WHT_ENGINE_API_KEY in Vercel for live AI generation.")
-        return jsonify({
-            "ok": True,
-            "exam": generated,
-            "model": "fallback-template" if _has_key() else "offline-template",
-            "note": note
-        })
+        generated = engine.generate_json("generate_exam", instruction=instruction,
+                                         max_tokens=2048, max_attempts=2)
+        questions = generated.get("questions") if isinstance(generated, dict) else None
+        if not isinstance(questions, list) or not questions:
+            raise EngineError("The model returned no questions for this exam.")
+        for i, q in enumerate(questions, start=1):
+            if not isinstance(q, dict) or not str(q.get("text") or "").strip():
+                raise EngineError(
+                    f"The model returned an empty question at position {i}.")
+    except Exception as exc:  # noqa: BLE001 - never fake an exam
+        return _api_error(exc)
+    generated.setdefault("title", f"{topic} Examination")
+    generated.setdefault("topic", topic)
+    generated.setdefault("total_marks", marks)
     return jsonify({
         "ok": True,
         "exam": generated,
@@ -741,7 +685,7 @@ def api_generate_exam_question():
     """Generate a single examination question with rubric using Nemotron 3.5 Super VL.
 
     Per-question endpoint ensures fast (<3s) calls that never trip Vercel or
-    NVIDIA read timeouts, allowing live streaming and 39 RPM concurrency.
+    gateway read timeouts, allowing live streaming and queued concurrency.
     """
     body = request.get_json(silent=True) or {}
     topic = (body.get("topic") or "Mathematics & Physics").strip()
@@ -806,72 +750,16 @@ def api_generate_exam_question():
         if isinstance(generated, list) and generated and isinstance(generated[0], dict):
             generated = generated[0]
         if not isinstance(generated, dict) or not generated.get("text"):
-            raise ValueError("Invalid question JSON generated")
+            raise EngineError("The model replied without a usable question.")
         generated["number"] = str(generated.get("number") or number)
         generated["max_marks"] = float(generated.get("max_marks") or marks)
         if not isinstance(generated.get("keywords"), list):
             generated["keywords"] = [topic.split()[0].lower(), "solution"]
-    except Exception as exc:  # noqa: BLE001
-        FALLBACK_TYPES = [
-            (
-                f"Define the key terms associated with '{topic}'. State two fundamental laws or primary characteristics governing it in {grade} curriculum.",
-                f"Accurate definitions with two correct governing characteristics for {topic}.",
-                f"Definitions: {round(marks*0.5, 1)}m; Characteristics: {round(marks*0.5, 1)}m."
-            ),
-            (
-                f"Explain the primary mechanism or sequence of stages involved in '{topic}'. Illustrate with a clear step-by-step explanation.",
-                f"Sequential step-by-step explanation covering all primary stages of {topic}.",
-                f"Step sequence: {round(marks*0.6, 1)}m; Detail and clarity: {round(marks*0.4, 1)}m."
-            ),
-            (
-                f"Differentiate between two main types or classifications observed in '{topic}'. Provide one relevant example or case for each.",
-                f"Comparative table or clear contrasting points with two valid examples in {topic}.",
-                f"Distinction points: {round(marks*0.6, 1)}m; Examples: {round(marks*0.4, 1)}m."
-            ),
-            (
-                f"Describe the structural components or schematic layout essential to '{topic}'. Explain the specific function of each part.",
-                f"Structural description with precise functional mapping for each component of {topic}.",
-                f"Structure: {round(marks*0.5, 1)}m; Functions: {round(marks*0.5, 1)}m."
-            ),
-            (
-                f"Describe a real-world scenario, practical application, or experimental setup that demonstrates '{topic}' in action.",
-                f"Realistic practical scenario with correct application of {topic} principles.",
-                f"Scenario setup: {round(marks*0.4, 1)}m; Scientific explanation: {round(marks*0.6, 1)}m."
-            ),
-            (
-                f"Provide a quantitative calculation or rigorous derivation demonstrating the mathematical/empirical relationships in '{topic}'.",
-                f"Step-by-step derivation or calculation with appropriate units and final value for {topic}.",
-                f"Formula: {round(marks*0.3, 1)}m; Steps: {round(marks*0.5, 1)}m; Final result: {round(marks*0.2, 1)}m."
-            ),
-            (
-                f"Explain why specific conditions or triggers are necessary for '{topic}' to function effectively. What happens if these conditions are altered?",
-                f"Scientific justification of prerequisites and consequences of variation in {topic}.",
-                f"Prerequisites: {round(marks*0.5, 1)}m; Consequence analysis: {round(marks*0.5, 1)}m."
-            ),
-            (
-                f"Evaluate the significance of '{topic}' in broader scientific systems and summarize its overarching outcomes or impact.",
-                f"Comprehensive summary and critical evaluation of {topic}'s significance.",
-                f"Significance: {round(marks*0.5, 1)}m; Outcomes summary: {round(marks*0.5, 1)}m."
-            ),
-        ]
-        fb_text, fb_ans, fb_scheme = FALLBACK_TYPES[(index - 1) % len(FALLBACK_TYPES)]
-        generated = {
-            "number": number,
-            "text": fb_text,
-            "max_marks": marks,
-            "expected_answer": fb_ans,
-            "marking_scheme": fb_scheme,
-            "keywords": [topic.split()[0].lower(), "solution"]
-        }
-        note = ("Generated with fallback template; check WHT Engine AI Gateway status."
-                if _has_key() else
-                "Generated with offline template; set WHT_ENGINE_API_KEY in Vercel for live AI generation.")
-        return jsonify({
-            "ok": True,
-            "question": generated,
-            "model": "fallback-template" if _has_key() else "offline-template",
-            "note": note
-        })
+    except Exception as exc:  # noqa: BLE001 - surface the real reason, never fake an exam
+        # An exam the AI did not write is worse than no exam: a teacher would
+        # print it. Fail loudly with the actual gateway error instead of
+        # silently swapping in a "random template".
+        return _api_error(exc)
     return jsonify({
         "ok": True,
         "question": generated,

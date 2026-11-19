@@ -148,7 +148,7 @@ class ProviderConfigTests(unittest.TestCase):
             )
             cfg = providers[0].config
             self.assertEqual(cfg.model, "google/paligemma")
-            self.assertEqual(cfg.url, "https://ai-gateway.wht-engine.ai/api/v1/chat/completions")
+            self.assertEqual(cfg.url, "https://api.kilo.ai/api/gateway/chat/completions")
             self.assertEqual(cfg.batch_size, 1)
             self.assertEqual(cfg.max_tokens, 1024)
             self.assertEqual(cfg.extra_payload, {})

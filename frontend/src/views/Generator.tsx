@@ -92,12 +92,15 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
       setExam(data.exam);
       setLoaderStatus('done');
       setAlert({
-        msg: data.note ? `Generated (${data.model}, offline template). ${data.note}` : `Exam generated with ${data.model || DEFAULT_MODEL_ID} (${totalCount} questions) — preview below.`,
+        msg: `Exam written by ${modelLabel(data.model || modelOverride)} — ${data.exam.questions.length} questions, ${fmt(totalMarks)} marks. Preview & answer key below.`,
         ok: true,
       });
     } catch (err) {
       setLoaderStatus('error');
-      setAlert({ msg: `Generation failed (${err instanceof Error ? err.message : String(err)}). Check the live backend and retry.`, ok: false });
+      // Only real, AI-written questions are ever shown; if none arrived, clear
+      // the preview entirely rather than leaving a fake/template paper.
+      setExam(prev => (prev && prev.questions.length > 0 ? prev : null));
+      setAlert({ msg: `Exam generation failed — ${err instanceof Error ? err.message : String(err)}`, ok: false });
     } finally {
       setRunning(false);
     }
@@ -323,7 +326,7 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
               <span className="flex items-center gap-2">
                 <span className="inline-block h-2 w-2 animate-ping rounded-full bg-mint" />
                 <span>
-                  Generating with <strong>{modelLabel(modelOverride)}</strong> (1 req/question · 39 RPM limit)
+                  Generating with <strong>{modelLabel(modelOverride)}</strong> (1 request per question · queued to stay inside the gateway limit)
                 </span>
               </span>
               <span className="font-mono font-bold">
@@ -425,7 +428,7 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
                       <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-mint" />
                       Generating Question {exam.questions.length + 1} of {count}…
                     </span>
-                    <span className="text-xs text-white/40">39 RPM queue</span>
+                    <span className="text-xs text-white/40">queued</span>
                   </div>
                 )}
               </div>
@@ -456,7 +459,7 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
                       <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-mint" />
                       Generating Question {exam.questions.length + 1} of {count}…
                     </span>
-                    <span className="text-xs text-white/40">39 RPM queue</span>
+                    <span className="text-xs text-white/40">queued</span>
                   </div>
                 )}
               </div>

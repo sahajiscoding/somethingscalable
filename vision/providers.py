@@ -1,8 +1,9 @@
 """Provider clients for crop transcription.
 
-The WHT Engine AI Gateway and Groq expose an OpenAI-compatible chat-completions
-endpoint, so one client covers both.  A provider is optional: with no Groq
-key the arbiter simply runs with a single opinion.
+The WHT Engine AI Gateway (powered by the Kilo Gateway) and Groq both expose an
+OpenAI-compatible chat-completions endpoint, so one client covers both.  A
+provider is optional: with no Groq key the arbiter simply runs with a single
+opinion.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ import requests
 from .models import Crop, Transcription
 from .ocr import build_prompt, parse_items
 
-WHT_ENGINE_DEFAULT_URL = "https://ai-gateway.wht-engine.ai/api/v1/chat/completions"
+WHT_ENGINE_DEFAULT_URL = "https://api.kilo.ai/api/gateway/chat/completions"
 WHT_ENGINE_DEFAULT_MODEL = "nvidia/nemotron-3.5-super-vl:free"
 GROQ_DEFAULT_URL = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -270,6 +271,8 @@ def wht_engine_provider(api_key: str | None = None,
     key = (
         api_key
         or source.get("WHT_ENGINE_API_KEY")
+        or source.get("WHT_ENGINE_KEY")
+        or source.get("KILO_API_KEY")
         or ""
     ).strip()
     if not key and env is None:
@@ -287,7 +290,11 @@ def wht_engine_provider(api_key: str | None = None,
     ).strip()
     chosen = _normalize_wht_engine_model(raw_chosen)
     is_vlm = chosen in _VLM_ENDPOINT_MODELS
-    default_url = source.get("WHT_ENGINE_API_URL") or WHT_ENGINE_DEFAULT_URL
+    default_url = (
+        source.get("WHT_ENGINE_API_URL")
+        or source.get("KILO_API_URL")
+        or WHT_ENGINE_DEFAULT_URL
+    )
     extra = (
         {"chat_template_kwargs": {"enable_thinking": False, "thinking": False}}
         if (not is_vlm and _uses_thinking_kwargs(chosen))
