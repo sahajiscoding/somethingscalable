@@ -39,8 +39,21 @@ jobs:
       # This step checks out a copy of your repository.
       - name: Checkout repository
         uses: actions/checkout@v4
+      # Without a Checkmarx One account the scan cannot authenticate and the job
+      # fails red for every PR. Skip cleanly instead, and run the scan as soon as
+      # CX_CLIENT_ID / CX_CLIENT_SECRET / CX_TENANT are configured.
+      - name: Check for Checkmarx credentials
+        id: checkmarx_config
+        run: |
+          if [ -n "${{ secrets.CX_CLIENT_ID }}" ] && [ -n "${{ secrets.CX_CLIENT_SECRET }}" ] && [ -n "${{ secrets.CX_TENANT }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Checkmarx skipped::CX_CLIENT_ID / CX_CLIENT_SECRET / CX_TENANT are not set, so the Checkmarx One scan was skipped."
+          fi
       # This step creates the Checkmarx One scan
       - name: Checkmarx One scan
+        if: steps.checkmarx_config.outputs.configured == 'true'
         uses: checkmarx/ast-github-action@8e887bb93dacc44e0f5b64ee2b06d5815f89d4fc
         with:
           base_uri: https://ast.checkmarx.net  # This should be replaced by your base uri for Checkmarx One
@@ -49,6 +62,7 @@ jobs:
           cx_tenant: ${{ secrets.CX_TENANT }} # This should be replaced by your tenant for Checkmarx One
           additional_params: --report-format sarif --output-path .
       - name: Upload SARIF file
+        if: steps.checkmarx_config.outputs.configured == 'true'
         uses: github/codeql-action/upload-sarif@v3
         with:
           # Path to SARIF file relative to the root of the repository
