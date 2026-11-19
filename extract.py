@@ -615,7 +615,8 @@ def _vision_enabled(doc, override: bool | None = None) -> bool:
         return True
     # auto: on as soon as a vision provider is configured.
     return bool(
-        (os.environ.get("NVIDIA_API_KEY") or "").strip()
+        (os.environ.get("KILO_API_KEY") or "").strip()
+        or (os.environ.get("NVIDIA_API_KEY") or "").strip()
         or (
             (os.environ.get("GROQ_API_KEY") or "").strip()
             and (os.environ.get("GROQ_MODEL") or "").strip()

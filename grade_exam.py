@@ -48,13 +48,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="Comma-separated penalty criteria to enable: "
                              + ",".join(PENALTY_CATEGORIES))
     parser.add_argument("--api-key", default=None,
-                        help="nvapi-... NVIDIA API key "
-                             "(else NVIDIA_API_KEY env var)")
+                        help="Kilo Gateway API key "
+                             "(else KILO_API_KEY env var)")
     parser.add_argument("--model", default=None,
-                        help=f"NVIDIA model id (default: {NVIDIA_DEFAULT_MODEL})")
+                        help=f"Model id (default: {NVIDIA_DEFAULT_MODEL})")
     parser.add_argument("--backend", default=None,
-                        choices=["nvidia"],
-                        help="Force a backend (NVIDIA NIM only)")
+                        choices=["nvidia", "kilo"],
+                        help="Force a backend (Kilo AI Gateway only)")
     parser.add_argument("--mock", action="store_true",
                         help="Use the offline mock engine (text files only)")
     parser.add_argument("--quiet", action="store_true",

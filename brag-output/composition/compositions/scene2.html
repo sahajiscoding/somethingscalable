@@ -1,0 +1,97 @@
+<template>
+  <style>
+    :root {
+      --ink: #ffffff;
+      --mint: #81c784;
+      --gold: #fbbf24;
+      --crimson: #f87171;
+      --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+    }
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-sans);
+      color: var(--ink);
+    }
+    .card-glass {
+      background: rgba(18, 23, 30, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 20px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(16px);
+    }
+    .tag-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 18px;
+      border-radius: 9999px;
+      font-size: 15px;
+      font-weight: 700;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.05);
+    }
+  </style>
+  <div id="root" data-composition-id="scene2" data-width="1920" data-height="1080">
+    <div id="s2-content" style="width: 1600px; display: flex; flex-direction: column; align-items: center;">
+      <div id="s2-header" style="text-align: center; margin-bottom: 48px;">
+        <span class="tag-pill" style="margin-bottom: 16px; color: #81c784; border-color: rgba(129,199,132,0.3); font-size: 16px;" data-layout-ignore>Step 1: Triad Ingest</span>
+        <h2 style="font-size: 64px; font-weight: 800; letter-spacing: -0.03em;">Upload the 3 Exam Essentials</h2>
+        <p style="font-size: 26px; color: #9ca3af; margin-top: 8px;">The engine aligns rubric logic to raw student handwriting automatically.</p>
+      </div>
+
+      <!-- 3 Cards Grid -->
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 36px; width: 100%;">
+        <!-- Card 1 -->
+        <div id="card-1" class="card-glass" style="padding: 40px; border-top: 4px solid #81c784;">
+          <div style="font-size: 48px; margin-bottom: 20px;" data-layout-ignore>📄</div>
+          <h3 style="font-size: 32px; font-weight: 700; margin-bottom: 14px;">Question Paper</h3>
+          <p style="font-size: 20px; color: #9ca3af; line-height: 1.5; margin-bottom: 24px;" data-layout-ignore>Physics &amp; Math Final (PDF or image). Identifies sections and marks.</p>
+          <div class="tag-pill" style="color: #81c784; border-color: rgba(129,199,132,0.3);" data-layout-ignore>✓ 10 Questions Detected</div>
+        </div>
+
+        <!-- Card 2 -->
+        <div id="card-2" class="card-glass" style="padding: 40px; border-top: 4px solid #fbbf24;">
+          <div style="font-size: 48px; margin-bottom: 20px;" data-layout-ignore>🔑</div>
+          <h3 style="font-size: 32px; font-weight: 700; margin-bottom: 14px;">Official Answer Key</h3>
+          <p style="font-size: 20px; color: #9ca3af; line-height: 1.5; margin-bottom: 24px;" data-layout-ignore>Marking scheme with step-by-step partial credit and deduction rules.</p>
+          <div class="tag-pill" style="color: #fbbf24; border-color: rgba(251,191,36,0.3);" data-layout-ignore>✓ Full Rubric Loaded</div>
+        </div>
+
+        <!-- Card 3 -->
+        <div id="card-3" class="card-glass" style="padding: 40px; border-top: 4px solid #f87171;">
+          <div style="font-size: 48px; margin-bottom: 20px;" data-layout-ignore>📝</div>
+          <h3 style="font-size: 32px; font-weight: 700; margin-bottom: 14px;">Student Answer Sheet</h3>
+          <p style="font-size: 20px; color: #9ca3af; line-height: 1.5; margin-bottom: 24px;" data-layout-ignore>Raw photo of handwritten math derivations and optical ray diagrams.</p>
+          <div class="tag-pill" style="color: #f87171; border-color: rgba(248,113,113,0.3);" data-layout-ignore>✓ Handwriting Script Ready</div>
+        </div>
+      </div>
+
+      <!-- Bottom Status Pill -->
+      <div id="s2-status" class="card-glass" style="margin-top: 40px; padding: 16px 36px; display: flex; align-items: center; gap: 18px; border-color: rgba(129,199,132,0.4);" data-layout-ignore>
+        <span style="width: 12px; height: 12px; border-radius: 50%; background: #81c784; box-shadow: 0 0 14px #81c784;"></span>
+        <span style="font-size: 22px; font-weight: 700; letter-spacing: 0.04em;">Ready for Multimodal Vision OCR</span>
+      </div>
+    </div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+
+    tl.fromTo("#s2-header", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.45, ease: "power3.out" }, 0.1);
+    tl.fromTo("#card-1", { opacity: 0, y: 50, scale: 0.95 }, { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "power4.out" }, 0.3);
+    tl.fromTo("#card-2", { opacity: 0, y: 50, scale: 0.95 }, { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "power4.out" }, 1.0);
+    tl.fromTo("#card-3", { opacity: 0, y: 50, scale: 0.95 }, { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "power4.out" }, 1.7);
+    tl.fromTo("#s2-status", { opacity: 0, scale: 0.92 }, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(1.4)" }, 2.5);
+
+    tl.to("#s2-content", { opacity: 0, scale: 0.96, duration: 0.35, ease: "power2.in" }, 4.1);
+
+    window.__timelines["scene2"] = tl;
+    tl.seek(0);
+  </script>
+</template>

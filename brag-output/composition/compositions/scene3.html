@@ -1,0 +1,158 @@
+<template>
+  <style>
+    :root {
+      --ink: #ffffff;
+      --mint: #81c784;
+      --gold: #fbbf24;
+      --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+    }
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-sans);
+      color: var(--ink);
+    }
+    .card-glass {
+      background: rgba(18, 23, 30, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 20px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(16px);
+    }
+    .tag-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 18px;
+      border-radius: 9999px;
+      font-size: 15px;
+      font-weight: 700;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .laser-line {
+      position: absolute;
+      top: 80px;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: #81c784;
+      box-shadow: 0 0 16px #81c784, 0 0 32px #81c784;
+      pointer-events: none;
+    }
+  </style>
+  <div id="root" data-composition-id="scene3" data-width="1920" data-height="1080">
+    <div id="s3-content" style="width: 1650px; display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 48px; align-items: center;">
+      <!-- Left: Real Handwritten Answer Sheet with Scanning Laser -->
+      <div id="s3-exam-sheet" class="card-glass" style="position: relative; height: 720px; padding: 48px; overflow: hidden; background: #0c0f13; border: 1px solid rgba(255,255,255,0.18);">
+        <!-- Laser scan line animated via transform y -->
+        <div id="s3-laser" class="laser-line"></div>
+
+        <!-- Page Title / Mock Handwritten Exam Content -->
+        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.12); padding-bottom: 16px; margin-bottom: 28px;" data-layout-ignore>
+          <span style="font-family: monospace; font-size: 18px; color: #81c784; font-weight: 700;">MULTIMODAL VISION OCR // SCRIPT SCAN</span>
+          <span style="font-family: monospace; font-size: 16px; color: #9ca3af;">Page 1 of 3</span>
+        </div>
+
+        <!-- Math Question 1 -->
+        <div style="margin-bottom: 32px;">
+          <div style="font-family: monospace; font-size: 24px; font-weight: 700; color: #81c784; margin-bottom: 12px;">
+            Q1. Solve x² - 3x - 10 = 0  (5 marks)
+          </div>
+          <div style="font-family: 'Comic Sans MS', cursive, sans-serif; font-size: 28px; line-height: 1.6; color: #ffffff; padding-left: 20px; border-left: 3px solid #81c784;" data-layout-ignore>
+            x = (-b ± √(b² - 4ac)) / 2a<br />
+            a = 1, b = -3, c = -10<br />
+            Δ = (-3)² - 4(1)(-10) = 9 + 40 = 49<br />
+            x = (3 ± 7) / 2  →  <span style="color: #81c784; font-weight: bold;">x₁ = 5 , x₂ = -2</span>
+          </div>
+        </div>
+
+        <!-- Physics Lens Diagram Mockup -->
+        <div style="margin-top: 24px; padding: 20px; background: rgba(255,255,255,0.03); border-radius: 14px; border: 1px dashed rgba(255,255,255,0.15);" data-layout-allow-occlusion data-layout-ignore>
+          <div style="font-size: 16px; font-weight: 700; color: #fbbf24; margin-bottom: 10px;">Diagram Evaluation: Convex Lens Focal Ray</div>
+          <svg width="600" height="130" viewBox="0 0 600 130" style="display: block; width: 100%;">
+            <line x1="20" y1="65" x2="580" y2="65" stroke="#4b5563" stroke-width="2" />
+            <line x1="300" y1="15" x2="300" y2="115" stroke="#81c784" stroke-width="3" />
+            <path d="M 60 25 L 300 25 L 480 95" stroke="#60a5fa" stroke-width="2.5" fill="none" />
+            <path d="M 60 25 L 300 65 L 480 95" stroke="#f59e0b" stroke-width="2.5" fill="none" />
+            <circle cx="300" cy="65" r="5" fill="#ef4444" />
+            <text x="312" y="60" fill="#9ca3af" font-size="14" font-family="sans-serif">Optical Center O</text>
+            <text x="420" y="55" fill="#81c784" font-size="14" font-family="sans-serif">Focus F ✓</text>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Right: Live Step-by-Step AI Evaluation Feed -->
+      <div id="s3-eval-feed" style="display: flex; flex-direction: column; gap: 20px;">
+        <div style="margin-bottom: 8px;">
+          <span class="tag-pill" style="color: #81c784; border-color: rgba(129,199,132,0.3); margin-bottom: 12px;" data-layout-ignore>Step 2: Transparent Rubric Evaluation</span>
+          <h3 style="font-size: 42px; font-weight: 800; letter-spacing: -0.02em;">Step-by-Step Verification</h3>
+        </div>
+
+        <!-- Step Card 1 -->
+        <div id="step-1" class="card-glass" style="padding: 24px; border-left: 6px solid #81c784;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-weight: 700; font-size: 22px;">Step 1: Quadratic Formula</span>
+            <span style="font-weight: 800; color: #81c784; font-size: 22px;">+2.0 Marks</span>
+          </div>
+          <p style="font-size: 18px; color: #9ca3af;" data-layout-ignore>Standard formula stated correctly with variables assigned.</p>
+        </div>
+
+        <!-- Step Card 2 -->
+        <div id="step-2" class="card-glass" style="padding: 24px; border-left: 6px solid #81c784;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-weight: 700; font-size: 22px;">Step 2: Discriminant Derivation</span>
+            <span style="font-weight: 800; color: #81c784; font-size: 22px;">+2.0 Marks</span>
+          </div>
+          <p style="font-size: 18px; color: #9ca3af;" data-layout-ignore>Evaluated Δ = 49 correctly with full intermediate arithmetic.</p>
+        </div>
+
+        <!-- Step Card 3 -->
+        <div id="step-3" class="card-glass" style="padding: 24px; border-left: 6px solid #81c784;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-weight: 700; font-size: 22px;">Step 3: Root Solution &amp; Diagram</span>
+            <span style="font-weight: 800; color: #81c784; font-size: 22px;">+1.0 Mark</span>
+          </div>
+          <p style="font-size: 18px; color: #9ca3af;" data-layout-ignore>Both roots match key; ray intersection verified at focal point.</p>
+        </div>
+
+        <!-- 4 Penalty Checks Pill Group -->
+        <div id="penalty-group" class="card-glass" style="padding: 20px; background: rgba(0,0,0,0.5);" data-layout-ignore>
+          <div style="font-size: 16px; font-weight: 700; color: #9ca3af; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.08em;">4 Penalty Criteria Audited:</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+            <span class="tag-pill" style="font-size: 14px; color: #81c784; border-color: rgba(129,199,132,0.3);">✓ Handwriting Legible</span>
+            <span class="tag-pill" style="font-size: 14px; color: #81c784; border-color: rgba(129,199,132,0.3);">✓ Diagrams Valid</span>
+            <span class="tag-pill" style="font-size: 14px; color: #81c784; border-color: rgba(129,199,132,0.3);">✓ Formatting Clean</span>
+            <span class="tag-pill" style="font-size: 14px; color: #81c784; border-color: rgba(129,199,132,0.3);">✓ No Smudges</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+
+    tl.fromTo("#s3-exam-sheet", { opacity: 0, x: -50 }, { opacity: 1, x: 0, duration: 0.55, ease: "power4.out" }, 0.1);
+    tl.fromTo("#s3-eval-feed", { opacity: 0, x: 50 }, { opacity: 1, x: 0, duration: 0.55, ease: "power4.out" }, 0.25);
+
+    // Laser scanning sweep using transform y
+    tl.fromTo("#s3-laser", { y: 0, opacity: 1 }, { y: 520, duration: 3.5, ease: "linear" }, 0.4);
+
+    // Step verification reveals
+    tl.fromTo("#step-1", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.4, ease: "power3.out" }, 1.1);
+    tl.fromTo("#step-2", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.4, ease: "power3.out" }, 2.0);
+    tl.fromTo("#step-3", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.4, ease: "power3.out" }, 2.9);
+    tl.fromTo("#penalty-group", { opacity: 0, scale: 0.96 }, { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(1.2)" }, 3.7);
+
+    tl.to("#s3-content", { opacity: 0, y: -25, duration: 0.35, ease: "power2.in" }, 5.1);
+
+    window.__timelines["scene3"] = tl;
+    tl.seek(0);
+  </script>
+</template>

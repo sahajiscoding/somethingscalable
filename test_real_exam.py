@@ -269,7 +269,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="Comma-separated penalty criteria to enable "
                              "(empty for none)")
     parser.add_argument("--api-key", default=None,
-                        help="API key: nvapi-... NVIDIA key")
+                        help="API key: Kilo AI Gateway key (KILO_API_KEY)")
     parser.add_argument("--model", default=None,
                         help="Model id (backend default if omitted)")
     parser.add_argument("--verbose", action="store_true",

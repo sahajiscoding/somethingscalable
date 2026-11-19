@@ -964,7 +964,7 @@ export default function Grading(props: GradingProps) {
       setLoaderStatus('error');
       const errMsg = err instanceof Error ? err.message : String(err);
       setAlert({
-        msg: `Live backend failed (${errMsg}) — nothing was graded and no demo was substituted. Check the server API key or switch to a faster model (e.g. Gemma 4 31B Vision or Llama 3.2 90B Vision) and retry.`,
+        msg: `Live backend failed (${errMsg}) — nothing was graded and no demo was substituted. Check the server API key and retry.`,
         ok: false,
       });
     }
@@ -1553,86 +1553,22 @@ export default function Grading(props: GradingProps) {
 
           <div aria-label="Live backend settings" className="mt-4 rounded-xl border border-white/10 bg-black/10 p-3.5">
             <div className="flex items-center justify-between">
-              <div className="text-[11px] font-bold tracking-[.16em] text-white/45 uppercase">Live AI Engine &amp; Model (build.nvidia.com)</div>
+              <div className="text-[11px] font-bold tracking-[.16em] text-white/45 uppercase">Live AI Engine &amp; Model (Kilo AI Gateway)</div>
               <span className="rounded-full border border-mint/30 bg-mint/10 px-2 py-0.5 text-[10px] font-bold text-mint">
                 Fast Direct Mode
               </span>
             </div>
-            <div className="mt-1 text-xs text-white/45">Recommended high-speed NVIDIA NIM models for OCR &amp; grading:</div>
+            <div className="mt-1 text-xs text-white/45">One model for OCR &amp; grading — Nemotron 3.5 Super VL:</div>
 
             <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               {[
                 {
                   id: DEFAULT_MODEL_ID,
                   name: 'Nemotron 3.5 Super VL',
-                  tag: 'Default Multi-Page VLM · 12B Active',
+                  tag: 'Kilo Gateway · Multi-Page VLM · 12B Active',
                   tagTone: 'text-mint/90',
                   desc: 'Native multi-page OCR + rubric grading with chain-of-thought overhead disabled.',
                   match: (m: string) => !m.trim() || m.includes('super-vl'),
-                },
-                {
-                  id: 'google/gemma-4-31b-it',
-                  name: 'Gemma 4 31B Vision',
-                  tag: 'Recommended Fast VLM · ~2s/page',
-                  tagTone: 'text-mint/90',
-                  desc: 'Google’s multimodal vision-language model on NVIDIA NIM. Fast OCR & strict JSON.',
-                  match: (m: string) => m.includes('gemma-4-31b'),
-                },
-                {
-                  id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
-                  name: 'Nemotron 3 Nano Omni 30B',
-                  tag: 'Omni Reasoning MoE · 30B (3B Active)',
-                  tagTone: 'text-mint/90',
-                  desc: 'NVIDIA’s omni-modal reasoning model (images, video, speech & text) for OCR reading and rubric grading.',
-                  match: (m: string) => m.includes('nano-omni') || m.includes('nano-mini') || m.includes('omni-30b'),
-                },
-                {
-                  id: 'google/paligemma',
-                  name: 'Google PaliGemma',
-                  tag: 'Image-to-Text VLM · OCR Reader',
-                  tagTone: 'text-mint/90',
-                  desc: 'Google’s vision-language model on NVIDIA Build adapted to comprehend visual & text inputs for OCR reading.',
-                  match: (m: string) => m.includes('paligemma'),
-                },
-                {
-                  id: 'meta/llama-3.2-90b-vision-instruct',
-                  name: 'Llama 3.2 90B Vision',
-                  tag: 'Zero-Thinking VLM · High Accuracy',
-                  tagTone: 'text-mint/90',
-                  desc: 'Instant non-thinking vision instruct model. Ideal for dense handwriting & answer keys.',
-                  match: (m: string) => m.includes('llama-3.2-90b'),
-                },
-                {
-                  id: 'meta/llama-3.2-11b-vision-instruct',
-                  name: 'Llama 3.2 11B Vision',
-                  tag: 'Ultra-Light VLM · ~1s/page',
-                  tagTone: 'text-mint/90',
-                  desc: 'Lowest-latency vision model on build.nvidia.com for clean scans and printed keys.',
-                  match: (m: string) => m.includes('llama-3.2-11b'),
-                },
-                {
-                  id: 'minimaxai/minimax-m3.1-flash',
-                  name: 'MiniMax M3.1 Flash',
-                  tag: 'Multimodal MoE · 23B Active',
-                  tagTone: 'text-mint/90',
-                  desc: 'Native image + text MoE with long-context reasoning. Strong on dense pages & mixed diagrams.',
-                  match: (m: string) => m.includes('minimax'),
-                },
-                {
-                  id: 'nvidia/nemotron-3.5-lightning-30b-a3b',
-                  name: 'Nemotron 3.5 Lightning',
-                  tag: 'Fastest Grader · 3B Active MoE',
-                  tagTone: 'text-sand/90',
-                  desc: 'Sub-second batch grading (30B/3B active). Auto-pairs with VLM for image scans.',
-                  match: (m: string) => m.includes('lightning'),
-                },
-                {
-                  id: 'deepseek-ai/deepseek-v4.1-flash',
-                  name: 'DeepSeek V4.1 Flash',
-                  tag: 'High-Throughput MoE · ~1.5s/batch',
-                  tagTone: 'text-sand/90',
-                  desc: 'Fast rubric step-by-step evaluation. Auto-pairs with VLM for image scans.',
-                  match: (m: string) => m.includes('deepseek'),
                 },
               ].map(preset => {
                 const active = preset.match(modelOverride);
@@ -1673,14 +1609,14 @@ export default function Grading(props: GradingProps) {
 
             <div className="mt-3">
               <label htmlFor="modelId" className="block text-[11.5px] text-white/60">
-                Custom NIM Model ID <span className="text-white/35">(any model from build.nvidia.com)</span>:
+                Custom Model ID <span className="text-white/35">(any model on the Kilo AI Gateway)</span>:
               </label>
               <input
                 type="text"
                 id="modelId"
                 value={modelOverride}
                 onChange={e => setModelOverride(e.target.value)}
-                placeholder="e.g. google/gemma-4-31b-it or meta/llama-3.2-90b-vision-instruct"
+                placeholder="nvidia/nemotron-3.5-super-vl:free"
                 autoComplete="off"
                 aria-label="Model id override"
                 className="mt-1 w-full rounded-[8px] border border-white/20 bg-black/30 px-3 py-2 text-xs text-white outline-none focus:border-mint focus:shadow-[0_0_0_3px_rgba(129,199,132,.25)]"

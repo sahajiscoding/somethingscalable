@@ -2,7 +2,7 @@
 
 Same proven layout as the reference AI project: one Flask WSGI app,
 re-exported from ``api/index.py`` for Vercel. API keys live ONLY in the
-environment (``NVIDIA_API_KEY``) — they are never
+environment (``KILO_API_KEY``) — they are never
 hardcoded, never committed, and never sent to the browser.
 
 Split-pipeline endpoints keep every call to ~1 LLM request so capped hosts
@@ -126,7 +126,7 @@ def _api_error(exc: Exception):
     if isinstance(exc, EngineError):
         if "429" in str(exc):
             return jsonify({
-                "error": "NVIDIA is rate-limiting the model right now (429). "
+                "error": "Kilo Gateway is rate-limiting the model right now (429). "
                          "Wait a moment and try again."}), 429
         return jsonify({"error": "Model inference failed. Please check your model configuration and try again."}), 502
     return jsonify({"error": "Failed to process request. Please try again later."}), 502
@@ -715,9 +715,9 @@ def api_generate_exam():
                 for i in range(1, count + 1)
             ]
         }
-        note = ("Generated with fallback template; check NVIDIA NIM status."
+        note = ("Generated with fallback template; check Kilo Gateway status."
                 if _has_key() else
-                "Generated with offline template; set NVIDIA_API_KEY in Vercel for live AI generation.")
+                "Generated with offline template; set KILO_API_KEY in Vercel for live AI generation.")
         return jsonify({
             "ok": True,
             "exam": generated,
@@ -858,9 +858,9 @@ def api_generate_exam_question():
             "marking_scheme": fb_scheme,
             "keywords": [topic.split()[0].lower(), "solution"]
         }
-        note = ("Generated with fallback template; check NVIDIA NIM status."
+        note = ("Generated with fallback template; check Kilo Gateway status."
                 if _has_key() else
-                "Generated with offline template; set NVIDIA_API_KEY in Vercel for live AI generation.")
+                "Generated with offline template; set KILO_API_KEY in Vercel for live AI generation.")
         return jsonify({
             "ok": True,
             "question": generated,

@@ -6,24 +6,13 @@ export const APP_SECRET: string = (() => {
   return v.startsWith('__VERCEL') ? '' : v;
 })();
 
-/* Default NIM id used by the server (engine.NVIDIA_DEFAULT_MODEL) — kept here
+/* Default model id used by the server (engine.NVIDIA_DEFAULT_MODEL) — kept here
  * so preset buttons and status lines match the backend when no override is set. */
-export const DEFAULT_MODEL_ID = 'nvidia/nemotron-3.5-super-vl-120b-a12b';
+export const DEFAULT_MODEL_ID = 'nvidia/nemotron-3.5-super-vl:free';
 
-/* Human-readable name for a NIM model id; empty/unknown → default model name. */
+/* Human-readable name for a model id; empty/unknown → default model name. */
 export function modelLabel(id?: string): string {
   const v = (id || '').toLowerCase();
-  if (v.includes('paligemma')) return 'Google PaliGemma';
-  if (v.includes('nano-omni') || v.includes('nano-mini') || v.includes('omni-30b')) return 'Nemotron 3 Nano Omni 30B';
-  if (v.includes('gemma-4-31b')) return 'Gemma 4 31B Vision';
-  if (v.includes('gemma-3-12b') || v.includes('gemma-3-27b')) return 'Gemma 3 Vision';
-  if (v.includes('llama-3.2-90b')) return 'Llama 3.2 90B Vision';
-  if (v.includes('llama-3.2-11b')) return 'Llama 3.2 11B Vision';
-  if (v.includes('lightning')) return 'Nemotron 3.5 Lightning';
-  if (v.includes('deepseek')) return 'DeepSeek V4.1 Flash';
-  if (v.includes('minimax')) return 'MiniMax M3.1 Flash';
-  if (v.includes('glm')) return 'GLM 5.3 Flash';
-  if (v.includes('qwen')) return 'Qwen 3.6 35B';
   if (v.includes('nemotron')) return 'Nemotron 3.5 Super VL';
   return id ? id.split('/').pop() || 'Nemotron 3.5 Super VL' : 'Nemotron 3.5 Super VL';
 }
@@ -52,7 +41,7 @@ export async function api(path: string, opts: RequestInit = {}, retries = 2): Pr
   const rawMsg = String((lastErr as Error)?.message || lastErr || '');
   if (/failed to fetch|networkerror|load failed/i.test(rawMsg)) {
     throw new Error(
-      'Connection to the grading server dropped or timed out (Failed to fetch). Ensure the backend server is running and NVIDIA_API_KEY is set, or select a faster model such as Gemma 4 31B Vision or Llama 3.2 90B Vision.'
+      'Connection to the grading server dropped or timed out (Failed to fetch). Ensure the backend server is running and KILO_API_KEY is set.'
     );
   }
   throw lastErr instanceof Error ? lastErr : new Error(rawMsg || 'Network request failed');
@@ -155,7 +144,7 @@ export interface AlignedQuestion {
 
 /**
  * Strict Rate Limiter enforcing maximum requests in a rolling time window.
- * Default: 39 requests per 60,000 ms window (NVIDIA NIM safe limit).
+ * Default: 39 requests per 60,000 ms window (gateway safe limit).
  * Supports an initial burst of 39 requests.
  */
 export class RateLimiter {

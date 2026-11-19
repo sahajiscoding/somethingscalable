@@ -171,11 +171,17 @@ class ProviderConfigTests(unittest.TestCase):
     def test_engine_make_engine_and_message_adaptation_for_new_models(self):
         import engine
 
-        eng_pali = engine.make_engine(api_key="nvapi-test", model="google/google-paligemma")
-        self.assertEqual(eng_pali.model, "google/paligemma")
+        # Legacy NVIDIA NIM id resolves to the single Kilo gateway model.
+        eng_legacy = engine.make_engine(api_key="kilo-test", model="nvidia/nemotron-3.5-super-vl-120b-a12b")
+        self.assertEqual(eng_legacy.model, "nvidia/nemotron-3.5-super-vl:free")
 
-        eng_omni = engine.make_engine(api_key="nvapi-test", model="nemotron-3-nano-mini-30b-a3b-reasoning")
-        self.assertEqual(eng_omni.model, "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning")
+        # The Kilo id itself passes through untouched.
+        eng_kilo = engine.make_engine(api_key="kilo-test", model="nvidia/nemotron-3.5-super-vl:free")
+        self.assertEqual(eng_kilo.model, "nvidia/nemotron-3.5-super-vl:free")
+
+        # No model at all → the build default.
+        eng_default = engine.make_engine(api_key="kilo-test")
+        self.assertEqual(eng_default.model, engine.NVIDIA_DEFAULT_MODEL)
 
         raw_messages = [
             {"role": "system", "content": "System instruction."},

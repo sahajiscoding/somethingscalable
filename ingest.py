@@ -6,7 +6,7 @@ Accepts the three grading inputs as file paths:
 2. Answer key/rubric - PDF, image or text file
 3. Student sheet     - scanned PDF or image with handwriting, or text file
 
-PDFs and images are handed to the vision model as raw page bytes (NVIDIA NIM
+PDFs and images are handed to the vision model as raw page bytes (Kilo AI Gateway
 reads multi-page PDFs natively), so no rendering stack is required.  PDFs
 larger than the inline request limit are split into page chunks.  Text
 files are decoded with a UTF-8 -> Latin-1 fallback.

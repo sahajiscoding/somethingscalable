@@ -16,7 +16,7 @@ used by the grade_exam.py CLI and test_real_exam.py runner.
 
 Run locally:
     pip install -r requirements.txt
-    export NVIDIA_API_KEY=...
+    export KILO_API_KEY=...
     streamlit run streamlit_app.py
 """
 
@@ -34,12 +34,8 @@ from pipeline import SessionError, run_session, write_reports
 
 PAGE_ICON = "📝"
 MODEL_OPTIONS = [
-    "nvidia/nemotron-3.5-super-vl-120b-a12b",       # NVIDIA NIM (default — fast vision/OCR)
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", # NVIDIA NIM Omni reasoning (images, video, speech, text)
-    "google/paligemma",                             # Google PaliGemma Image-to-Text OCR on NVIDIA NIM
-    "z-ai/glm-5.3-flash",                           # NVIDIA NIM, needs nvapi- key
-    "meta/llama-3.2-11b-vision-instruct",           # NVIDIA NIM
-    "meta/llama-3.2-90b-vision-instruct",           # NVIDIA NIM, larger + slower
+    # Kilo AI Gateway — this build offers one model only.
+    "nvidia/nemotron-3.5-super-vl:free",
 ]
 
 UPLOAD_TYPES = ["pdf", "png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff",
@@ -111,16 +107,17 @@ with st.sidebar:
     api_key = st.text_input(
         "API Key",
         type="password",
-        help="nvapi-... NVIDIA key. "
-             "Sent to NVIDIA NIM on each run; never stored. "
-             "You can also set NVIDIA_API_KEY as an env var.",
+        help="Kilo Gateway key. "
+             "Sent to ai-gateway.kilo.ai on each run; never stored. "
+             "You can also set KILO_API_KEY as an env var.",
     )
     if not api_key:
-        api_key = os.environ.get("NVIDIA_API_KEY")
+        api_key = os.environ.get("KILO_API_KEY") or os.environ.get("NVIDIA_API_KEY")
 
     model = st.selectbox("Model", MODEL_OPTIONS, index=0,
-                         help="Override with the NVIDIA_MODEL "
-                              "env var. NVIDIA models need an nvapi- key.")
+                         help="Nemotron 3.5 Super VL via the Kilo AI "
+                              "Gateway — the only model this build offers. "
+                              "Override with the KILO_MODEL env var.")
     st.caption("No API key? Runs with `--mock` are available from the "
                "CLI (text documents only) via test_real_exam.py.")
     st.divider()

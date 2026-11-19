@@ -1,0 +1,254 @@
+{
+  "ok": true,
+  "strict": false,
+  "browserSkipped": false,
+  "lint": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": [],
+    "filesScanned": 5
+  },
+  "runtime": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 1,
+    "infoCount": 0,
+    "findings": [
+      {
+        "code": "clip_media_fit",
+        "severity": "warning",
+        "message": "Audio \"sfx-hook\" is 0.12s but its slot (data-duration) is 0.61s — the slot is shortened to the media length when rendered. Set data-duration to ~0.12s if that isn't intended.",
+        "selector": "[data-composition-id]",
+        "dataAttributes": {
+          "data-composition-id": "main",
+          "data-start": "0",
+          "data-duration": "18",
+          "data-width": "1920",
+          "data-height": "1080"
+        },
+        "sourceFile": "index.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        },
+        "time": 0
+      }
+    ]
+  },
+  "layout": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": [],
+    "duration": 18,
+    "samples": [
+      1,
+      3,
+      5,
+      7,
+      9,
+      11,
+      13,
+      15,
+      17
+    ],
+    "transitionSamples": [],
+    "transitionSamplesDropped": 0,
+    "tolerance": 2,
+    "totalIssueCount": 0,
+    "truncated": false
+  },
+  "motion": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": [],
+    "enabled": false,
+    "samples": 0
+  },
+  "contrast": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": [],
+    "enabled": true,
+    "samples": [
+      1,
+      5,
+      9,
+      13,
+      17
+    ],
+    "checked": 24,
+    "passed": 24
+  },
+  "craft": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 3,
+    "infoCount": 0,
+    "findings": [
+      {
+        "code": "text_below_floor",
+        "severity": "warning",
+        "message": "Type floor is 28 px (2.6% of the 1080 px short side, what a phone can read) and \"The engine aligns rubric logic to raw student...\" renders at 26 px for 4.25 s: set reading text to at least 28 px, or put data-layout-ignore on text that is texture rather than reading; see references/look.md.",
+        "text": "The engine aligns rubric logic to raw student handwriting automatically.",
+        "selector": "#s2-header > p:nth-of-type(1)",
+        "dataAttributes": {},
+        "sourceFile": "compositions/scene2.html",
+        "bbox": {
+          "x": 521.84,
+          "y": 355.86,
+          "width": 876.32,
+          "height": 31
+        },
+        "time": 3.75,
+        "times": [
+          3.75
+        ],
+        "fontPx": 25.54,
+        "floorPx": 28,
+        "seconds": 4.25,
+        "elements": [
+          {
+            "selector": "#s2-header > p:nth-of-type(1)",
+            "text": "The engine aligns rubric logic to raw student handwriting automatically.",
+            "fontPx": 25.54,
+            "time": 3.75,
+            "seconds": 4.25
+          }
+        ]
+      },
+      {
+        "code": "text_below_floor",
+        "severity": "warning",
+        "message": "Type floor is 28 px (2.6% of the 1080 px short side, what a phone can read) and 7 text elements stay under it for 0.5 s or more, the smallest \"Step 1: Quadratic Formula\" at 22 px: set reading text to at least 28 px, or put data-layout-ignore on text that is texture rather than reading; see references/look.md.",
+        "text": "Step 1: Quadratic Formula",
+        "selector": "#step-1 > div:nth-of-type(1) > span:nth-of-type(1)",
+        "dataAttributes": {},
+        "sourceFile": "compositions/scene3.html",
+        "bbox": {
+          "x": 1134.14,
+          "y": 366.95,
+          "width": 274.91,
+          "height": 26
+        },
+        "time": 9.25,
+        "times": [
+          8.25,
+          9.25,
+          9.25,
+          10.125,
+          10.125,
+          11,
+          11
+        ],
+        "fontPx": 22,
+        "floorPx": 28,
+        "seconds": 4.25,
+        "elements": [
+          {
+            "selector": "#step-1 > div:nth-of-type(1) > span:nth-of-type(1)",
+            "text": "Step 1: Quadratic Formula",
+            "fontPx": 22,
+            "time": 9.25,
+            "seconds": 4.25
+          },
+          {
+            "selector": "#step-1 > div:nth-of-type(1) > span:nth-of-type(2)",
+            "text": "+2.0 Marks",
+            "fontPx": 22,
+            "time": 9.25,
+            "seconds": 4.25
+          },
+          {
+            "selector": "#step-2 > div:nth-of-type(1) > span:nth-of-type(1)",
+            "text": "Step 2: Discriminant Derivation",
+            "fontPx": 22,
+            "time": 10.125,
+            "seconds": 3.375
+          },
+          {
+            "selector": "#step-2 > div:nth-of-type(1) > span:nth-of-type(2)",
+            "text": "+2.0 Marks",
+            "fontPx": 22,
+            "time": 10.125,
+            "seconds": 3.375
+          },
+          {
+            "selector": "#step-3 > div:nth-of-type(1) > span:nth-of-type(1)",
+            "text": "Step 3: Root Solution & Diagram",
+            "fontPx": 22,
+            "time": 11,
+            "seconds": 2.5
+          },
+          {
+            "selector": "#step-3 > div:nth-of-type(1) > span:nth-of-type(2)",
+            "text": "+1.0 Mark",
+            "fontPx": 22,
+            "time": 11,
+            "seconds": 2.5
+          },
+          {
+            "selector": "#s3-exam-sheet > div:nth-of-type(3) > div:nth-of-type(1)",
+            "text": "Q1. Solve x² - 3x - 10 = 0 (5 marks)",
+            "fontPx": 24,
+            "time": 8.25,
+            "seconds": 5.25
+          }
+        ]
+      },
+      {
+        "code": "text_below_floor",
+        "severity": "warning",
+        "message": "Type floor is 28 px (2.6% of the 1080 px short side, what a phone can read) and \"Start grading at wehelpteachers.com\" renders at 22 px for 3.00 s: set reading text to at least 28 px, or put data-layout-ignore on text that is texture rather than reading; see references/look.md.",
+        "text": "Start grading at wehelpteachers.com",
+        "selector": "#brand-lockup > div:nth-of-type(1) > span:nth-of-type(1)",
+        "dataAttributes": {},
+        "sourceFile": "compositions/scene4.html",
+        "bbox": {
+          "x": 738.08,
+          "y": 808.6,
+          "width": 404.92,
+          "height": 26
+        },
+        "time": 15,
+        "times": [
+          15
+        ],
+        "fontPx": 22,
+        "floorPx": 28,
+        "seconds": 3,
+        "elements": [
+          {
+            "selector": "#brand-lockup > div:nth-of-type(1) > span:nth-of-type(1)",
+            "text": "Start grading at wehelpteachers.com",
+            "fontPx": 22,
+            "time": 15,
+            "seconds": 3
+          }
+        ]
+      }
+    ],
+    "enabled": true,
+    "step": 0.125,
+    "samples": 144
+  },
+  "hdr": {
+    "autoPromotion": null,
+    "inspection": "available"
+  },
+  "snapshots": {
+    "enabled": false,
+    "files": [],
+    "times": [],
+    "findingFiles": []
+  }
+}

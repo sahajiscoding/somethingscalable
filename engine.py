@@ -2,9 +2,9 @@
 
 Two engines expose the same interface:
 
-* ``NvidiaEngine`` - OCR/vision + grading through NVIDIA NIM
-  (``https://integrate.api.nvidia.com``, OpenAI-compatible).  Standard
-  library only (``urllib``), no extra dependency.  Any ``nvapi-...`` key
+* ``NvidiaEngine`` - OCR/vision + grading through the Kilo AI Gateway
+  (``https://ai-gateway.kilo.ai/api/v1``, OpenAI-compatible).  Standard
+  library only (``urllib``), no extra dependency.  Any ``KILO_API_KEY``
   selects it automatically; text + images are fully supported, PDFs fall
   back to their text layer.
 * ``MockEngine`` - a fully offline engine used by
@@ -29,21 +29,31 @@ from typing import Any
 
 # (Model default lives below as NVIDIA_DEFAULT_MODEL.)
 
-# NVIDIA NIM (OpenAI-compatible chat-completions endpoint) —
-# Nemotron 3.5 Super VL (nvidia/nemotron-3.5-super-vl-120b-a12b) reads the
+# Kilo AI Gateway (OpenAI-compatible chat-completions endpoint) —
+# Nemotron 3.5 Super VL (nvidia/nemotron-3.5-super-vl:free) reads the
 # pages (native OCR/vision) and grades. It answers far faster than the
 # previous GLM/DeepSeek flash models, which hit the read timeout on real
-# exam papers. Override the model with NVIDIA_MODEL; any vision-capable
-# NIM id works.
-NIM_ENDPOINT = os.environ.get(
-    "NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
+# exam papers. This build offers that single model only; override the id
+# with KILO_MODEL if Kilo ever renames it.
+KILO_DEFAULT_ENDPOINT = "https://ai-gateway.kilo.ai/api/v1/chat/completions"
+NIM_ENDPOINT = (
+    os.environ.get("KILO_API_URL")
+    or os.environ.get("NVIDIA_API_URL")
+    or KILO_DEFAULT_ENDPOINT
+)
 PALIGEMMA_VLM_ENDPOINT = os.environ.get(
     "NVIDIA_PALIGEMMA_URL", "https://ai.api.nvidia.com/v1/vlm/google/paligemma")
-NVIDIA_DEFAULT_MODEL = os.environ.get(
-    "NVIDIA_MODEL", "nvidia/nemotron-3.5-super-vl-120b-a12b")
+NVIDIA_DEFAULT_MODEL = (
+    os.environ.get("KILO_MODEL")
+    or os.environ.get("NVIDIA_MODEL")
+    or "nvidia/nemotron-3.5-super-vl:free"
+)
 
-# Vision-capable models on build.nvidia.com (accept image_url blocks natively).
+# Vision-capable model ids (accept image_url blocks natively). The gateway
+# catalog is much larger, but this build only ever offers Nemotron 3.5 Super VL.
 _VISION_MODELS = frozenset({
+    "nvidia/nemotron-3.5-super-vl",
+    "nvidia/nemotron-3.5-super-vl:free",
     "nvidia/nemotron-3.5-super-vl-120b-a12b",
     "google/gemma-4-31b-it",
     "google/gemma-3-12b-it",
@@ -60,7 +70,7 @@ _VISION_MODELS = frozenset({
     "minimaxai/minimax-m3.1-flash",
 })
 
-# Vision models on NVIDIA NIM that accept at most 1 image_url per message.
+# Vision models that accept at most 1 image_url per message.
 # Multi-page scanned PDFs are automatically stitched into one vertical strip
 # when routed through these models.
 _SINGLE_IMAGE_VISION_MODELS = frozenset({
@@ -72,34 +82,23 @@ _SINGLE_IMAGE_VISION_MODELS = frozenset({
     "nvidia/neva-22b",
 })
 
-# Dedicated NVCF VLM endpoints that accept only a single user message with an
+# Dedicated VLM endpoints that accept only a single user message with an
 # image and do not accept text-only grading requests or extra top-level keys.
 _IMAGE_ONLY_VISION_MODELS = frozenset({
     "google/paligemma",
     "google/google-paligemma",
 })
 
-# Fast vision fallbacks (used when messages include images/scans).
+# Fast vision fallbacks (used when messages include images/scans). Only the
+# one offered model remains, so a "fallback" is a straight retry.
 _VISION_FALLBACK_MODELS = (
-    "nvidia/nemotron-3.5-super-vl-120b-a12b",
-    "google/gemma-4-31b-it",
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
-    "meta/llama-3.2-90b-vision-instruct",
-    "meta/llama-3.2-11b-vision-instruct",
-    "google/gemma-3-12b-it",
-    "google/paligemma",
+    NVIDIA_DEFAULT_MODEL,
 )
 
 # Fast text/grading fallbacks (used for grading batches, exam generation, and
 # digital text extraction).
 _FALLBACK_MODELS = (
-    "nvidia/nemotron-3.5-lightning-30b-a3b",
-    "google/gemma-4-31b-it",
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
-    "deepseek-ai/deepseek-v4.1-flash",
-    "nvidia/nemotron-3.5-super-vl-120b-a12b",
-    "meta/llama-3.2-90b-vision-instruct",
-    "z-ai/glm-5.3-flash",
+    NVIDIA_DEFAULT_MODEL,
 )
 
 # Per-request HTTP timeout (seconds): kept tight (24 s default) so a slow
@@ -115,6 +114,9 @@ _NIM_WALL_BUDGET = int(float(str(os.environ.get("NVIDIA_WALL_BUDGET", "46"))))
 _NVIDIA_MAX_PDF_PAGES = int(os.environ.get("MAX_PDF_PAGES", "80"))
 
 _NVIDIA_KEY_NAMES = (
+    "KILO_API_KEY",
+    "KILO_KEY",
+    # Legacy aliases — still read so an existing deploy keeps working.
     "NVIDIA_API_KEY",
     "NVIDIA_KEY",
     "NIM_API_KEY",
@@ -125,7 +127,7 @@ _NVIDIA_KEY_NAMES = (
 
 
 def get_nvidia_key(explicit_key: str | None = None) -> str:
-    """Return explicit key or first discovered NVIDIA/Moonshot env var."""
+    """Return explicit key or first discovered Kilo/NVIDIA env var."""
     if explicit_key and explicit_key.strip():
         return explicit_key.strip()
     for name in _NVIDIA_KEY_NAMES:
@@ -134,9 +136,10 @@ def get_nvidia_key(explicit_key: str | None = None) -> str:
             return val
     return ""
 
-# NVIDIA's free tier allows ~40 requests/minute per key. A token bucket
-# refilled at NVIDIA_RPM/min (default 39) serialises bursts — parallel page
-# OCR, per-question grading calls — so callers wait instead of tripping 429s.
+# The gateway rate-limits per key. A token bucket refilled at NVIDIA_RPM/min
+# (default 39) serialises bursts — parallel page OCR, per-question grading
+# calls — so callers wait instead of tripping 429s. Raise it if your Kilo
+# plan allows more.
 try:
     NVIDIA_RPM = int(os.environ.get("NVIDIA_RPM", 39))
 except ValueError:  # a bad env value must never crash the import
@@ -224,16 +227,16 @@ class EngineError(RuntimeError):
 
 
 # ---------------------------------------------------------------------------
-# NVIDIA NIM engine: OpenAI-compatible chat-completions, stdlib only
+# Kilo AI Gateway engine: OpenAI-compatible chat-completions, stdlib only
 # ---------------------------------------------------------------------------
 
 class NvidiaEngine:
-    """Vision + grading through NVIDIA NIM (api.nvidia.com).
+    """Vision + grading through the Kilo AI Gateway (ai-gateway.kilo.ai).
 
-    Nemotron 3.5 Super VL (nvidia/nemotron-3.5-super-vl-120b-a12b) reads the
+    Nemotron 3.5 Super VL (nvidia/nemotron-3.5-super-vl:free) reads the
     pages and grades (native vision + JSON), HTTP via ``requests``. The key
-    comes from ``NVIDIA_API_KEY`` (or aliases like NIM_API_KEY / NV_API_KEY)
-    configured in Vercel or environment.
+    comes from ``KILO_API_KEY`` (or aliases like NVIDIA_API_KEY /
+    NIM_API_KEY) configured in Vercel or environment.
 
     Images go over as base64 data-URL blocks. PDF pages are rendered to PNG
     with PyMuPDF (digital pages with enough embedded text ride along as
@@ -247,7 +250,7 @@ class NvidiaEngine:
         key = get_nvidia_key(api_key)
         if not key:
             raise EngineError(
-                "No NVIDIA API key found. Set NVIDIA_API_KEY in Vercel Environment "
+                "No Kilo API key found. Set KILO_API_KEY in Vercel Environment "
                 "Variables (or pass --api-key)."
             )
         self.key = key
@@ -692,17 +695,17 @@ class NvidiaEngine:
                     pass
             elif resp.status_code in (401, 403):
                 raise EngineError(
-                    f"NVIDIA API rejected the key (HTTP {resp.status_code}). "
-                    "Check NVIDIA_API_KEY."
+                    f"Kilo Gateway rejected the key (HTTP {resp.status_code}). "
+                    "Check KILO_API_KEY."
                 )
             elif resp.status_code == 429:
                 raise EngineError(
-                    "NVIDIA API rate limit (HTTP 429) — the free tier allows "
-                    "~40 req/min. Wait a moment and retry."
+                    "Kilo Gateway rate limit (HTTP 429) — wait a moment and "
+                    "retry, or raise NVIDIA_RPM if your plan allows more."
                 )
             last = f"HTTP {resp.status_code} on {candidate_model}: {resp.text[:200]}"
 
-        raise EngineError(f"NVIDIA API call failed: {last}")
+        raise EngineError(f"Kilo Gateway call failed: {last}")
 
 
 # ---------------------------------------------------------------------------
@@ -754,7 +757,7 @@ class MockEngine:
         if document is None or document.kind != "text" or not document.text:
             raise EngineError(
                 "Mock engine can only read plain-text documents. "
-                "Set NVIDIA_API_KEY (or drop --mock) to OCR scanned PDFs "
+                "Set KILO_API_KEY (or drop --mock) to OCR scanned PDFs "
                 "and images."
             )
         blocks = _parse_blocks(document.text)
@@ -923,7 +926,7 @@ class MockEngine:
                     "feedback": (
                         f"[MOCK] scored {awarded}/{max_marks:g} by keyword "
                         f"coverage ({mode_label}); "
-                        "replace with a real NVIDIA run for genuine marking."
+                        "replace with a live run for genuine marking."
                     ),
                     "ocr_note": "",
                 })
@@ -981,7 +984,7 @@ class MockEngine:
                 "deductions": deductions,
                 "feedback": (
                     f"[MOCK] scored {awarded}/{max_marks:g} by token overlap; "
-                    "replace with a real NVIDIA run for genuine marking."
+                    "replace with a live run for genuine marking."
                 ),
                 "ocr_note": "",
             })
@@ -1091,52 +1094,26 @@ def make_engine(api_key: str | None = None,
                 backend: str | None = None):
     """Factory used by the CLI, test runners, Streamlit app and API.
 
-    NVIDIA NIM only (``nvidia/nemotron-3.5-super-vl-120b-a12b``) for checking
-    papers, using the API key configured in Vercel/environment
-    (``NVIDIA_API_KEY``) or provided explicitly.
+    Nemotron 3.5 Super VL on the Kilo AI Gateway
+    (``nvidia/nemotron-3.5-super-vl:free``) for checking papers, using the
+    API key configured in Vercel/environment (``KILO_API_KEY``) or provided
+    explicitly. Unknown ids pass through so the custom model box still works.
     """
     if mock or backend == "mock":
         return MockEngine(model=model)
-    if backend not in (None, "nvidia"):
+    if backend not in (None, "nvidia", "kilo"):
         raise EngineError(
-            f"Unknown backend {backend!r}: this build supports NVIDIA NIM only."
+            f"Unknown backend {backend!r}: this build supports the Kilo "
+            "AI Gateway only."
         )
     if not model or model.startswith("gemini-") or model in ("moonshotai/kimi-k3", "kimi-k3"):
         model = NVIDIA_DEFAULT_MODEL
-    elif model in ("nemotron", "nemotron-3.5-super-vl", "nemotron-3.5-super-vl-120b-a12b",
-                   "nvidia/nemotron-3.5-super-vl-120b-a12b"):
-        model = "nvidia/nemotron-3.5-super-vl-120b-a12b"
-    elif model in ("nemotron-lightning", "nemotron-3.5-lightning", "nemotron-3.5-lightning-30b-a3b",
-                   "nvidia/nemotron-3.5-lightning-30b-a3b"):
-        model = "nvidia/nemotron-3.5-lightning-30b-a3b"
     elif model in (
-        "nemotron-omni",
-        "nemotron-3-nano-omni",
-        "nemotron-3-nano-omni-30b",
-        "nemotron-3-nano-omni-30b-a3b",
-        "nemotron-3-nano-omni-30b-a3b-reasoning",
-        "nemotron-3-nano-mini-30b-a3b-reasoning",
-        "nvidia/nemotron-3-nano-mini-30b-a3b-reasoning",
-        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        # Legacy NVIDIA NIM id → the Kilo gateway equivalent.
+        "nemotron",
+        "nemotron-3.5-super-vl",
+        "nemotron-3.5-super-vl-120b-a12b",
+        "nvidia/nemotron-3.5-super-vl-120b-a12b",
     ):
-        model = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
-    elif model in ("paligemma", "google-paligemma", "google/paligemma", "google/google-paligemma"):
-        model = "google/paligemma"
-    elif model in ("gemma-4", "gemma-4-31b", "gemma-4-31b-it", "google/gemma-4-31b-it"):
-        model = "google/gemma-4-31b-it"
-    elif model in ("gemma-3", "gemma-3-12b", "gemma-3-12b-it", "google/gemma-3-12b-it"):
-        model = "google/gemma-3-12b-it"
-    elif model in ("llama-90b-vision", "llama-3.2-90b-vision", "llama-3.2-90b-vision-instruct",
-                   "meta/llama-3.2-90b-vision-instruct"):
-        model = "meta/llama-3.2-90b-vision-instruct"
-    elif model in ("llama-11b-vision", "llama-3.2-11b-vision", "llama-3.2-11b-vision-instruct",
-                   "meta/llama-3.2-11b-vision-instruct"):
-        model = "meta/llama-3.2-11b-vision-instruct"
-    elif model in ("glm-5.3-flash", "z-ai/glm-5-3-flash", "glm-5-3-flash"):
-        model = "z-ai/glm-5.3-flash"
-    elif model in ("deepseek-v4.1-flash", "deepseek-v4.1", "deepseek-flash", "deepseek", "deepseek-ai/deepseek-v4.1-flash"):
-        model = "deepseek-ai/deepseek-v4.1-flash"
-    elif model in ("minimax", "minimax-m3.1", "minimax-m3.1-flash",
-                   "minimaxai/minimax-m3.1-flash"):
-        model = "minimaxai/minimax-m3.1-flash"
+        model = NVIDIA_DEFAULT_MODEL
     return NvidiaEngine(api_key=api_key, model=model)

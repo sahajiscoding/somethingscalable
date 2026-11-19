@@ -1,8 +1,8 @@
 """Provider clients for crop transcription.
 
-Both NVIDIA NIM and Groq expose an OpenAI-compatible chat-completions endpoint,
-so one client covers both.  A provider is optional: with no Groq key the arbiter
-simply runs with a single opinion.
+The Kilo AI Gateway and Groq expose an OpenAI-compatible chat-completions
+endpoint, so one client covers both.  A provider is optional: with no Groq
+key the arbiter simply runs with a single opinion.
 """
 
 from __future__ import annotations
@@ -18,9 +18,9 @@ import requests
 from .models import Crop, Transcription
 from .ocr import build_prompt, parse_items
 
-NVIDIA_DEFAULT_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+KILO_DEFAULT_URL = "https://ai-gateway.kilo.ai/api/v1/chat/completions"
 PALIGEMMA_DEFAULT_URL = "https://ai.api.nvidia.com/v1/vlm/google/paligemma"
-NVIDIA_DEFAULT_MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b"
+KILO_DEFAULT_MODEL = "nvidia/nemotron-3.5-super-vl:free"
 GROQ_DEFAULT_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 # These NIM vision models accept at most one image_url per message, so crops
@@ -268,7 +268,12 @@ def nvidia_provider(api_key: str | None = None,
                     timeout: float = 22.0,
                     env: dict | None = None) -> VisionProvider | None:
     source = env if env is not None else os.environ
-    key = (api_key or source.get("NVIDIA_API_KEY") or "").strip()
+    key = (
+        api_key
+        or source.get("KILO_API_KEY")
+        or source.get("NVIDIA_API_KEY")
+        or ""
+    ).strip()
     if not key and env is None:
         try:
             import engine as _engine
@@ -277,13 +282,22 @@ def nvidia_provider(api_key: str | None = None,
             key = ""
     if not key:
         return None
-    raw_chosen = (model or source.get("NVIDIA_MODEL") or NVIDIA_DEFAULT_MODEL).strip()
+    raw_chosen = (
+        model
+        or source.get("KILO_MODEL")
+        or source.get("NVIDIA_MODEL")
+        or KILO_DEFAULT_MODEL
+    ).strip()
     chosen = _normalize_nvidia_model(raw_chosen)
     is_vlm = chosen in _VLM_ENDPOINT_MODELS
     default_url = (
         source.get("NVIDIA_PALIGEMMA_URL", PALIGEMMA_DEFAULT_URL)
         if is_vlm
-        else source.get("NVIDIA_API_URL", NVIDIA_DEFAULT_URL)
+        else (
+            source.get("KILO_API_URL")
+            or source.get("NVIDIA_API_URL")
+            or KILO_DEFAULT_URL
+        )
     )
     extra = (
         {"chat_template_kwargs": {"enable_thinking": False, "thinking": False}}
@@ -325,10 +339,10 @@ def groq_provider(api_key: str | None = None,
 
 def build_providers(env: dict | None = None,
                     model: str | None = None) -> list[VisionProvider]:
-    """NVIDIA first (accuracy), Groq second (speed). Missing keys are skipped.
+    """Kilo first (accuracy), Groq second (speed). Missing keys are skipped.
 
     ``model`` lets the caller reuse the model selected in the UI for crop OCR;
-    when omitted the NVIDIA provider falls back to ``NVIDIA_MODEL``.
+    when omitted the Kilo provider falls back to ``KILO_MODEL``.
     """
     if env is not None:
         merged_env = dict(os.environ)

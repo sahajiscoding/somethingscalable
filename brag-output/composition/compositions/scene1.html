@@ -1,0 +1,84 @@
+<template>
+  <style>
+    :root {
+      --ink: #ffffff;
+      --mint: #81c784;
+      --crimson: #f87171;
+      --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+    }
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-sans);
+      color: var(--ink);
+    }
+    .card-glass {
+      background: rgba(18, 23, 30, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 20px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(16px);
+    }
+    .tag-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 22px;
+      border-radius: 9999px;
+      font-size: 18px;
+      font-weight: 700;
+      border: 1px solid rgba(129, 199, 132, 0.4);
+      background: rgba(129, 199, 132, 0.08);
+      color: var(--mint);
+    }
+  </style>
+  <div id="root" data-composition-id="scene1" data-width="1920" data-height="1080">
+    <div id="s1-content" style="text-align: center; max-width: 1400px; padding: 40px;">
+      <div id="s1-badge" class="tag-pill" style="margin-bottom: 32px;" data-layout-ignore>
+        <span style="width: 12px; height: 12px; border-radius: 50%; background: #81c784; box-shadow: 0 0 12px #81c784;"></span>
+        <span style="font-size: 20px;">Nemotron 3.5 Super VL Grading Engine</span>
+      </div>
+      <h1 id="s1-title" style="font-size: 82px; font-weight: 800; line-height: 1.08; letter-spacing: -0.04em; margin-bottom: 28px;">
+        Grading 100 handwritten exams tonight?
+      </h1>
+      <p id="s1-sub" style="font-size: 38px; font-weight: 600; color: #9ca3af; letter-spacing: -0.02em;">
+        There’s a much better way.
+      </p>
+      <div id="s1-counter-box" class="card-glass" style="display: inline-flex; align-items: center; gap: 24px; padding: 18px 36px; margin-top: 44px;">
+        <span style="font-size: 22px; font-weight: 700; color: #f87171; text-transform: uppercase; letter-spacing: 0.1em;" data-layout-ignore>Paper Stack:</span>
+        <span id="s1-counter" style="font-size: 36px; font-weight: 800; font-family: monospace; color: #ffffff;">1 / 100</span>
+      </div>
+    </div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+
+    // Frame 0 shows initial title & badge settled
+    tl.fromTo("#s1-badge", { scale: 0.96 }, { scale: 1, duration: 0.4, ease: "power2.out" }, 0);
+    tl.fromTo("#s1-title", { y: 15 }, { y: 0, duration: 0.5, ease: "power3.out" }, 0);
+    tl.fromTo("#s1-sub", { opacity: 0.5, y: 15 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 0.3);
+    tl.fromTo("#s1-counter-box", { opacity: 0.7, scale: 0.95 }, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(1.5)" }, 0.5);
+
+    const counterObj = { count: 1 };
+    tl.to(counterObj, {
+      count: 100,
+      duration: 1.8,
+      ease: "power2.inOut",
+      onUpdate: () => {
+        const el = document.getElementById("s1-counter");
+        if (el) el.textContent = `${Math.floor(counterObj.count)} / 100`;
+      }
+    }, 0.8);
+
+    tl.to("#s1-content", { opacity: 0, y: -30, duration: 0.35, ease: "power2.in" }, 3.1);
+
+    window.__timelines["scene1"] = tl;
+    tl.seek(0);
+  </script>
+</template>

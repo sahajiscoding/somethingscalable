@@ -1,0 +1,111 @@
+<template>
+  <style>
+    :root {
+      --ink: #ffffff;
+      --mint: #81c784;
+      --crimson: #f87171;
+      --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+    }
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-sans);
+      color: var(--ink);
+    }
+    .card-glass {
+      background: rgba(18, 23, 30, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 20px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(16px);
+    }
+    .tag-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 18px;
+      border-radius: 9999px;
+      font-size: 15px;
+      font-weight: 700;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.05);
+    }
+  </style>
+  <div id="root" data-composition-id="scene4" data-width="1920" data-height="1080">
+    <div id="s4-content" style="width: 1400px; display: flex; flex-direction: column; align-items: center; text-align: center;">
+      <!-- Master Scoreboard Card -->
+      <div id="scoreboard-card" class="card-glass" style="width: 100%; padding: 48px; margin-bottom: 36px; border: 1px solid rgba(129,199,132,0.35); box-shadow: 0 0 80px rgba(129,199,132,0.15);">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.12); padding-bottom: 24px; margin-bottom: 36px;">
+          <div style="text-align: left;">
+            <span class="tag-pill" style="color: #81c784; border-color: rgba(129,199,132,0.3); margin-bottom: 8px;" data-layout-ignore>Evaluation Complete</span>
+            <h3 style="font-size: 34px; font-weight: 800;">Student: Alex Reynolds</h3>
+            <p style="font-size: 20px; color: #9ca3af;" data-layout-ignore>Grade 11 Mathematics &amp; Physics Comprehensive</p>
+          </div>
+          <div style="display: flex; align-items: baseline; gap: 16px;">
+            <span id="final-score" style="font-size: 92px; font-weight: 900; color: #81c784; letter-spacing: -0.04em;">88</span>
+            <span style="font-size: 36px; color: #9ca3af; font-weight: 700;" data-layout-ignore>/ 100</span>
+            <div style="background: #81c784; color: #000000; padding: 10px 24px; border-radius: 14px; font-size: 28px; font-weight: 900; margin-left: 16px;">GRADE A</div>
+          </div>
+        </div>
+
+        <!-- Deductions and Reasoning row -->
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; text-align: left;" data-layout-ignore>
+          <div style="padding: 18px; background: rgba(255,255,255,0.04); border-radius: 14px;">
+            <div style="font-size: 16px; font-weight: 700; color: #81c784; margin-bottom: 6px;">+10.0 / 10.0 · Q1 Math</div>
+            <div style="font-size: 15px; color: #9ca3af;">All intermediate quadratic steps match the official key perfectly.</div>
+          </div>
+          <div style="padding: 18px; background: rgba(255,255,255,0.04); border-radius: 14px;">
+            <div style="font-size: 16px; font-weight: 700; color: #f87171; margin-bottom: 6px;">-2.0 Marks · Q3 Unit Missing</div>
+            <div style="font-size: 15px; color: #9ca3af;">Answer 42 calculated correctly, but standard SI unit (Joules) omitted.</div>
+          </div>
+          <div style="padding: 18px; background: rgba(255,255,255,0.04); border-radius: 14px;">
+            <div style="font-size: 16px; font-weight: 700; color: #81c784; margin-bottom: 6px;">+8.0 / 10.0 · Q4 Lens Ray</div>
+            <div style="font-size: 15px; color: #9ca3af;">Ray intersection matches focal point; clear diagram rubric met.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Brand Closing Lockup -->
+      <div id="brand-lockup">
+        <h1 style="font-size: 64px; font-weight: 900; letter-spacing: -0.04em; margin-bottom: 8px;">
+          WeHelpTeachers
+        </h1>
+        <p style="font-size: 30px; color: #81c784; font-weight: 600; margin-bottom: 28px;">
+          Grades that explain themselves.
+        </p>
+        <div style="display: inline-flex; align-items: center; gap: 16px; background: #ffffff; color: #000000; padding: 18px 44px; border-radius: 9999px; font-size: 22px; font-weight: 800; box-shadow: 0 10px 30px rgba(255,255,255,0.2);">
+          <span>Start grading at wehelpteachers.com</span>
+          <span style="font-size: 24px;">→</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+
+    tl.fromTo("#scoreboard-card", { opacity: 0, scale: 0.92, y: 30 }, { opacity: 1, scale: 1, y: 0, duration: 0.55, ease: "power4.out" }, 0.1);
+    
+    // Score count-up
+    const scoreObj = { val: 0 };
+    tl.to(scoreObj, {
+      val: 88,
+      duration: 0.9,
+      ease: "power2.out",
+      onUpdate: () => {
+        const el = document.getElementById("final-score");
+        if (el) el.textContent = `${Math.floor(scoreObj.val)}`;
+      }
+    }, 0.25);
+
+    tl.fromTo("#brand-lockup", { opacity: 0, y: 25 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" }, 1.3);
+
+    window.__timelines["scene4"] = tl;
+    tl.seek(0);
+  </script>
+</template>

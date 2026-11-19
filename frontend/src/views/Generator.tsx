@@ -232,62 +232,22 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
           {setModelOverride && (
             <div className="mb-4 rounded-xl border border-white/10 bg-black/20 p-3.5">
               <div className="flex items-center justify-between">
-                <div className="text-[11px] font-bold tracking-[.14em] text-white/50 uppercase">Generation Model (build.nvidia.com)</div>
+                <div className="text-[11px] font-bold tracking-[.14em] text-white/50 uppercase">Generation Model (Kilo AI Gateway)</div>
                 <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[10px] font-medium text-white/40">
-                  NVIDIA NIM
+                  Kilo Gateway
                 </span>
               </div>
-              <div className="mt-1 text-xs text-white/45">Select AI model for generating questions &amp; rubric:</div>
+              <div className="mt-1 text-xs text-white/45">One model for generating questions &amp; rubric:</div>
 
               <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 {[
                   {
                     id: DEFAULT_MODEL_ID,
                     name: 'Nemotron 3.5 Super VL',
-                    tag: 'Default · 120B (12B active)',
+                    tag: 'Kilo Gateway · 120B (12B active)',
                     tagTone: 'text-mint/90',
-                    desc: 'NVIDIA’s flagship VL model with thinking overhead disabled for fast generation.',
+                    desc: 'The only model this build offers — a VL model with thinking overhead disabled for fast generation.',
                     match: (m: string) => !m.trim() || m.includes('super-vl'),
-                  },
-                  {
-                    id: 'google/gemma-4-31b-it',
-                    name: 'Gemma 4 31B Vision',
-                    tag: 'Recommended Fast Multimodal',
-                    tagTone: 'text-mint/90',
-                    desc: 'Google’s 31B multimodal model on NVIDIA NIM. Fast, clean JSON rubric output.',
-                    match: (m: string) => m.includes('gemma-4-31b'),
-                  },
-                  {
-                    id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
-                    name: 'Nemotron 3 Nano Omni 30B',
-                    tag: 'Omni Reasoning · 30B (3B active)',
-                    tagTone: 'text-mint/90',
-                    desc: 'Omni-modal reasoning MoE (images, video, speech & text) for structured exam & rubric authoring.',
-                    match: (m: string) => m.includes('nano-omni') || m.includes('nano-mini') || m.includes('omni-30b'),
-                  },
-                  {
-                    id: 'nvidia/nemotron-3.5-lightning-30b-a3b',
-                    name: 'Nemotron 3.5 Lightning',
-                    tag: 'Ultra-Fast · 30B (3B active)',
-                    tagTone: 'text-mint/90',
-                    desc: 'Sub-second question & marking scheme generation using 3B active MoE.',
-                    match: (m: string) => m.includes('lightning'),
-                  },
-                  {
-                    id: 'deepseek-ai/deepseek-v4.1-flash',
-                    name: 'DeepSeek V4.1 Flash',
-                    tag: 'High-Throughput MoE · ~1.5s',
-                    tagTone: 'text-sand/90',
-                    desc: 'MoE architecture. Rapid syllabus generation without timeouts.',
-                    match: (m: string) => m.includes('deepseek'),
-                  },
-                  {
-                    id: 'minimaxai/minimax-m3.1-flash',
-                    name: 'MiniMax M3.1 Flash',
-                    tag: 'Long-Context MoE · 1M tokens',
-                    tagTone: 'text-sand/90',
-                    desc: 'Native multimodal MoE (image + text) with configurable reasoning effort.',
-                    match: (m: string) => m.includes('minimax'),
                   },
                 ].map(preset => {
                   const active = preset.match(modelOverride);
@@ -406,7 +366,7 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
                     </div>
                     <h4 className="mb-1.5 text-base font-semibold text-white/80">Generating Questions…</h4>
                     <p className="mx-auto max-w-[36ch] text-[13px] text-white/45">
-                      Contacting NVIDIA NIM {modelLabel(modelOverride)}. Questions will appear here live as each request completes.
+                      Contacting the Kilo AI Gateway {modelLabel(modelOverride)}. Questions will appear here live as each request completes.
                     </p>
                   </>
                 ) : (
