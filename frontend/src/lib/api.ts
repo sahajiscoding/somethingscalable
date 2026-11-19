@@ -25,7 +25,10 @@ export async function api(path: string, opts: RequestInit = {}, retries = 2): Pr
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const res = await fetch(path, { ...opts, headers });
-      if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt < retries) {
+      // Retry only transient states: 502 means the server already exhausted
+      // its own model retries (retrying here stacks minutes of work), and 504
+      // means the function hit its hard time cap (retrying doubles the wait).
+      if (res.status === 503 && attempt < retries) {
         await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
         continue;
       }
@@ -250,7 +253,7 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
       fd.append('file', files[role], files[role].name);
       fd.append('role', role);
       if (input.model) fd.append('model', input.model);
-      const res = await api('/api/extract', { method: 'POST', body: fd }, 2);
+      const res = await api('/api/extract', { method: 'POST', body: fd }, 1);
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
         role?: string;

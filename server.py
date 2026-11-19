@@ -124,11 +124,16 @@ def _api_error(exc: Exception):
         msg = str(exc.args[0]) if exc.args else "Invalid input document."
         return jsonify({"error": msg}), 400
     if isinstance(exc, EngineError):
+        # Keep the real cause: a generic "inference failed" hides whether the
+        # key was rejected, the gateway timed out, or it returned 5xx/JSON.
+        detail = " ".join(str(exc).split())[:300]
+        print(f"[engine] {type(exc).__name__}: {detail}", flush=True)
         if "429" in str(exc):
             return jsonify({
                 "error": "Kilo Gateway is rate-limiting the model right now (429). "
                          "Wait a moment and try again."}), 429
-        return jsonify({"error": "Model inference failed. Please check your model configuration and try again."}), 502
+        return jsonify({
+            "error": f"Model inference failed — {detail}"}), 502
     return jsonify({"error": "Failed to process request. Please try again later."}), 502
 
 
