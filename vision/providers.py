@@ -50,7 +50,7 @@ class ProviderConfig:
     url: str
     model: str
     api_key: str
-    timeout: float = 22.0
+    timeout: float = 45.0
     max_tokens: int = 1600
     batch_size: int = 4
     max_workers: int = 6
@@ -265,7 +265,7 @@ def _normalize_nvidia_model(model_id: str) -> str:
 def nvidia_provider(api_key: str | None = None,
                     model: str | None = None,
                     url: str | None = None,
-                    timeout: float = 22.0,
+                    timeout: float = 45.0,
                     env: dict | None = None) -> VisionProvider | None:
     source = env if env is not None else os.environ
     key = (
@@ -285,7 +285,6 @@ def nvidia_provider(api_key: str | None = None,
     raw_chosen = (
         model
         or source.get("KILO_MODEL")
-        or source.get("NVIDIA_MODEL")
         or KILO_DEFAULT_MODEL
     ).strip()
     chosen = _normalize_nvidia_model(raw_chosen)
@@ -295,7 +294,6 @@ def nvidia_provider(api_key: str | None = None,
         if is_vlm
         else (
             source.get("KILO_API_URL")
-            or source.get("NVIDIA_API_URL")
             or KILO_DEFAULT_URL
         )
     )

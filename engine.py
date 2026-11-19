@@ -35,17 +35,17 @@ from typing import Any
 # previous GLM/DeepSeek flash models, which hit the read timeout on real
 # exam papers. This build offers that single model only; override the id
 # with KILO_MODEL if Kilo ever renames it.
+# Kilo only: the legacy NVIDIA_API_URL / NVIDIA_MODEL overrides are gone so a
+# stale Nvidia NIM env var can never route requests off the Kilo gateway again.
 KILO_DEFAULT_ENDPOINT = "https://ai-gateway.kilo.ai/api/v1/chat/completions"
 NIM_ENDPOINT = (
     os.environ.get("KILO_API_URL")
-    or os.environ.get("NVIDIA_API_URL")
     or KILO_DEFAULT_ENDPOINT
 )
 PALIGEMMA_VLM_ENDPOINT = os.environ.get(
     "NVIDIA_PALIGEMMA_URL", "https://ai.api.nvidia.com/v1/vlm/google/paligemma")
 NVIDIA_DEFAULT_MODEL = (
     os.environ.get("KILO_MODEL")
-    or os.environ.get("NVIDIA_MODEL")
     or "nvidia/nemotron-3.5-super-vl:free"
 )
 
@@ -101,15 +101,17 @@ _FALLBACK_MODELS = (
     NVIDIA_DEFAULT_MODEL,
 )
 
-# Per-request HTTP timeout (seconds): kept tight (24 s default) so a slow
-# model fails over quickly to a fast alternate instead of hanging past
-# Vercel's 60 s serverless function ceiling (which causes browser "Failed to fetch").
+# Per-request HTTP timeout (seconds). The Kilo free tier routinely needs
+# 30-60 s for multi-page vision + JSON, so 24 s was aborting healthy
+# requests mid-flight ("Read timed out") and then retrying into the same
+# wall. Budgets must fit inside Vercel's 300 s function cap (vercel.json):
+# worst case ≈ two attempts × NVIDIA_TIMEOUT inside NVIDIA_WALL_BUDGET.
 try:
-    _NIM_TIMEOUT = int(float(str(os.environ.get("NVIDIA_TIMEOUT", "24"))))
+    _NIM_TIMEOUT = int(float(str(os.environ.get("NVIDIA_TIMEOUT", "90"))))
 except ValueError:
-    _NIM_TIMEOUT = 24
+    _NIM_TIMEOUT = 90
 _NIM_CONNECT_TIMEOUT = 8
-_NIM_WALL_BUDGET = int(float(str(os.environ.get("NVIDIA_WALL_BUDGET", "46"))))
+_NIM_WALL_BUDGET = int(float(str(os.environ.get("NVIDIA_WALL_BUDGET", "200"))))
 # Rendered-PDF page cap — supports real-world exam papers with 20, 30, 50+ pages.
 _NVIDIA_MAX_PDF_PAGES = int(os.environ.get("MAX_PDF_PAGES", "80"))
 
@@ -673,7 +675,7 @@ class NvidiaEngine:
                     )
             except requests.Timeout as exc:
                 last = (f"Timed out after {req_timeout}s on {candidate_model} "
-                        f"(NVIDIA took too long): {exc}")
+                        f"(gateway took too long): {exc}")
                 continue
             except requests.RequestException as exc:
                 last = f"Network error on {candidate_model}: {exc}"

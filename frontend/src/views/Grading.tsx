@@ -977,7 +977,7 @@ export default function Grading(props: GradingProps) {
     }
     if (!backend.ok) {
       setAlert({
-        msg: 'Live backend is unreachable, so nothing was graded. Set NVIDIA_API_KEY on the server and redeploy for real grading. Uncheck “Use live AI grading” only to preview the UI with sample data.',
+        msg: 'Live backend is unreachable, so nothing was graded. Set KILO_API_KEY on the server and redeploy for real grading. Uncheck “Use live AI grading” only to preview the UI with sample data.',
         ok: false,
       });
       return;
