@@ -44,7 +44,7 @@ export async function api(path: string, opts: RequestInit = {}, retries = 2): Pr
   const rawMsg = String((lastErr as Error)?.message || lastErr || '');
   if (/failed to fetch|networkerror|load failed/i.test(rawMsg)) {
     throw new Error(
-      'Connection to the grading server dropped or timed out (Failed to fetch). Ensure the backend server is running and WHT_ENGINE_API_KEY is set.'
+      'Connection to the grading server dropped or timed out (Failed to fetch). Ensure the backend server is running and KILO_API_KEY is set.'
     );
   }
   throw lastErr instanceof Error ? lastErr : new Error(rawMsg || 'Network request failed');
@@ -146,16 +146,17 @@ export interface AlignedQuestion {
 }
 
 /**
- * Strict Rate Limiter enforcing maximum requests in a rolling time window.
- * Default: 39 requests per 60,000 ms window (gateway safe limit).
- * Supports an initial burst of 39 requests.
+ * Rate limiter enforcing a maximum number of requests in a rolling window.
+ * Kilo's free tier allows ~200 requests/hour, so the default is a gentle
+ * 6 requests per minute: enough to stream a 5-8 question paper quickly
+ * without tripping 429s that would otherwise fail the whole run.
  */
 export class RateLimiter {
   private readonly maxRequests: number;
   private readonly windowMs: number;
   private timestamps: number[] = [];
 
-  constructor(maxRequests: number = 39, windowMs: number = 60_000) {
+  constructor(maxRequests: number = 6, windowMs: number = 60_000) {
     this.maxRequests = maxRequests;
     this.windowMs = windowMs;
   }
@@ -175,7 +176,7 @@ export class RateLimiter {
         this.timestamps.push(Date.now());
         return;
       }
-      // Window full (39 requests in last 60s). Wait until oldest request timestamp expires.
+      // Window full — wait until the oldest request timestamp expires.
       const oldest = this.timestamps[0];
       const wait = Math.max(50, oldest + this.windowMs - now + 50);
       await new Promise(resolve => setTimeout(resolve, wait));
@@ -319,7 +320,7 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
   const totalQuestions = aligned.aligned.length;
   const records: GradeRecord[] = new Array(totalQuestions);
   const completedRecords: (GradeRecord | null)[] = new Array(totalQuestions).fill(null);
-  const rateLimiter = new RateLimiter(39, 60_000);
+  const rateLimiter = new RateLimiter(6, 60_000);
   const BATCH_SIZE = 5;
   const BATCH_CONCURRENCY = 3;
 
@@ -565,6 +566,8 @@ export interface GenerateExamInput {
   difficulty: string;
   count: number;
   marks: number;
+  /** Optional narrower focus, e.g. "Snell's law" inside the topic "Optics". */
+  subtopic?: string;
   model?: string;
   onQuestionGenerated?: (
     question: GeneratedQuestion,
@@ -580,23 +583,23 @@ export async function generateExam(
   const count = Math.max(1, input.count || 5);
   const totalMarks = input.marks || 25;
   const perQMarks = Math.round((totalMarks / count) * 10) / 10;
-  const rateLimiter = new RateLimiter(39, 60_000);
+  const rateLimiter = new RateLimiter(6, 60_000);
 
   const completedQuestions: (GeneratedQuestion | null)[] = new Array(count).fill(null);
   let usedModel = input.model || DEFAULT_MODEL_ID;
-  let note: string | undefined;
 
-  // Per-question generation: 1 request per question, bypassing timeouts.
-  // Up to 39 requests dispatched concurrently at once (39 RPM limit).
-  // Streams question output immediately upon response.
+  // Per-question generation: 1 request per question, so a slow model never
+  // trips the host timeout and questions stream into the preview as they land.
+  // Every question is written by the WHT Engine model — if a call fails we
+  // surface the real error instead of inventing a placeholder question.
+  const failures: string[] = [];
   const promises = Array.from({ length: count }, async (_, i) => {
     await rateLimiter.acquire();
     const qNum = `Q${i + 1}`;
-    let attempts = 0;
+    let lastErr: unknown;
 
-    while (attempts < 2) {
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        attempts++;
         const data = await apiJson<{
           ok: boolean;
           question: GeneratedQuestion;
@@ -613,44 +616,42 @@ export async function generateExam(
             index: i + 1,
             total: count,
             marks: perQMarks,
+            subtopic: input.subtopic?.trim() || undefined,
             model: input.model,
           }),
         });
 
         usedModel = data.model || usedModel;
-        if (data.note) note = data.note;
-
         completedQuestions[i] = data.question;
         input.onQuestionGenerated?.(data.question, i, count, completedQuestions);
         return data.question;
-      } catch (err: any) {
-        const msg = String(err?.message || err);
+      } catch (err: unknown) {
+        lastErr = err;
+        const msg = String((err as Error)?.message || err);
         const is429 = msg.includes('429') || msg.toLowerCase().includes('rate');
-        if (msg.includes('504')) {
-          break;
-        }
-        if (attempts < 2) {
-          await new Promise(r => setTimeout(r, is429 ? 3000 : 1000));
+        const retryable = is429 || /502|503|504|timeout|timed out|network|fetch/i.test(msg);
+        if (attempt < 1 && retryable) {
+          await new Promise(r => setTimeout(r, is429 ? 3000 : 1200));
           await rateLimiter.acquire();
+          continue;
         }
+        break;
       }
     }
-    const fallbackQ: GeneratedQuestion = {
-      number: qNum,
-      text: `Analyze the core principles and primary mechanisms of ${input.topic} (Question ${i + 1} of ${count}) for ${input.grade}. Explain the complete step-by-step working and critical concepts.`,
-      max_marks: perQMarks,
-      expected_answer: `Complete targeted explanation and step-by-step solution for ${input.topic} question ${i + 1}.`,
-      marking_scheme: `Concepts & definitions: ${Math.round(perQMarks * 0.4 * 10) / 10}m; Explanations & steps: ${Math.round(perQMarks * 0.4 * 10) / 10}m; Final solution: ${Math.round(perQMarks * 0.2 * 10) / 10}m.`,
-      keywords: [input.topic.split(' ')[0].toLowerCase(), 'solution'],
-    };
-    completedQuestions[i] = fallbackQ;
-    input.onQuestionGenerated?.(fallbackQ, i, count, completedQuestions);
-    note = 'Generated with backup syllabus template due to temporary NIM latency.';
-    return fallbackQ;
+    failures.push(`${qNum}: ${String((lastErr as Error)?.message || lastErr || 'unknown error')}`);
+    return null;
   });
 
-  const questions = await Promise.all(promises);
+  const settled = await Promise.all(promises);
+  if (failures.length > 0) {
+    throw new Error(
+      failures.length === count
+        ? `The WHT Engine could not write this exam. ${failures[0]}`
+        : `${failures.length} of ${count} questions could not be written by the WHT Engine. ${failures[0]}`,
+    );
+  }
 
+  const questions = settled as GeneratedQuestion[];
   const exam: GeneratedExam = {
     title: `${input.topic} Examination`,
     topic: input.topic,
@@ -659,7 +660,7 @@ export async function generateExam(
     questions,
   };
 
-  return { exam, model: usedModel, note };
+  return { exam, model: usedModel };
 }
 
 export function buildGenPaperText(exam: GeneratedExam): string {

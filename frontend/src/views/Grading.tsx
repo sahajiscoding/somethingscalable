@@ -322,7 +322,7 @@ function vmFromPartialLive(
         text: inProgress ? `Evaluating: ${done.length} / ${totalExpected}` : `Live AI · ${model}`,
         tone: inProgress ? 'warn' : 'plain',
       },
-      { text: 'Rate Limit: 39 RPM', tone: 'plain' },
+      { text: 'Queued per gateway limit', tone: 'plain' },
       { text: strict ? 'Strict checking' : 'Standard checking', tone: 'plain' },
       ...(activeCrit.length
         ? activeCrit.map(k => ({ text: `Penalty: ${CRITERIA[k]?.label || k}`, tone: 'crit' as const }))
@@ -371,7 +371,7 @@ function vmFromLive(report: LiveReport, fallbackImages: string[] = [], sheetName
   return {
     chips: [
       { text: `Live AI · ${report.engine} ${report.model}`, tone: 'plain' },
-      { text: 'Rate Limit: 39 RPM', tone: 'plain' },
+      { text: 'Queued per gateway limit', tone: 'plain' },
       { text: report.mode.strict ? 'Strict checking' : 'Standard checking', tone: 'plain' },
       ...(activeCrit.length
         ? activeCrit.map(k => ({ text: `Penalty: ${CRITERIA[k]?.label || k}`, tone: 'crit' as const }))
@@ -590,7 +590,7 @@ function ResultsView({
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-mint opacity-75" />
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-mint" />
               </span>
-              <span>Evaluating with {modelLabel(vm.modelName)} · 39 requests/minute limit active · Output streams per question</span>
+              <span>Evaluating with {modelLabel(vm.modelName)} · requests queued to stay inside the gateway limit · output streams per question</span>
             </div>
             <span className="rounded-full bg-mint/20 px-2.5 py-1 font-extrabold tabular-nums text-white">
               {vm.qCount} question{vm.qCount === 1 ? '' : 's'} ready
@@ -968,7 +968,7 @@ export default function Grading(props: GradingProps) {
         ok: false,
       });
     }
-  }, [running, missingDocs, flagMissing, files, strict, criteria, modelOverride, backend.model, onRecord, setFiles]);
+  }, [running, missingDocs, flagMissing, files, strict, criteria, markingMode, negativeMarksValue, modelOverride, backend.model, onRecord, setFiles]);
 
   const runEvaluation = useCallback(() => {
     if (!live) {
@@ -977,13 +977,20 @@ export default function Grading(props: GradingProps) {
     }
     if (!backend.ok) {
       setAlert({
-        msg: 'Live backend is unreachable, so nothing was graded. Set WHT_ENGINE_API_KEY on the server and redeploy for real grading. Uncheck “Use live AI grading” only to preview the UI with sample data.',
+        msg: 'Live backend is unreachable, so nothing was graded. Deploy the backend (or run `python server.py`) and try again. Uncheck “Use live AI grading” only to preview the UI with sample data.',
+        ok: false,
+      });
+      return;
+    }
+    if (!backend.hasKey) {
+      setAlert({
+        msg: 'The backend is reachable but has no gateway key, so nothing was graded. Add KILO_API_KEY (or WHT_ENGINE_API_KEY) in Vercel Environment Variables and redeploy.',
         ok: false,
       });
       return;
     }
     void runLiveFlow();
-  }, [live, backend.ok, runSimulation, runLiveFlow]);
+  }, [live, backend.ok, backend.hasKey, runSimulation, runLiveFlow]);
 
   // "Try Demo Grading" from Home, and generator 1-click notices
   useEffect(() => {
@@ -1297,6 +1304,13 @@ export default function Grading(props: GradingProps) {
             };
           });
         }
+      } catch (err) {
+        // A failed recheck used to disappear into `finally`: the question kept
+        // its old marks with no feedback, looking like the recheck succeeded.
+        setAlert({
+          msg: `${qNo} could not be rechecked — ${err instanceof Error ? err.message : String(err)}. Its previous marks are unchanged.`,
+          ok: false,
+        });
       } finally {
         setRecheckingQNo(null);
       }
@@ -1652,10 +1666,12 @@ export default function Grading(props: GradingProps) {
                 </span>
               </label>
             </div>
-            <div className={`mt-2 text-xs ${backend.ok ? 'text-mint' : 'text-crimson'}`}>
-              {backend.ok
-                ? `● Live backend connected (Active: ${modelOverride.trim() || 'WHT Engine Auto (gateway default)'}).`
-                : '○ No live backend (offline demo mode). Deploy with `vercel` to enable AI grading.'}
+            <div className={`mt-2 text-xs ${!backend.ok ? 'text-crimson' : backend.hasKey ? 'text-mint' : 'text-sand'}`}>
+              {!backend.ok
+                ? '○ No live backend (offline demo mode). Deploy with `vercel` to enable AI grading.'
+                : backend.hasKey
+                  ? `● Live backend connected (Active: ${modelOverride.trim() || 'WHT Engine Auto (gateway default)'}).`
+                  : '▲ Backend reachable, but no gateway key is configured — add KILO_API_KEY in Vercel Environment Variables.'}
             </div>
           </div>
 

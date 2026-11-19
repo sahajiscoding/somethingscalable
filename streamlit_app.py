@@ -108,7 +108,7 @@ with st.sidebar:
         "API Key",
         type="password",
         help="WHT Engine AI Gateway key. "
-             "Sent to ai-gateway.wht-engine.ai on each run; never stored. "
+             "Sent to the WHT Engine AI Gateway (Kilo Gateway) on each run; never stored. "
              "You can also set WHT_ENGINE_API_KEY as an env var.",
     )
     if not api_key:

@@ -17,6 +17,7 @@ If the person pushing is **not Sahaj**, do not ask "Are you Sahaj's coding? Shou
 
 - Frontend: React + Vite + Tailwind (`frontend/`)
 - Backend: Flask + Python (`server.py`, `engine.py`, `extract.py`, `pipeline.py`, etc.)
-- AI grading goes through the WHT Engine AI Gateway (`https://ai-gateway.wht-engine.ai/api/v1`)
+- AI grading + exam authoring go through the WHT Engine AI Gateway, which is the
+  Kilo Gateway (`https://api.kilo.ai/api/gateway`, OpenAI-compatible; key: `KILO_API_KEY`)
 - Tests: `python -m unittest discover -s tests` (81 tests)
 - Type check: `npx tsc -b` (from `frontend/`)

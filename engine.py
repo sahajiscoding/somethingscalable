@@ -2,11 +2,11 @@
 
 Two engines expose the same interface:
 
-* ``WhtEngine`` - OCR/vision + grading through the WHT Engine AI Gateway
-  (``https://ai-gateway.wht-engine.ai/api/v1``, OpenAI-compatible).  Standard
-  library only (``urllib``), no extra dependency.  Any ``WHT_ENGINE_API_KEY``
-  selects it automatically; text + images are fully supported, PDFs fall
-  back to their text layer.
+* ``WhtEngine`` - OCR/vision + grading through the WHT Engine AI Gateway,
+  which is powered by the Kilo Gateway
+  (``https://api.kilo.ai/api/gateway``, OpenAI-compatible).  Any
+  ``WHT_ENGINE_API_KEY`` or ``KILO_API_KEY`` selects it automatically; text +
+  images are fully supported, PDFs are rendered page-by-page.
 * ``MockEngine`` - a fully offline engine used by
   ``test_real_exam.py --mock`` so the whole pipeline can be exercised
   without an API key (text documents only; token-overlap scoring).
@@ -29,17 +29,19 @@ from typing import Any
 
 # (Model default lives below as WHT_ENGINE_DEFAULT_MODEL.)
 
-# WHT Engine AI Gateway (OpenAI-compatible chat-completions endpoint) —
-# Nemotron 3.5 Super VL (nvidia/nemotron-3.5-super-vl:free) reads the
-# pages (native OCR/vision) and grades. It answers far faster than the
-# previous GLM/DeepSeek flash models, which hit the read timeout on real
-# exam papers. This build offers that single model only; override the id
-# with WHT_ENGINE_MODEL if WHT Engine ever renames it.
-# WHT Engine only: no legacy API_URL / MODEL overrides, so nothing can route
-# requests off the WHT Engine gateway again.
-WHT_ENGINE_DEFAULT_ENDPOINT = "https://ai-gateway.wht-engine.ai/api/v1/chat/completions"
+# "WHT Engine" is this product's name for its AI layer. It runs on the Kilo
+# Gateway (https://api.kilo.ai/api/gateway) — an OpenAI-compatible
+# chat-completions endpoint — using the KILO_API_KEY configured in Vercel or
+# the environment. Branding stays "WHT Engine" in every UI surface; the
+# transport below is the real, working gateway behind it.
+#
+# Nemotron 3.5 Super VL (nvidia/nemotron-3.5-super-vl:free) reads the pages
+# (native OCR/vision) and grades, and is also the text model for exam
+# authoring. Override the id with WHT_ENGINE_MODEL if Kilo renames it.
+WHT_ENGINE_DEFAULT_ENDPOINT = "https://api.kilo.ai/api/gateway/chat/completions"
 WHT_ENGINE_ENDPOINT = (
     os.environ.get("WHT_ENGINE_API_URL")
+    or os.environ.get("KILO_API_URL")
     or WHT_ENGINE_DEFAULT_ENDPOINT
 )
 WHT_ENGINE_DEFAULT_MODEL = (
@@ -87,16 +89,21 @@ _IMAGE_ONLY_VISION_MODELS = frozenset({
     "google/google-paligemma",
 })
 
-# Fast vision fallbacks (used when messages include images/scans). Only the
-# one offered model remains, so a "fallback" is a straight retry.
+# Vision fallbacks (used when messages include images/scans). Every id here
+# must accept image_url blocks on the Kilo Gateway and be free-tier friendly;
+# the first entry is the same default model, so a healthy gateway never pays
+# for a second attempt.
 _VISION_FALLBACK_MODELS = (
     WHT_ENGINE_DEFAULT_MODEL,
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    "kilo-auto/free",
 )
 
 # Fast text/grading fallbacks (used for grading batches, exam generation, and
 # digital text extraction).
 _FALLBACK_MODELS = (
     WHT_ENGINE_DEFAULT_MODEL,
+    "kilo-auto/free",
 )
 
 # Per-request HTTP timeout (seconds). The WHT Engine free tier routinely needs
@@ -114,13 +121,20 @@ _WHT_ENGINE_WALL_BUDGET = int(float(str(os.environ.get("WHT_ENGINE_WALL_BUDGET",
 _MAX_PDF_PAGES = int(os.environ.get("MAX_PDF_PAGES", "80"))
 
 _WHT_ENGINE_KEY_NAMES = (
+    "KILO_API_KEY",
     "WHT_ENGINE_API_KEY",
     "WHT_ENGINE_KEY",
 )
 
 
 def get_wht_engine_key(explicit_key: str | None = None) -> str:
-    """Return explicit key or first discovered WHT Engine env var."""
+    """Return explicit key or first discovered WHT Engine env var.
+
+    ``KILO_API_KEY`` is the canonical Kilo Gateway key; ``WHT_ENGINE_API_KEY``
+    is kept so existing deployments keep working. A key that was left stale
+    after a rename is rejected with HTTP 401/403 and retried with the next
+    one (see ``WhtEngine._chat``), so either name is safe.
+    """
     if explicit_key and explicit_key.strip():
         return explicit_key.strip()
     for name in _WHT_ENGINE_KEY_NAMES:
@@ -129,14 +143,33 @@ def get_wht_engine_key(explicit_key: str | None = None) -> str:
             return val
     return ""
 
+
+def get_wht_engine_keys(explicit_key: str | None = None) -> list[str]:
+    """All usable gateway keys, useful first, de-duplicated.
+
+    A renamed project can end up with a stale ``WHT_ENGINE_API_KEY`` next to a
+    fresh ``KILO_API_KEY`` (or vice versa). Trying each in turn turns a
+    confusing 401 into a working request.
+    """
+    if explicit_key and explicit_key.strip():
+        return [explicit_key.strip()]
+    ordered: list[str] = []
+    for name in _WHT_ENGINE_KEY_NAMES:
+        val = os.environ.get(name, "").strip()
+        if val and val not in ordered:
+            ordered.append(val)
+    return ordered
+
+
 # The gateway rate-limits per key. A token bucket refilled at WHT_ENGINE_RPM/min
-# (default 39) serialises bursts — parallel page OCR, per-question grading
-# calls — so callers wait instead of tripping 429s. Raise it if your WHT Engine
-# plan allows more.
+# serialises bursts — parallel page OCR, per-question grading calls — so
+# callers wait instead of tripping 429s.
 try:
-    WHT_ENGINE_RPM = int(os.environ.get("WHT_ENGINE_RPM", 39))
+    # Kilo's free tier allows 200 requests/hour (~3.3/min); 39/min was tuned
+    # for a different gateway and only trips 429s here.
+    WHT_ENGINE_RPM = int(os.environ.get("WHT_ENGINE_RPM", 3))
 except ValueError:  # a bad env value must never crash the import
-    WHT_ENGINE_RPM = 39
+    WHT_ENGINE_RPM = 3
 _bucket_lock = threading.Lock()
 _bucket_tokens = float(WHT_ENGINE_RPM)
 _bucket_last: float | None = None
@@ -224,7 +257,7 @@ class EngineError(RuntimeError):
 # ---------------------------------------------------------------------------
 
 class WhtEngine:
-    """Vision + grading through the WHT Engine AI Gateway (ai-gateway.wht-engine.ai).
+    """Vision + grading through the WHT Engine AI Gateway (Kilo Gateway).
 
     Nemotron 3.5 Super VL (nvidia/nemotron-3.5-super-vl:free) reads the
     pages and grades (native vision + JSON), HTTP via ``requests``. The key
@@ -239,13 +272,14 @@ class WhtEngine:
     name = "WHT Engine"
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
-        key = get_wht_engine_key(api_key)
-        if not key:
+        keys = get_wht_engine_keys(api_key)
+        if not keys:
             raise EngineError(
-                "No WHT Engine API key found. Set WHT_ENGINE_API_KEY in Vercel Environment "
-                "Variables (or pass --api-key)."
+                "No WHT Engine API key found. Set KILO_API_KEY (or "
+                "WHT_ENGINE_API_KEY) in Vercel Environment Variables."
             )
-        self.key = key
+        self.key = keys[0]
+        self._keys = keys
         self.model = model or WHT_ENGINE_DEFAULT_MODEL
 
     # -- public API ---------------------------------------------------------
@@ -573,6 +607,41 @@ class WhtEngine:
               temperature: float,
               max_tokens: int = 4096,
               wall_budget: float = 46.0) -> str:
+        """Send one chat-completion request, rotating through configured keys.
+
+        A stale key produced by an env rename surfaces as 401/403 on the first
+        key; the loop below then retries the same request with the next key
+        before giving up, so a half-renamed deployment still works.
+        """
+        import time
+        try:
+            import requests
+        except ImportError as exc:
+            raise EngineError(
+                "The requests package is not installed. "
+                "Install dependencies with: pip install -r requirements.txt"
+            ) from exc
+
+        last_auth_error: str | None = None
+        for key in getattr(self, "_keys", [self.key]):
+            try:
+                return self._chat_with_key(
+                    messages, temperature, max_tokens=max_tokens,
+                    wall_budget=wall_budget, api_key=key,
+                )
+            except EngineError as exc:
+                if "rejected the key" not in str(exc):
+                    raise
+                last_auth_error = str(exc)
+                continue
+        raise EngineError(last_auth_error or "WHT Engine AI Gateway rejected every key.")
+
+    def _chat_with_key(self,
+                       messages: list[Any],
+                       temperature: float,
+                       max_tokens: int = 4096,
+                       wall_budget: float = 46.0,
+                       api_key: str | None = None) -> str:
         import time
         try:
             import requests
@@ -583,7 +652,7 @@ class WhtEngine:
             ) from exc
 
         headers = {
-            "Authorization": f"Bearer {self.key}",
+            "Authorization": f"Bearer {api_key or self.key}",
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
@@ -629,12 +698,18 @@ class WhtEngine:
                 "stream": False,
             }
             if self._uses_thinking_kwargs(candidate_model):
-                    # Disable chain-of-thought reasoning trace so the model outputs
-                    # JSON immediately (~2-4s) instead of spending 40-60s on <think>.
-                    payload["chat_template_kwargs"] = {
-                        "enable_thinking": False,
-                        "thinking": False,
-                    }
+                # Keep chain-of-thought short so the model reaches JSON quickly:
+                # reasoning ramps a single question from ~3 s to ~60 s.
+                payload["chat_template_kwargs"] = {
+                    "enable_thinking": False,
+                    "thinking": False,
+                }
+                payload["reasoning"] = {"enabled": False, "effort": "none"}
+            if not has_images:
+                # Text tasks (exam authoring, grading) must come back as JSON.
+                # Vision models on the gateway reject response_format, so this
+                # is only set when the request carries no image blocks.
+                payload["response_format"] = {"type": "json_object"}
 
             _acquire_wht_engine_token()
             try:
@@ -645,14 +720,24 @@ class WhtEngine:
                     timeout=(_WHT_ENGINE_CONNECT_TIMEOUT, req_timeout),
                 )
                 # If a model rejects chat_template_kwargs with 400/422, retry immediately without it
-                if resp.status_code in (400, 422) and "chat_template_kwargs" in payload:
-                    payload.pop("chat_template_kwargs", None)
-                    resp = requests.post(
-                        endpoint_url,
-                        headers=headers,
-                        json=payload,
-                        timeout=(_WHT_ENGINE_CONNECT_TIMEOUT, req_timeout),
-                    )
+                if resp.status_code in (400, 422):
+                    # Drop the optional knobs one at a time so a gateway that
+                    # does not accept them still gets a valid request.
+                    relaxed = dict(payload)
+                    for knob in ("chat_template_kwargs", "reasoning", "response_format"):
+                        if knob in relaxed:
+                            relaxed.pop(knob)
+                            resp = requests.post(
+                                endpoint_url,
+                                headers=headers,
+                                json=relaxed,
+                                timeout=(_WHT_ENGINE_CONNECT_TIMEOUT, req_timeout),
+                            )
+                            if resp.status_code not in (400, 422):
+                                payload = relaxed
+                                break
+                    else:
+                        payload = relaxed
             except requests.Timeout as exc:
                 last = (f"Timed out after {req_timeout}s on {candidate_model} "
                         f"(gateway took too long): {exc}")
@@ -677,8 +762,13 @@ class WhtEngine:
                         if reasoning_text and _parse_json(reasoning_text)[0] is not None:
                             return reasoning_text
                     # 200 but the gateway returned no usable completion content.
-                    # Retry the same model a couple times — it can be transient.
+                    # Retry the same model a couple of times — it can be transient
+                    # — then fall through to the next candidate model instead of
+                    # returning "" from inside the loop (which used to end the
+                    # whole call with an empty string).
                     for _retry in range(2):
+                        if time.monotonic() - chat_start >= wall_budget - 4:
+                            break
                         try:
                             resp2 = requests.post(
                                 endpoint_url,
@@ -696,27 +786,43 @@ class WhtEngine:
                                 rt2 = (msg2.get("reasoning_content") or "").strip()
                                 if rt2 and _parse_json(rt2)[0] is not None:
                                     return rt2
-                        except Exception:
+                        except Exception:  # nosec B110 - transient; try next model
                             pass
-                    # Still empty after retries — return empty so generate_json
-                    # can apply its own retry/correction logic instead of crashing.
-                    return ""
+                    last = f"empty completion on {candidate_model}"
+                    continue
                 except (KeyError, IndexError, TypeError, ValueError):
                     return ""
             elif resp.status_code in (401, 403):
                 raise EngineError(
                     f"WHT Engine AI Gateway rejected the key (HTTP {resp.status_code}). "
-                    "Check WHT_ENGINE_API_KEY."
+                    "Check WHT_ENGINE_API_KEY (or KILO_API_KEY) in Vercel."
                 )
             elif resp.status_code == 429:
+                # Kilo's free tier allows 200 requests/hour. A burst from the
+                # frontend (5 questions + page OCR) can trip it, so back off
+                # and retry inside the same wall budget instead of failing the
+                # user's exam outright.
+                retry_after = resp.headers.get("Retry-After") if hasattr(resp, "headers") else None
+                try:
+                    wait_s = float(retry_after) if retry_after else 0.0
+                except (TypeError, ValueError):
+                    wait_s = 0.0
+                wait_s = min(max(wait_s, 3.0), 20.0)
+                if time.monotonic() - chat_start + wait_s < wall_budget - 6:
+                    time.sleep(wait_s)
+                    last = f"rate limited (429) on {candidate_model}"
+                    continue
                 raise EngineError(
-                    "WHT Engine AI Gateway rate limit (HTTP 429) — wait a moment and "
-                    "retry, or raise WHT_ENGINE_RPM if your plan allows more."
+                    "WHT Engine AI Gateway rate limit (HTTP 429). The free tier "
+                    "allows ~200 requests/hour — wait a minute and retry, or "
+                    "raise WHT_ENGINE_RPM if your plan allows more."
                 )
             else:
                 last = f"HTTP {resp.status_code} on {candidate_model}: {resp.text[:200]}"
 
-        raise EngineError(f"WHT Engine AI Gateway call failed: {last}")
+        raise EngineError(
+            f"WHT Engine AI Gateway call failed ({WHT_ENGINE_ENDPOINT}): {last}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1105,7 +1211,7 @@ def make_engine(api_key: str | None = None,
                 backend: str | None = None):
     """Factory used by the CLI, test runners, Streamlit app and API.
 
-    Nemotron 3.5 Super VL on the WHT Engine AI Gateway
+    Nemotron 3.5 Super VL on the WHT Engine AI Gateway (Kilo Gateway)
     (``nvidia/nemotron-3.5-super-vl:free``) for checking papers, using the
     API key configured in Vercel/environment (``WHT_ENGINE_API_KEY``) or provided
     explicitly. Unknown ids pass through so the custom model box still works.

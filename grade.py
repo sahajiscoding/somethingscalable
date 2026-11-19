@@ -355,6 +355,39 @@ def _try_fast_grade(q: AlignedQuestion, params: GradeParams) -> dict | None:
     return None
 
 
+# Keys a model may use to wrap the array of per-question grading records.
+_RECORD_KEYS = (
+    "records", "questions", "results", "grades", "questions_graded",
+    "graded", "evaluations", "items", "data",
+    "record", "question", "result", "grade", "evaluation",
+)
+
+
+def _coerce_records(raw: Any) -> list[dict]:
+    """Pull the list of grading records out of whatever the model returned.
+
+    The prompt asks for a bare JSON array, but models routinely wrap it
+    (``{"records": [...]}``, ``{"questions": [...]}``, ``{"result": {...}}``).
+    A wrapper used to abort the whole batch with "no question records",
+    which is exactly the kind of failure that silently zeroes a paper.
+    """
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, dict)]
+    if not isinstance(raw, dict):
+        return []
+    for key in _RECORD_KEYS:
+        value = raw.get(key)
+        if isinstance(value, list):
+            found = [item for item in value if isinstance(item, dict)]
+            if found:
+                return found
+        elif isinstance(value, dict):
+            return [value]
+    if any(k in raw for k in ("marks_awarded", "steps", "feedback", "deductions", "number")):
+        return [raw]
+    return []
+
+
 def grade_answers(engine, aligned: list[AlignedQuestion],
                   params: GradeParams | None = None) -> list[dict]:
     """Grade every aligned question in one engine call."""
@@ -384,14 +417,15 @@ def grade_answers(engine, aligned: list[AlignedQuestion],
                                instruction=build_prompt(params),
                                temperature=0.1, max_tokens=max_tokens)
 
-    if isinstance(raw, dict):
-        raw = raw.get("questions") or raw.get("results") or raw.get("grades")
-    if not isinstance(raw, list) or not raw:
-        raise GradingError("Grading engine returned no question records.")
+    items = _coerce_records(raw)
+    if not items:
+        raise GradingError(
+            "The model replied without any per-question grading records."
+        )
 
     by_number: dict[str, dict] = {}
-    for item in raw:
-        if isinstance(item, dict) and item.get("number") is not None:
+    for item in items:
+        if item.get("number") is not None:
             by_number[str(item["number"]).strip()] = item
 
     records: list[dict] = []
@@ -532,17 +566,8 @@ def recheck_one_record(
             max_tokens=1500,
         )
 
-    item: dict | None = None
-    if isinstance(raw, dict):
-        inner = raw.get("questions") or raw.get("results") or raw.get("grades") or raw.get("record")
-        if isinstance(inner, list) and inner and isinstance(inner[0], dict):
-            item = inner[0]
-        elif isinstance(inner, dict):
-            item = inner
-        elif any(k in raw for k in ("marks_awarded", "steps", "feedback", "deductions", "number")):
-            item = raw
-    elif isinstance(raw, list) and raw and isinstance(raw[0], dict):
-        item = raw[0]
+    candidates = _coerce_records(raw)
+    item: dict | None = candidates[0] if candidates else None
 
     if item is None:
         raise GradingError("Recheck engine returned no valid question record.")
@@ -586,6 +611,7 @@ def normalise_record(item: dict | None, q: AlignedQuestion,
 
     allowed = {CONTENT_CATEGORY, *params.penalty_list}
     deductions: list[dict] = []
+    refunded = 0.0
     for d in (item.get("deductions") or []):
         if not isinstance(d, dict):
             continue
@@ -595,7 +621,10 @@ def normalise_record(item: dict | None, q: AlignedQuestion,
         if marks is None or marks <= 0:
             continue
         if category in FORBIDDEN_CATEGORIES:
-            # OCR noise must never deduct - fold it into the ocr note.
+            # OCR noise must never deduct. Dropping the entry alone is not
+            # enough: the award is re-derived from the remaining deductions,
+            # which would silently keep the mark lost. Refund it explicitly.
+            refunded += marks
             continue
         if category not in allowed:
             category = CONTENT_CATEGORY
@@ -608,6 +637,10 @@ def normalise_record(item: dict | None, q: AlignedQuestion,
 
     total_deducted = round(sum(d["marks"] for d in deductions), 2)
     awarded = _as_float(item.get("marks_awarded"))
+    if refunded and awarded is not None:
+        # Give the recognition-artefact marks back before the award is
+        # reconciled below.
+        awarded = round(awarded + refunded, 2)
 
     if max_marks <= 0:
         # Unknown maximum: keep the model's number but expose the problem.

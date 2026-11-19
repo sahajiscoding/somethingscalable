@@ -39,6 +39,7 @@ interface GeneratorProps {
 
 export default function Generator({ modelOverride, setModelOverride, onSendToGrader }: GeneratorProps) {
   const [topic, setTopic] = useState('Calculus — Quadratic Equations & Derivatives');
+  const [subtopic, setSubtopic] = useState('');
   const [grade, setGrade] = useState('Senior Secondary (Grade 11)');
   const [difficulty, setDifficulty] = useState('Medium');
   const [count, setCount] = useState('5');
@@ -73,6 +74,7 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
     try {
       const data = await generateExam({
         topic: topic.trim(),
+        subtopic: subtopic.trim() || undefined,
         grade,
         difficulty,
         count: totalCount,
@@ -92,12 +94,15 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
       setExam(data.exam);
       setLoaderStatus('done');
       setAlert({
-        msg: data.note ? `Generated (${data.model}, offline template). ${data.note}` : `Exam generated with ${data.model || DEFAULT_MODEL_ID} (${totalCount} questions) — preview below.`,
+        msg: `Exam written by ${modelLabel(data.model || modelOverride)} — ${data.exam.questions.length} questions, ${fmt(totalMarks)} marks. Preview & answer key below.`,
         ok: true,
       });
     } catch (err) {
       setLoaderStatus('error');
-      setAlert({ msg: `Generation failed (${err instanceof Error ? err.message : String(err)}). Check the live backend and retry.`, ok: false });
+      // Only real, AI-written questions are ever shown; if none arrived, clear
+      // the preview entirely rather than leaving a fake/template paper.
+      setExam(prev => (prev && prev.questions.length > 0 ? prev : null));
+      setAlert({ msg: `Exam generation failed — ${err instanceof Error ? err.message : String(err)}`, ok: false });
     } finally {
       setRunning(false);
     }
@@ -170,12 +175,24 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
               Subject &amp; Curriculum Topic
             </label>
             <input id="genTopic" type="text" value={topic} onChange={e => setTopic(e.target.value)} placeholder="e.g. Calculus — Derivatives, Integrals & Roots" className={inputCls} />
+            <input
+              id="genSubtopic"
+              type="text"
+              value={subtopic}
+              onChange={e => setSubtopic(e.target.value)}
+              placeholder="Optional narrower focus, e.g. Snell's law (leave blank to cover the whole topic)"
+              aria-label="Optional subtopic focus"
+              className={`${inputCls} mt-2`}
+            />
             <div className="mt-2 flex flex-wrap gap-1.5">
               {TOPIC_TAGS.map(t => (
                 <button
                   key={t}
                   type="button"
-                  onClick={() => setTopic(t)}
+                  onClick={() => {
+                    setTopic(t);
+                    setSubtopic('');
+                  }}
                   className="cursor-pointer rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11.5px] text-white/60 transition hover:border-mint hover:bg-mint/10 hover:text-mint"
                 >
                   {TAG_SHORT[t]}
@@ -323,7 +340,7 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
               <span className="flex items-center gap-2">
                 <span className="inline-block h-2 w-2 animate-ping rounded-full bg-mint" />
                 <span>
-                  Generating with <strong>{modelLabel(modelOverride)}</strong> (1 req/question · 39 RPM limit)
+                  Generating with <strong>{modelLabel(modelOverride)}</strong> (1 request per question · queued to stay inside the gateway limit)
                 </span>
               </span>
               <span className="font-mono font-bold">
@@ -425,7 +442,7 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
                       <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-mint" />
                       Generating Question {exam.questions.length + 1} of {count}…
                     </span>
-                    <span className="text-xs text-white/40">39 RPM queue</span>
+                    <span className="text-xs text-white/40">queued</span>
                   </div>
                 )}
               </div>
@@ -456,7 +473,7 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
                       <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-mint" />
                       Generating Question {exam.questions.length + 1} of {count}…
                     </span>
-                    <span className="text-xs text-white/40">39 RPM queue</span>
+                    <span className="text-xs text-white/40">queued</span>
                   </div>
                 )}
               </div>
