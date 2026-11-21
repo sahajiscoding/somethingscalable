@@ -261,10 +261,10 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
                   {
                     id: DEFAULT_MODEL_ID,
                     name: 'Nemotron 3.5 Super VL',
-                    tag: 'WHT Engine Gateway · 120B (12B active)',
+                    tag: 'WHT Engine Gateway · Nemotron 3.5 Super VL',
                     tagTone: 'text-mint/90',
-                    desc: 'The only model this build offers — a VL model with thinking overhead disabled for fast generation.',
-                    match: (m: string) => !m.trim() || m.includes('super-vl'),
+                    desc: 'Vision-capable model for generating questions and matching rubrics through the Kilo Gateway.',
+                    match: (m: string) => !m.trim() || m.includes('nemotron'),
                   },
                 ].map(preset => {
                   const active = preset.match(modelOverride);

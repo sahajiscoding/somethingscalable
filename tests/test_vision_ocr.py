@@ -1,8 +1,14 @@
 import unittest
+from unittest.mock import Mock
 
 from vision import ocr
 from vision.models import Crop, Rect
-from vision.providers import build_providers
+from vision.providers import (
+    WHT_ENGINE_DEFAULT_MODEL,
+    VisionProvider,
+    ProviderConfig,
+    build_providers,
+)
 
 
 def _crop(page: int, index: int) -> Crop:
@@ -115,7 +121,7 @@ class ProviderConfigTests(unittest.TestCase):
         })
         self.assertEqual([provider.name for provider in providers], ["groq"])
 
-    def test_nvidia_is_preferred_first(self):
+    def test_wht_engine_is_preferred_first(self):
         providers = build_providers({
             "WHT_ENGINE_API_KEY": "test-key",
             "GROQ_API_KEY": "test-key",
@@ -125,7 +131,7 @@ class ProviderConfigTests(unittest.TestCase):
             [provider.name for provider in providers], ["WHT Engine", "groq"]
         )
 
-    def test_nvidia_uses_the_selected_model(self):
+    def test_wht_engine_uses_the_selected_model(self):
         providers = build_providers(
             {"WHT_ENGINE_API_KEY": "test-key"},
             model="google/gemma-4-31b-it",
@@ -133,71 +139,74 @@ class ProviderConfigTests(unittest.TestCase):
         self.assertEqual(providers[0].config.model, "google/gemma-4-31b-it")
         self.assertEqual(providers[0].config.batch_size, 4)
 
-    def test_single_image_model_sends_one_crop_per_call(self):
+    def test_every_vision_model_uses_standard_batch_and_token_limits(self):
         providers = build_providers(
             {"WHT_ENGINE_API_KEY": "test-key"},
-            model="meta/llama-3.2-90b-vision-instruct",
+            model="vendor/vision-model",
         )
-        self.assertEqual(providers[0].config.batch_size, 1)
+        self.assertEqual(providers[0].config.batch_size, 4)
+        self.assertEqual(providers[0].config.max_tokens, 1600)
 
-    def test_paligemma_uses_nvcf_vlm_endpoint_and_single_image_batch(self):
-        for alias in ("google/paligemma", "google/google-paligemma", "paligemma"):
-            providers = build_providers(
-                {"WHT_ENGINE_API_KEY": "test-key"},
-                model=alias,
-            )
-            cfg = providers[0].config
-            self.assertEqual(cfg.model, "google/paligemma")
-            self.assertEqual(cfg.url, "https://api.kilo.ai/api/gateway/chat/completions")
-            self.assertEqual(cfg.batch_size, 1)
-            self.assertEqual(cfg.max_tokens, 1024)
-            self.assertEqual(cfg.extra_payload, {})
+    def test_model_ids_are_trimmed_without_provider_specific_aliases(self):
+        for model in ("custom/vision-model", "nvidia/nemotron-3.5-super-vl:free"):
+            with self.subTest(model=model):
+                providers = build_providers(
+                    {"WHT_ENGINE_API_KEY": "test-key"},
+                    model=f" {model} ",
+                )
+                cfg = providers[0].config
+                self.assertEqual(cfg.model, model)
+                self.assertEqual(cfg.url, "https://api.kilo.ai/api/gateway/chat/completions")
+                self.assertEqual(cfg.batch_size, 4)
+                self.assertEqual(cfg.max_tokens, 1600)
+                expected_extra = (
+                    {"chat_template_kwargs": {"enable_thinking": False, "thinking": False}}
+                    if "nemotron" in model
+                    else {}
+                )
+                self.assertEqual(cfg.extra_payload, expected_extra)
 
-    def test_nemotron_3_nano_omni_normalizes_and_disables_thinking_overhead(self):
-        for alias in (
-            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
-            "nemotron-3-nano-mini-30b-a3b-reasoning",
-            "nemotron-3-nano-omni",
-        ):
-            providers = build_providers(
-                {"WHT_ENGINE_API_KEY": "test-key"},
-                model=alias,
-            )
-            cfg = providers[0].config
-            self.assertEqual(cfg.model, "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning")
-            self.assertEqual(cfg.batch_size, 4)
-            self.assertIn("chat_template_kwargs", cfg.extra_payload)
+    def test_free_nemotron_is_the_default_gateway_model(self):
+        providers = build_providers({"WHT_ENGINE_API_KEY": "test-key"})
+        self.assertEqual(
+            providers[0].config.model,
+            "nvidia/nemotron-3.5-super-vl:free",
+        )
+        self.assertEqual(providers[0].config.batch_size, 4)
+        self.assertEqual(providers[0].config.max_tokens, 1600)
 
-    def test_engine_make_engine_and_message_adaptation_for_new_models(self):
+    def test_vision_request_always_uses_plain_chat_completions_shape(self):
+        provider = VisionProvider(ProviderConfig(
+            name="WHT Engine",
+            url="https://api.kilo.ai/api/gateway/chat/completions",
+            model=WHT_ENGINE_DEFAULT_MODEL,
+            api_key="test-key",
+        ))
+        response = Mock()
+        session = Mock()
+        session.post.return_value = response
+        provider._local.session = session
+
+        crop = _crop(1, 0)
+        self.assertIs(provider._post([crop], "Read this crop."), response)
+        payload = session.post.call_args.kwargs["json"]
+        self.assertEqual(payload["model"], WHT_ENGINE_DEFAULT_MODEL)
+        self.assertEqual([m["role"] for m in payload["messages"]], ["system", "user"])
+        self.assertEqual(payload["messages"][0]["content"], "You are a precise OCR engine.")
+        self.assertEqual(payload["messages"][1]["content"][0]["text"], "Read this crop.")
+        self.assertEqual(payload["temperature"], 0.0)
+        self.assertEqual(payload["max_tokens"], 1600)
+        self.assertIs(payload["stream"], False)
+        self.assertEqual(set(payload), {"model", "messages", "temperature", "max_tokens", "stream"})
+
+    def test_engine_default_and_custom_model_passthrough(self):
         import engine
 
-        # Legacy model id resolves to the single WHT Engine gateway model.
-        eng_legacy = engine.make_engine(api_key="wht-engine-test", model="nvidia/nemotron-3.5-super-vl-120b-a12b")
-        self.assertEqual(eng_legacy.model, "nvidia/nemotron-3.5-super-vl:free")
+        eng_custom = engine.make_engine(api_key="wht-engine-test", model="custom/vision-model")
+        self.assertEqual(eng_custom.model, "custom/vision-model")
 
-        # The WHT Engine id itself passes through untouched.
-        eng_wht_engine = engine.make_engine(api_key="wht-engine-test", model="nvidia/nemotron-3.5-super-vl:free")
-        self.assertEqual(eng_wht_engine.model, "nvidia/nemotron-3.5-super-vl:free")
-
-        # No model at all → the build default.
         eng_default = engine.make_engine(api_key="wht-engine-test")
-        self.assertEqual(eng_default.model, engine.WHT_ENGINE_DEFAULT_MODEL)
-
-        raw_messages = [
-            {"role": "system", "content": "System instruction."},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "Transcribe this page."},
-                    {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AAAA"}},
-                ],
-            },
-        ]
-        adapted = engine.WhtEngine._adapt_messages_for_model(raw_messages, "google/paligemma")
-        self.assertEqual(len(adapted), 1)
-        self.assertEqual(adapted[0]["role"], "user")
-        self.assertIn("System instruction.", adapted[0]["content"][0]["text"])
-        self.assertEqual(adapted[0]["content"][1]["type"], "image_url")
+        self.assertEqual(eng_default.model, WHT_ENGINE_DEFAULT_MODEL)
 
 
 if __name__ == "__main__":

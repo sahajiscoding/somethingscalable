@@ -334,7 +334,7 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
         const data = await apiJson<{ record: GradeRecord }>('/api/grade-one', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+                body: JSON.stringify({
             question: q,
             strict: input.strict,
             penalties: input.penalties,
@@ -385,7 +385,7 @@ export async function runLiveEvaluation(input: LiveEvalInput): Promise<{ report:
         const data = await apiJson<{ records: GradeRecord[] }>('/api/grade-batch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+                body: JSON.stringify({
             questions: batch,
             strict: input.strict,
             penalties: input.penalties,
