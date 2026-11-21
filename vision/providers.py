@@ -23,24 +23,6 @@ WHT_ENGINE_DEFAULT_URL = "https://api.kilo.ai/api/gateway/chat/completions"
 WHT_ENGINE_DEFAULT_MODEL = "nvidia/nemotron-3.5-super-vl:free"
 GROQ_DEFAULT_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-# These NIM vision models accept at most one image_url per message, so crops
-# must be sent one at a time instead of in a 4-image batch.
-_SINGLE_IMAGE_MODELS = frozenset({
-    "google/paligemma",
-    "google/google-paligemma",
-    "meta/llama-3.2-90b-vision-instruct",
-    "meta/llama-3.2-11b-vision-instruct",
-    "microsoft/phi-3-vision-128k-instruct",
-    "nvidia/neva-22b",
-})
-
-# NVCF VLM endpoints that accept only a single user message with an image and
-# forbid extra top-level keys such as "model" or "chat_template_kwargs".
-_VLM_ENDPOINT_MODELS = frozenset({
-    "google/paligemma",
-    "google/google-paligemma",
-})
-
 CONNECT_TIMEOUT = 6.0
 
 
@@ -178,43 +160,25 @@ class VisionProvider:
 
     def _post(self, crops: list[Crop], prompt: str,
               *, include_extra: bool = True) -> requests.Response:
-        is_vlm = (
-            self.config.model in _VLM_ENDPOINT_MODELS
-            or "/v1/vlm/" in (self.config.url or "")
-        )
-        text_prompt = (
-            f"You are a precise OCR engine.\n\n{prompt}" if is_vlm else prompt
-        )
-        content: list[dict] = [{"type": "text", "text": text_prompt}]
+        content: list[dict] = [{"type": "text", "text": prompt}]
         for crop in crops:
             content.append({
                 "type": "image_url",
                 "image_url": {"url": _data_url(crop.image)},
             })
 
-        if is_vlm:
-            payload = {
-                "messages": [
-                    {"role": "user", "content": content},
-                ],
-                "temperature": 0.2,
-                "top_p": 0.7,
-                "max_tokens": min(self.config.max_tokens, 1024),
-                "stream": False,
-            }
-        else:
-            extra = self.config.extra_payload if include_extra else {}
-            payload = {
-                "model": self.config.model,
-                "messages": [
-                    {"role": "system", "content": "You are a precise OCR engine."},
-                    {"role": "user", "content": content},
-                ],
-                "temperature": 0.0,
-                "max_tokens": self.config.max_tokens,
-                "stream": False,
-                **extra,
-            }
+        extra = self.config.extra_payload if include_extra else {}
+        payload = {
+            "model": self.config.model,
+            "messages": [
+                {"role": "system", "content": "You are a precise OCR engine."},
+                {"role": "user", "content": content},
+            ],
+            "temperature": 0.0,
+            "max_tokens": self.config.max_tokens,
+            "stream": False,
+            **extra,
+        }
         return self.session.post(
             self.config.url,
             headers={
@@ -245,20 +209,6 @@ def _chunks(items: list, size: int):
 
 
 def _normalize_wht_engine_model(model_id: str) -> str:
-    low = (model_id or "").strip().lower()
-    if low in ("paligemma", "google-paligemma", "google/paligemma", "google/google-paligemma"):
-        return "google/paligemma"
-    if low in (
-        "nemotron-omni",
-        "nemotron-3-nano-omni",
-        "nemotron-3-nano-omni-30b",
-        "nemotron-3-nano-omni-30b-a3b",
-        "nemotron-3-nano-omni-30b-a3b-reasoning",
-        "nemotron-3-nano-mini-30b-a3b-reasoning",
-        "nvidia/nemotron-3-nano-mini-30b-a3b-reasoning",
-        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
-    ):
-        return "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
     return (model_id or "").strip()
 
 
@@ -289,7 +239,6 @@ def wht_engine_provider(api_key: str | None = None,
         or WHT_ENGINE_DEFAULT_MODEL
     ).strip()
     chosen = _normalize_wht_engine_model(raw_chosen)
-    is_vlm = chosen in _VLM_ENDPOINT_MODELS
     default_url = (
         source.get("WHT_ENGINE_API_URL")
         or source.get("KILO_API_URL")
@@ -297,7 +246,7 @@ def wht_engine_provider(api_key: str | None = None,
     )
     extra = (
         {"chat_template_kwargs": {"enable_thinking": False, "thinking": False}}
-        if (not is_vlm and _uses_thinking_kwargs(chosen))
+        if _uses_thinking_kwargs(chosen)
         else {}
     )
     return VisionProvider(ProviderConfig(
@@ -306,8 +255,8 @@ def wht_engine_provider(api_key: str | None = None,
         model=chosen,
         api_key=key,
         timeout=timeout,
-        max_tokens=1024 if is_vlm else 1600,
-        batch_size=1 if chosen in _SINGLE_IMAGE_MODELS else 4,
+        max_tokens=1600,
+        batch_size=4,
         extra_payload=extra,
     ))
 

@@ -34,7 +34,7 @@ from pipeline import SessionError, run_session, write_reports
 
 PAGE_ICON = "📝"
 MODEL_OPTIONS = [
-    # WHT Engine AI Gateway — this build offers one model only.
+    # WHT Engine AI Gateway — this build offers one default vision model.
     "nvidia/nemotron-3.5-super-vl:free",
 ]
 
@@ -115,8 +115,8 @@ with st.sidebar:
         api_key = os.environ.get("WHT_ENGINE_API_KEY")
 
     model = st.selectbox("Model", MODEL_OPTIONS, index=0,
-                         help="Nemotron 3.5 Super VL via the WHT Engine AI "
-                              "Gateway — the only model this build offers. "
+                         help="Nemotron 3.5 Super VL via the WHT Engine AI Gateway — "
+                              "the default model for this build. "
                               "Override with the WHT_ENGINE_MODEL env var.")
     st.caption("No API key? Runs with `--mock` are available from the "
                "CLI (text documents only) via test_real_exam.py.")

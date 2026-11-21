@@ -35,9 +35,8 @@ from typing import Any
 # the environment. Branding stays "WHT Engine" in every UI surface; the
 # transport below is the real, working gateway behind it.
 #
-# Nemotron 3.5 Super VL (nvidia/nemotron-3.5-super-vl:free) reads the pages
-# (native OCR/vision) and grades, and is also the text model for exam
-# authoring. Override the id with WHT_ENGINE_MODEL if Kilo renames it.
+# Nemotron 3.5 Super VL reads scanned pages and supports the text tasks too. Override the
+# id with WHT_ENGINE_MODEL to select another Kilo Gateway model.
 WHT_ENGINE_DEFAULT_ENDPOINT = "https://api.kilo.ai/api/gateway/chat/completions"
 WHT_ENGINE_ENDPOINT = (
     os.environ.get("WHT_ENGINE_API_URL")
@@ -49,53 +48,10 @@ WHT_ENGINE_DEFAULT_MODEL = (
     or "nvidia/nemotron-3.5-super-vl:free"
 )
 
-# Vision-capable model ids (accept image_url blocks natively). The gateway
-# catalog is much larger, but this build only ever offers Nemotron 3.5 Super VL.
-_VISION_MODELS = frozenset({
-    "nvidia/nemotron-3.5-super-vl",
-    "nvidia/nemotron-3.5-super-vl:free",
-    "nvidia/nemotron-3.5-super-vl-120b-a12b",
-    "google/gemma-4-31b-it",
-    "google/gemma-3-12b-it",
-    "google/gemma-3-4b-it",
-    "google/paligemma",
-    "google/google-paligemma",
-    "meta/llama-3.2-90b-vision-instruct",
-    "meta/llama-3.2-11b-vision-instruct",
-    "microsoft/phi-3-vision-128k-instruct",
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
-    "nvidia/nemotron-3-nano-mini-30b-a3b-reasoning",
-    "nvidia/cosmos-reason2-8b",
-    "nvidia/neva-22b",
-    "minimaxai/minimax-m3.1-flash",
-})
-
-# Vision models that accept at most 1 image_url per message.
-# Multi-page scanned PDFs are automatically stitched into one vertical strip
-# when routed through these models.
-_SINGLE_IMAGE_VISION_MODELS = frozenset({
-    "google/paligemma",
-    "google/google-paligemma",
-    "meta/llama-3.2-90b-vision-instruct",
-    "meta/llama-3.2-11b-vision-instruct",
-    "microsoft/phi-3-vision-128k-instruct",
-    "nvidia/neva-22b",
-})
-
-# Dedicated VLM endpoints that accept only a single user message with an
-# image and do not accept text-only grading requests or extra top-level keys.
-_IMAGE_ONLY_VISION_MODELS = frozenset({
-    "google/paligemma",
-    "google/google-paligemma",
-})
-
-# Vision fallbacks (used when messages include images/scans). Every id here
-# must accept image_url blocks on the Kilo Gateway and be free-tier friendly;
-# the first entry is the same default model, so a healthy gateway never pays
-# for a second attempt.
+# Vision fallbacks (used when messages include images/scans). The default is
+# tried first; kilo-auto/free remains a gateway-side fallback option.
 _VISION_FALLBACK_MODELS = (
     WHT_ENGINE_DEFAULT_MODEL,
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
     "kilo-auto/free",
 )
 
@@ -259,9 +215,9 @@ class EngineError(RuntimeError):
 class WhtEngine:
     """Vision + grading through the WHT Engine AI Gateway (Kilo Gateway).
 
-    Nemotron 3.5 Super VL (nvidia/nemotron-3.5-super-vl:free) reads the
-    pages and grades (native vision + JSON), HTTP via ``requests``. The key
-    comes from ``WHT_ENGINE_API_KEY`` configured in Vercel or environment.
+    Nemotron 3.5 Super VL reads the pages and supports grading (native vision + JSON),
+    HTTP via ``requests``. The key comes from ``WHT_ENGINE_API_KEY`` configured
+    in Vercel or the environment.
 
     Images go over as base64 data-URL blocks. PDF pages are rendered to PNG
     with PyMuPDF (digital pages with enough embedded text ride along as
@@ -470,137 +426,12 @@ class WhtEngine:
     @staticmethod
     def _is_vision_capable(model_id: str) -> bool:
         m = (model_id or "").lower().strip()
-        if m in _VISION_MODELS:
-            return True
-        return any(k in m for k in (
-            "vl", "vision", "omni", "gemma-3", "gemma-4",
-            "neva", "cosmos", "fuyu", "paligemma", "vila", "kosmos", "parse",
-        ))
+        return any(k in m for k in ("vl", "vision", "multimodal"))
 
     @staticmethod
     def _uses_thinking_kwargs(model_id: str) -> bool:
         m = (model_id or "").lower()
         return any(k in m for k in ("nemotron", "deepseek", "glm", "kimi", "minimax"))
-
-    @staticmethod
-    def _adapt_messages_for_model(messages: list[Any], model_id: str) -> list[Any]:
-        """If a vision model accepts at most 1 image per message (e.g. Llama 3.2
-        Vision, Google PaliGemma) and the message has multiple scanned page
-        images, stitch them vertically into a single composite image. Also
-        flatten system messages into a single user message for NVCF VLM
-        endpoints (google/paligemma)."""
-        if model_id not in _SINGLE_IMAGE_VISION_MODELS:
-            return messages
-        fitz = _get_pdf_renderer()
-
-        import base64
-        adapted: list[Any] = []
-        for msg in messages:
-            if not isinstance(msg, dict) or not isinstance(msg.get("content"), list):
-                adapted.append(msg)
-                continue
-            parts = msg["content"]
-            img_parts = [p for p in parts if isinstance(p, dict) and p.get("type") == "image_url"]
-            if len(img_parts) <= 1:
-                adapted.append(msg)
-                continue
-
-            # Decode up to 6 page images and stitch vertically when PyMuPDF is available
-            if fitz is not None:
-                decoded_pix = []
-                try:
-                    for p in img_parts[:6]:
-                        url = (p.get("image_url") or {}).get("url", "")
-                        if ";base64," in url:
-                            b64_str = url.split(";base64,", 1)[1]
-                            raw_bytes = base64.b64decode(b64_str)
-                            with fitz.open(stream=raw_bytes) as d:
-                                pix = d[0].get_pixmap()
-                                if pix.alpha:
-                                    pix = fitz.Pixmap(fitz.csRGB, pix)
-                                decoded_pix.append(pix)
-                    if len(decoded_pix) > 1:
-                        max_w = max(px.width for px in decoded_pix)
-                        total_h = sum(px.height for px in decoded_pix)
-                        out_doc = fitz.open()
-                        canvas_page = out_doc.new_page(width=max_w, height=total_h)
-                        cur_y = 0.0
-                        for px in decoded_pix:
-                            rect = fitz.Rect(0, cur_y, px.width, cur_y + px.height)
-                            canvas_page.insert_image(rect, stream=px.tobytes("jpeg", jpg_quality=76))
-                            cur_y += px.height
-                        max_target = 1024 if model_id in _IMAGE_ONLY_VISION_MODELS else 2200
-                        jpg_qual = 65 if model_id in _IMAGE_ONLY_VISION_MODELS else 76
-                        scale = min(1.0, max_target / max(max_w, total_h, 1))
-                        stitched_pix = canvas_page.get_pixmap(matrix=fitz.Matrix(scale, scale))
-                        stitched_jpg = stitched_pix.tobytes("jpeg", jpg_quality=jpg_qual)
-                        out_doc.close()
-                        stitched_block = WhtEngine._image_block("stitched_pages.jpg", "image/jpeg", stitched_jpg)
-                        new_parts = [p for p in parts if not (isinstance(p, dict) and p.get("type") == "image_url")]
-                        new_parts.append(stitched_block)
-                        adapted.append({**msg, "content": new_parts})
-                        continue
-                except Exception:  # nosec B110
-                    pass
-            # Fallback: keep first image so single-image model doesn't HTTP 400
-            first_seen = False
-            trimmed_parts = []
-            for p in parts:
-                if isinstance(p, dict) and p.get("type") == "image_url":
-                    if not first_seen:
-                        trimmed_parts.append(p)
-                        first_seen = True
-                else:
-                    trimmed_parts.append(p)
-            adapted.append({**msg, "content": trimmed_parts})
-
-        if model_id in _IMAGE_ONLY_VISION_MODELS:
-            # /v1/vlm/google/paligemma requires messages length == 1 with role "user"
-            # and image_url.url maxLength <= 204800.
-            text_chunks: list[str] = []
-            image_block: dict | None = None
-            for msg in adapted:
-                if not isinstance(msg, dict):
-                    continue
-                content = msg.get("content")
-                if isinstance(content, str) and content.strip():
-                    text_chunks.append(content.strip())
-                elif isinstance(content, list):
-                    for part in content:
-                        if not isinstance(part, dict):
-                            continue
-                        if part.get("type") == "text" and part.get("text"):
-                            text_chunks.append(str(part["text"]).strip())
-                        elif part.get("type") == "image_url" and image_block is None:
-                            image_block = part
-            if image_block is not None and fitz is not None:
-                url = (image_block.get("image_url") or {}).get("url", "")
-                if len(url) > 195000 and ";base64," in url:
-                    try:
-                        raw_bytes = base64.b64decode(url.split(";base64,", 1)[1])
-                        with fitz.open(stream=raw_bytes) as d:
-                            page = d[0]
-                            w, h = page.rect.width, page.rect.height
-                            scale = min(1.0, 960 / max(w, h, 1))
-                            pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale))
-                            if pix.alpha:
-                                pix = fitz.Pixmap(fitz.csRGB, pix)
-                            small_jpg = pix.tobytes("jpeg", jpg_quality=62)
-                            b64 = base64.b64encode(small_jpg).decode("ascii")
-                            image_block = {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
-                            }
-                    except Exception:  # nosec B110
-                        pass
-            merged_content: list[dict] = []
-            if text_chunks:
-                merged_content.append({"type": "text", "text": "\n\n".join(text_chunks)})
-            if image_block is not None:
-                merged_content.append(image_block)
-            return [{"role": "user", "content": merged_content}]
-
-        return adapted
 
     def _chat(self,
               messages: list[Any],
@@ -669,8 +500,7 @@ class WhtEngine:
                 if alt not in models_to_try:
                     models_to_try.append(alt)
         else:
-            if self.model not in _IMAGE_ONLY_VISION_MODELS:
-                models_to_try.append(self.model)
+            models_to_try.append(self.model)
             for alt in _FALLBACK_MODELS:
                 if alt not in models_to_try:
                     models_to_try.append(alt)
@@ -684,14 +514,10 @@ class WhtEngine:
                 break
             req_timeout = max(6, min(_WHT_ENGINE_TIMEOUT, int(remaining) - 1)) if idx > 0 else min(_WHT_ENGINE_TIMEOUT, max(10, int(remaining)))
 
-            effective_messages = (
-                self._adapt_messages_for_model(messages, candidate_model)
-                if has_images else messages
-            )
             endpoint_url = WHT_ENGINE_ENDPOINT
             payload = {
                 "model": candidate_model,
-                "messages": effective_messages,
+                "messages": messages,
                 "temperature": temperature,
                 "top_p": 0.7,
                 "max_tokens": max_tokens,
@@ -1115,7 +941,7 @@ class MockEngine:
 def _parse_json(text: str) -> tuple[Any | None, str]:
     """Parse JSON from a model reply, tolerating reasoning tokens (<think>), fences, and prose."""
     candidate = text.strip()
-    # Strip reasoning tags often output by reasoning models (Nemotron, GLM)
+    # Strip reasoning tags often output by reasoning models.
     candidate = re.sub(r"<think>[\s\S]*?</think>", "", candidate).strip()
 
     # Try direct parse
@@ -1224,13 +1050,5 @@ def make_engine(api_key: str | None = None,
             "AI Gateway only."
         )
     if not model or model.startswith("gemini-") or model in ("moonshotai/kimi-k3", "kimi-k3"):
-        model = WHT_ENGINE_DEFAULT_MODEL
-    elif model in (
-        # Legacy NVIDIA NIM id → the WHT Engine gateway equivalent.
-        "nemotron",
-        "nemotron-3.5-super-vl",
-        "nemotron-3.5-super-vl-120b-a12b",
-        "nvidia/nemotron-3.5-super-vl-120b-a12b",
-    ):
         model = WHT_ENGINE_DEFAULT_MODEL
     return WhtEngine(api_key=api_key, model=model)

@@ -456,9 +456,9 @@ def grade_batch(engine, aligned_list: list[AlignedQuestion],
     """Grade several aligned questions in ONE engine call.
 
     Batching amortises the per-request overhead (TLS + Vercel cold start +
-    NVIDIA queueing) across questions: one 5-question call generating
+    gateway queueing) across questions: one 5-question call generating
     ~1500 tokens is far quicker than five separate calls, and far fewer
-    concurrent requests means no 429s and no NVIDIA-side timeouts.
+    concurrent requests means no 429s and no gateway-side timeouts.
     Output shape and normalisation are identical to :func:`grade_answers`.
     """
     params = params or GradeParams()

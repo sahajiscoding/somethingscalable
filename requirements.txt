@@ -2,14 +2,14 @@
 # this into the serverless function, which has a 500 MB bundle limit).
 # Local-only tools (Streamlit UI) live in requirements-dev.txt and are never
 # deployed. Install with: pip install -r requirements.txt
-# API keys are NEVER listed here — set NVIDIA_API_KEY in
+# API keys are NEVER listed here — set KILO_API_KEY in
 # the environment (or a local .env file, see .env.example).
 
 pypdf>=5.0.0                 # Multi-page PDF page counts + chunking
 flask==3.1.3                 # Web server (server.py, local + Vercel)
 requests==2.34.2             # WHT Engine AI Gateway HTTP calls
 python-dotenv==1.2.2         # Local .env loading (Vercel injects env itself)
-pymupdf==1.28.2              # PDF page rendering for the NVIDIA path
+pymupdf==1.28.2              # PDF page rendering for the vision OCR path
 numpy>=2.0                   # Crop-finding projection profiles
 sympy>=1.13                  # Symbolic equivalence + arithmetic chain checks
 Pillow>=10.0                 # Rasterisation, deskew, JPEG crops

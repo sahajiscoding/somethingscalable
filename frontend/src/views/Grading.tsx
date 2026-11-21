@@ -883,28 +883,28 @@ export default function Grading(props: GradingProps) {
     setRunLabel('Optimizing uploads…');
     setLoaderStatus('working');
     setStage({ done: 0, active: 0 });
-    const [paperDoc, keyDoc, studentDoc] = await Promise.all(
-      [files.paper!, files.key!, files.sheet!].map(f => compressMediaIfNeeded(f)),
-    );
-    const shrunk = [paperDoc, keyDoc, studentDoc].filter(r => r.compressed);
-    if (shrunk.length > 0) {
-      setFiles({
-        paper: paperDoc.file,
-        key: keyDoc.file,
-        sheet: studentDoc.file,
-      });
-    }
-    setRunLabel('Grading with live AI…');
-    const penalties = Object.keys(criteria).filter(k => criteria[k]);
-    let latestPageImages: string[] = [];
-    if (studentDoc.file.type.startsWith('image/')) {
-      try {
-        latestPageImages = [URL.createObjectURL(studentDoc.file)];
-      } catch {
-        latestPageImages = [];
-      }
-    }
     try {
+      const [paperDoc, keyDoc, studentDoc] = await Promise.all(
+        [files.paper!, files.key!, files.sheet!].map(f => compressMediaIfNeeded(f)),
+      );
+      const shrunk = [paperDoc, keyDoc, studentDoc].filter(r => r.compressed);
+      if (shrunk.length > 0) {
+        setFiles({
+          paper: paperDoc.file,
+          key: keyDoc.file,
+          sheet: studentDoc.file,
+        });
+      }
+      setRunLabel('Grading with live AI…');
+      const penalties = Object.keys(criteria).filter(k => criteria[k]);
+      let latestPageImages: string[] = [];
+      if (studentDoc.file.type.startsWith('image/')) {
+        try {
+          latestPageImages = [URL.createObjectURL(studentDoc.file)];
+        } catch {
+          latestPageImages = [];
+        }
+      }
       const { report, markdown } = await runLiveEvaluation({
         paper: paperDoc.file,
         key: keyDoc.file,
@@ -964,7 +964,7 @@ export default function Grading(props: GradingProps) {
       setLoaderStatus('error');
       const errMsg = err instanceof Error ? err.message : String(err);
       setAlert({
-        msg: `Live backend failed (${errMsg}) — nothing was graded and no demo was substituted. Check the server API key and retry.`,
+        msg: `Live backend failed (${errMsg}) — the report is incomplete. Any partial results are not final, and no demo was substituted. Check the server API key and retry.`,
         ok: false,
       });
     }
@@ -1587,10 +1587,10 @@ export default function Grading(props: GradingProps) {
                 {
                   id: DEFAULT_MODEL_ID,
                   name: 'Nemotron 3.5 Super VL',
-                  tag: 'WHT Engine Gateway · Multi-Page VLM · 12B Active',
+                  tag: 'WHT Engine Gateway · Nemotron 3.5 Super VL',
                   tagTone: 'text-mint/90',
-                  desc: 'Native multi-page OCR + rubric grading with chain-of-thought overhead disabled.',
-                  match: (m: string) => m.includes('super-vl'),
+                  desc: 'Vision-capable model for OCR and rubric grading through the Kilo Gateway.',
+                  match: (m: string) => m.includes('nemotron'),
                 },
               ].map(preset => {
                 const active = preset.match(modelOverride);

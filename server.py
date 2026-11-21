@@ -621,7 +621,7 @@ def api_report():
 
 @app.post("/api/generate-exam")
 def api_generate_exam():
-    """Generate a question paper and matching answer key using Nemotron 3.5 Super VL."""
+    """Generate a question paper and matching answer key with the configured gateway model."""
     body = request.get_json(silent=True) or {}
     topic = (body.get("topic") or "Mathematics & Physics").strip()
     grade = (body.get("grade") or "High School").strip()
@@ -682,7 +682,7 @@ def api_generate_exam():
 
 @app.post("/api/generate-exam-question")
 def api_generate_exam_question():
-    """Generate a single examination question with rubric using Nemotron 3.5 Super VL.
+    """Generate a single examination question with rubric using the configured gateway model.
 
     Per-question endpoint ensures fast (<3s) calls that never trip Vercel or
     gateway read timeouts, allowing live streaming and queued concurrency.
