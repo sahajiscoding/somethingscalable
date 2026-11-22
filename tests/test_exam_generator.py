@@ -367,6 +367,82 @@ class PresentationGenerationTests(unittest.TestCase):
         self.assertNotIn("presentation", response.get_json())
 
 
+class PracticeSetGenerationTests(unittest.TestCase):
+    def setUp(self):
+        self.client = server.app.test_client()
+        self.env = mock.patch.dict(os.environ, {"KILO_API_KEY": "test-key"}, clear=True)
+        self.env.start()
+        self.payload = {
+            "topic": "Explain photosynthesis in plants",
+            "grade": "Class 9",
+            "difficulty": "Medium",
+            "count": 3,
+            "marks": 6,
+        }
+        self.generated = {
+            "status": "ok",
+            "title": "Photosynthesis Practice",
+            "topic": "Photosynthesis in plants",
+            "instructions": "Answer all questions.",
+            "total_marks": 6,
+            "questions": [
+                {
+                    "number": f"Q{index}",
+                    "text": f"Question {index} about photosynthesis",
+                    "max_marks": 2,
+                    "expected_answer": "A complete model answer.",
+                    "marking_scheme": "One mark for each key fact.",
+                    "keywords": ["chlorophyll", "light"],
+                }
+                for index in range(1, 4)
+            ],
+        }
+
+    def tearDown(self):
+        self.env.stop()
+
+    def test_endpoint_generates_a_whole_set_in_one_model_request(self):
+        with mock.patch.object(engine.WhtEngine, "generate_json", return_value=self.generated) as generate:
+            response = self.client.post("/api/generate-practice-set", json=self.payload)
+        self.assertEqual(response.status_code, 200)
+        result = response.get_json()
+        self.assertEqual(len(result["exam"]["questions"]), 3)
+        self.assertEqual([q["number"] for q in result["exam"]["questions"]], ["Q1", "Q2", "Q3"])
+        self.assertEqual(generate.call_count, 1)
+        self.assertEqual(generate.call_args.args[0], "generate_practice_set")
+        self.assertIn("Class 9", generate.call_args.kwargs["instruction"])
+        self.assertIn("exactly 3", generate.call_args.kwargs["instruction"])
+        self.assertEqual(generate.call_args.kwargs["max_attempts"], 2)
+
+    def test_endpoint_rejects_bad_inputs_before_calling_the_model(self):
+        with mock.patch.object(server, "make_engine") as make:
+            vague = self.client.post("/api/generate-practice-set", json={**self.payload, "topic": "plants"})
+            too_many = self.client.post("/api/generate-practice-set", json={**self.payload, "count": 13})
+            fractional = self.client.post("/api/generate-practice-set", json={**self.payload, "count": 3.5})
+            bad_difficulty = self.client.post("/api/generate-practice-set", json={**self.payload, "difficulty": "Impossible"})
+            non_object = self.client.post("/api/generate-practice-set", json=["not a request"])
+        self.assertTrue(all(response.status_code == 400 for response in (vague, too_many, fractional, bad_difficulty, non_object)))
+        make.assert_not_called()
+
+    def test_endpoint_rejects_partial_or_unusable_model_output(self):
+        partial = {**self.generated, "questions": self.generated["questions"][:2]}
+        with mock.patch.object(engine.WhtEngine, "generate_json", return_value=partial):
+            response = self.client.post("/api/generate-practice-set", json=self.payload)
+        self.assertEqual(response.status_code, 502)
+        self.assertNotIn("exam", response.get_json())
+
+    def test_endpoint_surfaces_model_rejection_and_gateway_errors_without_fabricating_questions(self):
+        rejected = {"status": "rejected", "reason": "Please give an educational topic."}
+        with mock.patch.object(engine.WhtEngine, "generate_json", return_value=rejected):
+            rejected_response = self.client.post("/api/generate-practice-set", json=self.payload)
+        self.assertEqual(rejected_response.status_code, 400)
+        self.assertNotIn("exam", rejected_response.get_json())
+        with mock.patch.object(engine.WhtEngine, "generate_json", side_effect=engine.EngineError("gateway timeout")):
+            failed_response = self.client.post("/api/generate-practice-set", json=self.payload)
+        self.assertEqual(failed_response.status_code, 502)
+        self.assertNotIn("exam", failed_response.get_json())
+
+
 if __name__ == "__main__":
     unittest.main()
 

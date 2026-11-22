@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Practice from '../src/views/Practice';
 
@@ -16,7 +16,7 @@ describe('Practice Questions view', () => {
       ok: true,
       status: 200,
       json: async () => ({
-        presentation: { title: 'Water Cycle', subtitle: 'A lesson', audience: 'Grade 8', slides },
+        presentation: { title: 'Water Cycle', subtitle: 'A lesson', audience: 'Class 9', slides },
         model: 'nvidia/nemotron-3.5-super-vl:free',
       }),
     }) as unknown as Response);
@@ -24,6 +24,11 @@ describe('Practice Questions view', () => {
 
     render(<Practice model="" />);
     fireEvent.click(screen.getByRole('tab', { name: /teach with slides/i }));
+    const audience = screen.getByLabelText(/learner audience/i);
+    expect(within(audience).getAllByRole('option').map(option => option.textContent)).toEqual([
+      'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'Class 7', 'Class 8', 'Class 9', 'College',
+    ]);
+    expect(audience).toHaveProperty('value', 'Class 9');
     fireEvent.change(screen.getByLabelText(/topic and learning focus/i), {
       target: { value: 'Explain the water cycle for learners' },
     });
@@ -36,5 +41,6 @@ describe('Practice Questions view', () => {
     expect(screen.getAllByLabelText(/key points/i)[0]).toHaveProperty('value', 'Core point one\nCore point two\nCore point three');
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0][0]).toBe('/api/generate-presentation');
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).audience).toBe('Class 9');
   });
 });

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import LatticeLoader from '../components/LatticeLoader.jsx';
 import {
-  generateExam,
+  generatePracticeSet,
   generatePresentation,
   modelLabel,
   type GeneratedExam,
@@ -23,7 +23,7 @@ const labelClass = 'block text-xs font-semibold text-white/65';
 export default function Practice({ model = '' }: { model?: string }) {
   const [mode, setMode] = useState<Mode>('questions');
   const [topic, setTopic] = useState('');
-  const [audience, setAudience] = useState('Grade 8');
+  const [audience, setAudience] = useState('Class 9');
   const [count, setCount] = useState(8);
   const [difficulty, setDifficulty] = useState('Medium');
   const [slideCount, setSlideCount] = useState(7);
@@ -45,7 +45,7 @@ export default function Practice({ model = '' }: { model?: string }) {
     setLoaderStatus('working');
     try {
       if (mode === 'questions') {
-        const result = await generateExam({
+        const result = await generatePracticeSet({
           topic: topic.trim(), grade: audience.trim(), difficulty, count,
           marks: count * 2, model: model.trim() || undefined,
         });
@@ -124,14 +124,17 @@ export default function Practice({ model = '' }: { model?: string }) {
           <label className={labelClass}>Topic and learning focus
             <textarea className={`${inputClass} min-h-28 resize-y`} value={topic} onChange={e => setTopic(e.target.value)} maxLength={1200} placeholder="e.g. Explain the water cycle, including evaporation, condensation, and precipitation" />
           </label>
-          <label className={labelClass}>Learner audience / grade
-            <input className={inputClass} value={audience} onChange={e => setAudience(e.target.value)} maxLength={160} placeholder="e.g. Grade 8" />
+          <label className={labelClass}>Learner audience / class
+            <select className={inputClass} value={audience} onChange={e => setAudience(e.target.value)}>
+              {Array.from({ length: 9 }, (_, index) => `Class ${index + 1}`).map(level => <option key={level} value={level}>{level}</option>)}
+              <option value="College">College</option>
+            </select>
           </label>
 
           {mode === 'questions' ? (
             <>
               <label className={labelClass}>Number of questions
-                <input className={inputClass} type="number" min={1} max={20} value={count} onChange={e => setCount(Math.min(20, Math.max(1, Number(e.target.value) || 1)))} />
+                <input className={inputClass} type="number" min={1} max={12} step={1} value={count} onChange={e => { const value = Number(e.target.value); setCount(Math.min(12, Math.max(1, Number.isFinite(value) ? Math.trunc(value) : 1))); }} />
               </label>
               <label className={labelClass}>Difficulty
                 <select className={inputClass} value={difficulty} onChange={e => setDifficulty(e.target.value)}>
@@ -158,11 +161,14 @@ export default function Practice({ model = '' }: { model?: string }) {
           </button>
           {error && <p role="alert" className="rounded-xl border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-200">{error}</p>}
           {notice && <p role="status" className="rounded-xl border border-pine/20 bg-pine/10 p-3 text-xs leading-relaxed text-green-100">{notice}</p>}
-          {busy && <LatticeLoader status={loaderStatus ?? 'working'} />}
+          {busy && <div className="space-y-2">
+            <LatticeLoader label={mode === 'questions' ? 'Writing practice set' : 'Drafting slides'} status={loaderStatus ?? 'working'} />
+            {mode === 'questions' && <p className="pl-1 text-[11px] leading-relaxed text-white/40">All {count} questions and answers are requested together, avoiding a long wait between questions.</p>}
+          </div>}
         </aside>
 
         <div className="min-h-[420px] rounded-2xl border border-white/10 bg-black/15 p-4 md:p-5">
-          {!exam && !deck && <div className="grid min-h-[380px] place-items-center text-center"><div className="max-w-sm"><div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl border border-white/10 bg-white/[.04] text-2xl" aria-hidden="true">✦</div><h2 className="mt-4 text-lg font-bold">Your teaching materials will appear here</h2><p className="mt-2 text-sm leading-relaxed text-white/50">Describe a topic and choose whether you need student practice questions or a presentation for a teacher-led lesson.</p></div></div>}
+          {!exam && !deck && <div className="grid min-h-[380px] place-items-center text-center"><div className="max-w-sm"><div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl border border-white/10 bg-white/[.04] text-2xl" aria-hidden="true">✦</div><h2 className="mt-4 text-lg font-bold">{busy ? (mode === 'questions' ? `Writing ${count} practice questions` : 'Preparing your presentation') : 'Your teaching materials will appear here'}</h2><p className="mt-2 text-sm leading-relaxed text-white/50">{busy ? 'The complete draft will appear here as soon as the model finishes.' : 'Describe a topic and choose whether you need student practice questions or a presentation for a teacher-led lesson.'}</p></div></div>}
 
           {exam && <div>
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/10 pb-4">
