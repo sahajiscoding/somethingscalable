@@ -91,6 +91,18 @@ describe('Notes user workflows', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
+  it('asks for a specific topic instead of saving a note for a one-word prompt', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: '✦ Draft with AI' }));
+    fireEvent.change(screen.getByLabelText('What should the note cover?'), { target: { value: 'poop.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Generate note' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/specific topic/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByText('No notes yet. Create one to get started.')).toBeInTheDocument();
+  });
+
   it('shows AI failures without creating a fallback note', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: false,

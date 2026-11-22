@@ -8,6 +8,11 @@ export interface Note {
 
 export const NOTES_STORAGE_KEY = 'wht-notes-v1';
 
+export function isSpecificNotePrompt(prompt: string): boolean {
+  const terms = prompt.trim().split(/\s+/).filter(term => /[\p{L}\p{N}]/u.test(term));
+  return terms.length >= 3;
+}
+
 const isNote = (value: unknown): value is Note => {
   if (typeof value !== 'object' || value === null) return false;
   const note = value as Partial<Note>;
