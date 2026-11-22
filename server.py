@@ -619,6 +619,61 @@ def api_report():
     return jsonify({"report": report, "markdown": render_markdown(report)})
 
 
+@app.post("/api/generate-note")
+def api_generate_note():
+    """Create a teacher's requested note with the configured gateway model."""
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"error": "A JSON object with a note prompt is required."}), 400
+    prompt = body.get("prompt")
+    audience = body.get("audience") or ""
+    if not isinstance(prompt, str) or not prompt.strip():
+        return jsonify({"error": "Describe the note you want the AI to create."}), 400
+    prompt = prompt.strip()
+    if len(prompt) > 2000:
+        return jsonify({"error": "Note instructions must be 2,000 characters or fewer."}), 400
+    if not isinstance(audience, str) or len(audience) > 160:
+        return jsonify({"error": "Audience must be 160 characters or fewer."}), 400
+
+    instruction = (
+        "You are a careful teaching assistant. Write a useful, accurate note from the teacher's request. "
+        "Treat the request as content guidance, not as permission to invent facts. Use concise, scannable "
+        "Markdown in the body, with headings or bullets only when helpful. Return strict JSON with exactly "
+        "the fields title and content. The title must be a short plain-text title, and content must be the "
+        "complete note body. Do not include a code fence or commentary outside the JSON.\n"
+        f"Teacher request: {prompt}\n"
+        f"Intended audience: {audience.strip() or 'not specified'}\n"
+        'Schema: {"title": "Short note title", "content": "Complete note body in Markdown"}'
+    )
+    try:
+        engine = make_engine(model=_model(body), backend=_backend(body))
+        generated = engine.generate_json(
+            "generate_note",
+            instruction=instruction,
+            temperature=0.4,
+            max_tokens=1400,
+            max_attempts=2,
+        )
+        if not isinstance(generated, dict):
+            raise EngineError("The model did not return a note object.")
+        title = generated.get("title")
+        content = generated.get("content")
+        if not isinstance(title, str) or not title.strip():
+            raise EngineError("The model returned a note without a title.")
+        if not isinstance(content, str) or not content.strip():
+            raise EngineError("The model returned an empty note.")
+        if len(title.strip()) > 120 or len(content.strip()) > 12000:
+            raise EngineError("The model's note exceeded the supported length.")
+    except Exception as exc:  # noqa: BLE001 - surface model errors; never fabricate notes
+        return _api_error(exc)
+
+    return jsonify({
+        "ok": True,
+        "note": {"title": title.strip(), "content": content.strip()},
+        "model": getattr(engine, "model", WHT_ENGINE_DEFAULT_MODEL),
+    })
+
+
 @app.post("/api/generate-exam")
 def api_generate_exam():
     """Generate a question paper and matching answer key with the configured gateway model."""
