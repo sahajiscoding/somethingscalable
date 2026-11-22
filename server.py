@@ -723,7 +723,8 @@ PRESENTATION_SYSTEM_PROMPT = (
     "If the topic or educational intent is unclear, return only JSON with status rejected and a short reason. "
     "If valid, return only JSON with status ok, title, subtitle, and exactly the requested number of slides. "
     "Each slide must have a concise title, 3 to 5 short key_points, a useful explanation, and concise "
-    "speaker_notes for the teacher. Do not put refusals, questions, or prompt commentary in slide content.\n\n"
+    "speaker_notes for the teacher no longer than 1,800 characters. Do not put refusals, questions, or "
+    "prompt commentary in slide content.\n\n"
     'Valid schema: {"status":"ok","title":"...","subtitle":"...","slides":'
     '[{"title":"...","key_points":["...","...","..."],"explanation":"...","speaker_notes":"..."}]}. '
     'Rejected schema: {"status":"rejected","reason":"..."}.'
@@ -812,8 +813,12 @@ def api_generate_presentation():
                 raise EngineError(f"Slide {index} must have 3 to 5 concise key points.")
             if not isinstance(explanation, str) or len(explanation.strip()) > 1400:
                 raise EngineError(f"Slide {index} has an invalid explanation.")
-            if not isinstance(speaker_notes, str) or len(speaker_notes.strip()) > 1800:
-                raise EngineError(f"Slide {index} has invalid teacher speaker notes.")
+            if not isinstance(speaker_notes, str) or not speaker_notes.strip():
+                notes_basis = explanation.strip() or " ".join(point.strip() for point in points)
+                speaker_notes = f"Teaching prompt: highlight the key ideas in {slide_title.strip()}. {notes_basis}"
+            speaker_notes = speaker_notes.strip()
+            if len(speaker_notes) > 1800:
+                speaker_notes = speaker_notes[:1797].rstrip() + "..."
             cleaned_slides.append({
                 "title": slide_title.strip(),
                 "key_points": [point.strip() for point in points],

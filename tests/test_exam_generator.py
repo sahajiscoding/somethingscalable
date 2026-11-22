@@ -366,6 +366,20 @@ class PresentationGenerationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertNotIn("presentation", response.get_json())
 
+    def test_endpoint_recovers_missing_and_oversized_teacher_speaker_notes(self):
+        generated = {**self.generated, "slides": [dict(slide) for slide in self.generated["slides"]]}
+        generated["slides"][0].pop("speaker_notes")
+        generated["slides"][1]["speaker_notes"] = "Too much detail. " * 300
+        generated["slides"][2]["speaker_notes"] = None
+        with mock.patch.object(engine.WhtEngine, "generate_json", return_value=generated):
+            response = self.client.post("/api/generate-presentation", json=self.payload)
+        self.assertEqual(response.status_code, 200)
+        slides = response.get_json()["presentation"]["slides"]
+        self.assertIn("Teaching prompt", slides[0]["speaker_notes"])
+        self.assertLessEqual(len(slides[1]["speaker_notes"]), 1800)
+        self.assertTrue(slides[1]["speaker_notes"].endswith("..."))
+        self.assertIn("Teaching prompt", slides[2]["speaker_notes"])
+
 
 class PracticeSetGenerationTests(unittest.TestCase):
     def setUp(self):

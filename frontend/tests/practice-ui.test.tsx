@@ -1,8 +1,12 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import '@testing-library/jest-dom/vitest';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Practice from '../src/views/Practice';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe('Practice Questions view', () => {
   it('generates and presents editable lesson slide fields in the separate teaching mode', async () => {
@@ -42,5 +46,50 @@ describe('Practice Questions view', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0][0]).toBe('/api/generate-presentation');
     expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).audience).toBe('Class 9');
+  });
+
+  it('streams each generated practice question and updates the ready count as it arrives', async () => {
+    const pendingRequests: Array<{ url: string; body: Record<string, unknown>; resolve: (response: Response) => void }> = [];
+    const fetchMock = vi.fn((url: string, options: RequestInit) => new Promise<Response>(resolve => {
+      pendingRequests.push({ url, body: JSON.parse(String(options.body)), resolve });
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<Practice />);
+    fireEvent.change(screen.getByLabelText(/topic and learning focus/i), {
+      target: { value: 'Explain photosynthesis in plants' },
+    });
+    fireEvent.change(screen.getByLabelText(/number of questions/i), { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: /generate practice set/i }));
+
+    expect(await screen.findByText(/0 \/ 2 ready/i)).toBeTruthy();
+    await waitFor(() => expect(pendingRequests).toHaveLength(2));
+    expect(pendingRequests.every(request => request.url === '/api/generate-exam-question')).toBe(true);
+    expect(pendingRequests.map(request => request.body.number).sort()).toEqual(['Q1', 'Q2']);
+
+    const respond = (request: typeof pendingRequests[number]) => request.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ok: true,
+        question: {
+          number: request.body.number,
+          text: `Question ${request.body.number} about photosynthesis`,
+          max_marks: 2,
+          expected_answer: 'A complete model answer.',
+          marking_scheme: 'Award marks for each key point.',
+          keywords: ['light', 'chlorophyll'],
+        },
+        model: 'test-model',
+      }),
+    } as Response);
+
+    respond(pendingRequests.find(request => request.body.number === 'Q1')!);
+    expect(await screen.findByText(/1 \/ 2 ready/i)).toBeTruthy();
+    expect(screen.getByRole('progressbar', { name: /practice questions generated/i })).toHaveAttribute('aria-valuenow', '1');
+
+    respond(pendingRequests.find(request => request.body.number === 'Q2')!);
+    expect(await screen.findByText(/2 \/ 2 questions/i)).toBeTruthy();
+    expect(screen.getByRole('progressbar', { name: /practice questions generated/i })).toHaveAttribute('aria-valuenow', '2');
   });
 });
