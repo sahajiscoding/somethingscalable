@@ -643,6 +643,50 @@ export interface GenerateExamInput {
   ) => void;
 }
 
+export interface GeneratePracticeSetInput {
+  topic: string;
+  grade: string;
+  difficulty: string;
+  count: number;
+  marks: number;
+  model?: string;
+}
+
+/** Generate a complete practice set in one model request (avoids per-question rate-limit queueing). */
+export async function generatePracticeSet(input: GeneratePracticeSetInput): Promise<{ exam: GeneratedExam; model: string }> {
+  const count = input.count;
+  if (!Number.isInteger(count) || count < 1 || count > 12) {
+    throw new Error('Choose between 1 and 12 practice questions.');
+  }
+  if (input.topic.trim().split(/\s+/).filter(Boolean).length < 3) {
+    throw new Error('Describe a specific educational topic in at least three words.');
+  }
+  const data = await apiJson<{ exam: GeneratedExam; model: string }>('/api/generate-practice-set', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      topic: input.topic.trim(),
+      grade: input.grade.trim(),
+      difficulty: input.difficulty,
+      count,
+      marks: input.marks,
+      model: input.model,
+    }),
+  });
+  const exam = data.exam;
+  if (!exam || typeof exam.title !== 'string' || typeof exam.topic !== 'string' ||
+      typeof exam.instructions !== 'string' || !Number.isFinite(exam.total_marks) ||
+      !Array.isArray(exam.questions) || exam.questions.length !== count ||
+      exam.questions.some(question => !question || typeof question.text !== 'string' || !question.text.trim() ||
+        typeof question.expected_answer !== 'string' || !question.expected_answer.trim() ||
+        typeof question.marking_scheme !== 'string' || !question.marking_scheme.trim() ||
+        typeof question.max_marks !== 'number' || !Number.isFinite(question.max_marks) || question.max_marks <= 0 ||
+        !Array.isArray(question.keywords) || question.keywords.some(keyword => typeof keyword !== 'string'))) {
+    throw new Error('The AI returned an incomplete practice set. Please try again.');
+  }
+  return data;
+}
+
 export async function generateExam(
   input: GenerateExamInput
 ): Promise<{ exam: GeneratedExam; model: string; note?: string }> {
