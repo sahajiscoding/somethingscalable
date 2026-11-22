@@ -75,6 +75,24 @@ export async function checkBackend(): Promise<BackendState> {
   return { ok: true, model: health.model, hasKey: health.hasApiKey };
 }
 
+export interface GeneratedNote {
+  title: string;
+  content: string;
+}
+
+export async function generateNote(input: { prompt: string; audience?: string; model?: string }): Promise<{ note: GeneratedNote; model: string }> {
+  const data = await apiJson<{ note: GeneratedNote; model: string }>('/api/generate-note', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!data.note || typeof data.note.title !== 'string' || !data.note.title.trim() ||
+      typeof data.note.content !== 'string' || !data.note.content.trim()) {
+    throw new Error('The AI returned an incomplete note. Please try again.');
+  }
+  return data;
+}
+
 export type CriterionKey = 'handwriting' | 'diagrams' | 'unreadable' | 'formatting';
 
 export interface Deduction {

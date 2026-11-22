@@ -203,17 +203,29 @@ class FlowDocument {
 /**
  * Generate a printable examination question paper in PDF format.
  */
+export interface ExamPdfOptions {
+  includeAnswerLines?: boolean;
+  gradeLevel?: string;
+  timeAllowed?: string;
+  schoolName?: string;
+}
+
 export async function generateExamPaperPdf(
   exam: GeneratedExam,
-  options: { includeAnswerLines?: boolean; gradeLevel?: string } = {},
+  options: ExamPdfOptions = {},
 ): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
-  const flow = new FlowDocument(pdfDoc, 'WeHelpTeachers · Official Examination Paper');
+  const flow = new FlowDocument(pdfDoc, `${exam.title || 'Exam'} · Question Paper`);
   await flow.init();
 
   const includeLines = options.includeAnswerLines !== false;
+  const schoolName = options.schoolName?.trim();
 
   // -- Exam Header --
+  if (schoolName) {
+    flow.drawText(schoolName, flow.fontBold, 11, COLOR_ACCENT);
+    flow.y -= 15;
+  }
   flow.drawText('CONFIDENTIAL · EXAMINATION QUESTION PAPER', flow.fontBold, 8.5, COLOR_MUTED);
   flow.y -= 14;
 
@@ -229,7 +241,7 @@ export async function generateExamPaperPdf(
   }
 
   // Metadata ribbon
-  const metaText = `Total Marks: ${exam.total_marks || 0}   |   Questions: ${exam.questions?.length || 0}   |   Time Allowed: 1 Hour`;
+  const metaText = `${options.gradeLevel?.trim() ? `Level: ${options.gradeLevel.trim()}   |   ` : ''}Total Marks: ${exam.total_marks || 0}   |   Questions: ${exam.questions?.length || 0}   |   Time Allowed: ${options.timeAllowed?.trim() || '1 Hour'}`;
   flow.drawText(metaText, flow.fontRegular, 9.5, COLOR_MUTED);
   flow.y -= 12;
 
@@ -347,12 +359,16 @@ export async function generateExamPaperPdf(
 /**
  * Generate an official Marking Scheme & Rubric Key in PDF format.
  */
-export async function generateAnswerKeyPdf(exam: GeneratedExam): Promise<Uint8Array> {
+export async function generateAnswerKeyPdf(exam: GeneratedExam, options: { schoolName?: string } = {}): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
-  const flow = new FlowDocument(pdfDoc, 'WeHelpTeachers · Official Marking Rubric & Answer Key');
+  const flow = new FlowDocument(pdfDoc, `${exam.title || 'Exam'} · Answer Key`);
   await flow.init();
 
   // -- Header --
+  if (options.schoolName?.trim()) {
+    flow.drawText(options.schoolName.trim(), flow.fontBold, 11, COLOR_ACCENT);
+    flow.y -= 15;
+  }
   flow.drawText('OFFICIAL EVALUATOR GUIDE · STRICTLY FOR EXAMINERS', flow.fontBold, 8.5, rgb(0.7, 0.2, 0.2));
   flow.y -= 14;
 

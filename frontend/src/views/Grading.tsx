@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import LatticeLoader from '../components/LatticeLoader.jsx';
 import {
   DEFAULT_MODEL_ID,
@@ -40,9 +41,9 @@ const STEPS_TEXT = [
 ];
 
 const DOC_META = [
-  { key: 'paper', title: 'Upload Question Paper', hint: 'Drop a PDF, DOCX or image — or click to browse' },
-  { key: 'key', title: 'Upload Official Answer Key / Rubric', hint: 'The marking scheme used as ground truth' },
-  { key: 'sheet', title: 'Upload Student Answer Sheet', hint: 'Scanned or photographed script to be graded' },
+  { key: 'paper', title: 'Upload Question Paper', hint: 'Tap to choose a PDF, DOCX, image or text file' },
+  { key: 'key', title: 'Upload Official Answer Key / Rubric', hint: 'Tap to choose the marking scheme file' },
+  { key: 'sheet', title: 'Upload Student Answer Sheet', hint: 'Tap to choose a scan or photo of the student work' },
 ] as const;
 
 type DocKey = (typeof DOC_META)[number]['key'];
@@ -400,7 +401,7 @@ function vmFromLive(report: LiveReport, fallbackImages: string[] = [], sheetName
 
 /* ---------------- Small pieces ---------------- */
 
-function Dropzone({
+export function Dropzone({
   docKey,
   title,
   hint,
@@ -423,21 +424,9 @@ function Dropzone({
   shrink: string | null;
   onCompress: (doc: DocKey) => void;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
-  void docKey;
   return (
     <div
-      role="button"
-      tabIndex={0}
-      aria-label={title}
-      onClick={e => {
-        if ((e.target as HTMLElement).closest('.dz-remove')) return;
-        inputRef.current?.click();
-      }}
-      onKeyDown={e => {
-        if (e.key === 'Enter' || e.key === ' ') inputRef.current?.click();
-      }}
       onDragEnter={e => {
         e.preventDefault();
         setDrag(true);
@@ -456,15 +445,16 @@ function Dropzone({
         const f = e.dataTransfer?.files?.[0];
         if (f) onFile(docKey, f);
       }}
-      className={`relative cursor-pointer rounded-xl border-[1.5px] border-dashed bg-black/10 px-4 pt-5 pb-4 text-center transition outline-none ${
+      className={`relative rounded-xl border-[1.5px] border-dashed bg-black/10 px-4 pt-5 pb-4 text-center transition outline-none ${
         drag
           ? '-translate-y-0.5 border-mint bg-mint/10'
           : file
             ? 'border-mint/50 border-solid bg-mint/5'
             : 'border-white/20 hover:border-mint/60 hover:bg-black/15'
-      } ${missing ? 'animate-shake border-crimson' : ''} focus-visible:shadow-[0_0_0_3px_rgba(129,199,132,.3)]`}
+      } ${missing ? 'animate-shake border-crimson' : ''}`}
     >
-      <div
+      <label htmlFor={`upload-${docKey}`} className="block cursor-pointer">
+        <div
         className={`mx-auto mb-3 grid h-11 w-11 place-items-center rounded-xl border border-white/10 bg-white/5 transition ${
           file ? 'border-mint/45 text-mint' : 'text-white/60'
         }`}
@@ -483,6 +473,7 @@ function Dropzone({
           <span className="max-w-[19ch] overflow-hidden text-ellipsis whitespace-nowrap text-white">{file.name}</span>
         </div>
       )}
+      </label>
       {file && file.size > UPLOAD_TARGET_BYTES && (
         <div className="mt-2 rounded-[9px] border border-sand/40 bg-sand/10 px-2.5 py-2 text-left text-xs">
           <div className="text-[#ffe6c0]">Exceeds 4.5 MB cap ({(file.size / 1048576).toFixed(1)} MB)</div>
@@ -522,13 +513,15 @@ function Dropzone({
         </button>
       )}
       <input
-        ref={inputRef}
+        id={`upload-${docKey}`}
         type="file"
-        accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt"
+        accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt,application/pdf,image/*,text/plain"
         aria-label={`Choose ${title} file`}
-        className="absolute inset-0 z-[1] cursor-pointer opacity-0"
+        className="sr-only"
         onChange={e => {
-          const f = e.target.files?.[0];
+          const input = e.currentTarget;
+          const f = input.files?.[0];
+          input.value = '';
           if (f) onFile(docKey, f);
         }}
       />
@@ -792,7 +785,7 @@ function ResultsView({
 
 interface GradingProps {
   files: DocFiles;
-  setFiles: (f: DocFiles) => void;
+  setFiles: Dispatch<SetStateAction<DocFiles>>;
   strict: boolean;
   setStrict: (b: boolean) => void;
   criteria: CriteriaState;
@@ -1003,7 +996,7 @@ export default function Grading(props: GradingProps) {
   }, [notice]);
 
   const onFile = (doc: DocKey, f: File) => {
-    setFiles({ ...files, [doc]: f });
+    setFiles(previous => ({ ...previous, [doc]: f }));
     setShrinkInfo(s => {
       if (!(doc in s)) return s;
       const next = { ...s };
@@ -1013,7 +1006,7 @@ export default function Grading(props: GradingProps) {
     setAlert(null);
   };
   const onClear = (doc: DocKey) => {
-    setFiles({ ...files, [doc]: null });
+    setFiles(previous => ({ ...previous, [doc]: null }));
     setShrinkInfo(s => {
       if (!(doc in s)) return s;
       const next = { ...s };

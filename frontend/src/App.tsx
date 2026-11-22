@@ -11,11 +11,13 @@ import {
   type DocFiles,
 } from './lib/sim';
 import { VIEWS, type View } from './lib/view';
+import { loadNotes, saveNotes, type Note } from './lib/notes';
 import Analytics from './views/Analytics';
 import Compressor from './views/Compressor';
 import Generator from './views/Generator';
 import Grading from './views/Grading';
 import Home from './views/Home';
+import Notes from './views/Notes';
 import Rubrics from './views/Rubrics';
 
 const NAV: { key: View; label: string; icon: string }[] = [
@@ -45,6 +47,11 @@ const NAV: { key: View; label: string; icon: string }[] = [
     icon: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12z M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
   },
   {
+    key: 'notes',
+    label: 'Notes',
+    icon: 'M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3 M16 3h5v5 M10 14 21 3 M8 8h3 M8 12h2',
+  },
+  {
     key: 'analytics',
     label: 'Analytics',
     icon: 'M18 20 V10 M12 20 V4 M6 20 v-6',
@@ -64,6 +71,13 @@ export default function App() {
   const [backend, setBackend] = useState<BackendState>({ ok: false, model: DEFAULT_MODEL_ID, hasKey: false });
   const [demoRequest, setDemoRequest] = useState(0);
   const [analytics, setAnalytics] = useState<AnalyticsState>(EMPTY_ANALYTICS);
+  const [notes, setNotes] = useState<Note[]>(() => {
+    try {
+      return loadNotes(window.localStorage);
+    } catch {
+      return [];
+    }
+  });
   const [graderNotice, setGraderNotice] = useState<{ id: number; msg: string } | null>(null);
   const [markingMode, setMarkingMode] = useState<'standard' | 'negative' | 'non_negative'>('standard');
   const [negativeMarksValue, setNegativeMarksValue] = useState(0);
@@ -71,6 +85,14 @@ export default function App() {
   useEffect(() => {
     checkBackend().then(setBackend).catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    try {
+      saveNotes(window.localStorage, notes);
+    } catch {
+      // Notes remain usable for this session when browser storage is unavailable.
+    }
+  }, [notes]);
 
   const navigate = useCallback((v: View) => {
     setView(v);
@@ -230,6 +252,7 @@ export default function App() {
             />
           )}
           {view === 'rubrics' && <Rubrics />}
+          {view === 'notes' && <Notes notes={notes} onChange={setNotes} model={modelOverride} />}
           {view === 'analytics' && <Analytics a={analytics} onReset={() => setAnalytics(EMPTY_ANALYTICS)} />}
         </main>
 

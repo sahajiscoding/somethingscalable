@@ -180,6 +180,56 @@ class NoFakeExamTests(unittest.TestCase):
         self.assertEqual(resp.get_json()["question"]["text"], answer["text"])
 
 
+class NoteGenerationTests(unittest.TestCase):
+    """AI note generation validates real model output and never fakes drafts."""
+
+    def setUp(self):
+        self.client = server.app.test_client()
+        self.env = mock.patch.dict(os.environ, {"KILO_API_KEY": "test-key"}, clear=True)
+        self.env.start()
+
+    def tearDown(self):
+        self.env.stop()
+
+    def test_note_endpoint_returns_the_written_note_and_passes_request_context(self):
+        generated = {"title": "Photosynthesis", "content": "Plants turn light into chemical energy."}
+        with mock.patch.object(engine.WhtEngine, "generate_json", return_value=generated) as generate:
+            response = self.client.post("/api/generate-note", json={
+                "prompt": "Explain photosynthesis", "audience": "Grade 8",
+            })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["note"], generated)
+        self.assertEqual(generate.call_args.args[0], "generate_note")
+        self.assertIn("Explain photosynthesis", generate.call_args.kwargs["instruction"])
+        self.assertIn("Grade 8", generate.call_args.kwargs["instruction"])
+
+    def test_note_endpoint_surfaces_gateway_failure_without_fabricating_content(self):
+        with mock.patch.object(
+            engine.WhtEngine, "generate_json",
+            side_effect=engine.EngineError("gateway unavailable"),
+        ):
+            response = self.client.post("/api/generate-note", json={"prompt": "Make revision notes"})
+        self.assertEqual(response.status_code, 502)
+        self.assertNotIn("note", response.get_json())
+        self.assertIn("gateway unavailable", response.get_json()["error"])
+
+    def test_note_endpoint_rejects_empty_or_oversized_prompts_before_calling_model(self):
+        with mock.patch.object(server, "make_engine") as make:
+            empty = self.client.post("/api/generate-note", json={"prompt": "  "})
+            oversized = self.client.post("/api/generate-note", json={"prompt": "x" * 2001})
+            non_object = self.client.post("/api/generate-note", json=["not a request object"])
+        self.assertEqual(empty.status_code, 400)
+        self.assertEqual(oversized.status_code, 400)
+        self.assertEqual(non_object.status_code, 400)
+        make.assert_not_called()
+
+    def test_note_endpoint_rejects_empty_model_output(self):
+        with mock.patch.object(engine.WhtEngine, "generate_json", return_value={"title": "", "content": ""}):
+            response = self.client.post("/api/generate-note", json={"prompt": "Make revision notes"})
+        self.assertEqual(response.status_code, 502)
+        self.assertNotIn("note", response.get_json())
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -49,6 +49,26 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
   const [running, setRunning] = useState(false);
   const [alert, setAlert] = useState<{ msg: string; ok: boolean } | null>(null);
   const [loaderStatus, setLoaderStatus] = useState<'working' | 'done' | 'error' | null>(null);
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [includeAnswerLines, setIncludeAnswerLines] = useState(true);
+  const [timeAllowed, setTimeAllowed] = useState('1 Hour');
+  const [schoolName, setSchoolName] = useState('');
+
+  const updateExam = (patch: Partial<GeneratedExam>) => {
+    setExam(previous => previous ? { ...previous, ...patch } : previous);
+  };
+
+  const updateQuestion = (index: number, patch: Partial<GeneratedQuestion>) => {
+    setExam(previous => {
+      if (!previous) return previous;
+      const questions = previous.questions.map((question, i) => i === index ? { ...question, ...patch } : question);
+      return {
+        ...previous,
+        questions,
+        total_marks: questions.reduce((sum, question) => sum + (Number(question.max_marks) || 0), 0),
+      };
+    });
+  };
 
   const onGenerate = async () => {
     if (running) return;
@@ -122,6 +142,47 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
       downloadPdf(bytes, `${safeName}.pdf`);
     } catch (err) {
       setAlert({ msg: `Could not generate PDF: ${err instanceof Error ? err.message : String(err)}`, ok: false });
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
+  const downloadCustomPaperPdf = async () => {
+    if (!exam || pdfBusy) return;
+    try {
+      setPdfBusy(true);
+      const bytes = await generateExamPaperPdf(exam, {
+        includeAnswerLines,
+        gradeLevel: grade,
+        timeAllowed,
+        schoolName,
+      });
+      const safeName = (exam.title || 'custom-question-paper')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+      downloadPdf(bytes, `${safeName}-custom.pdf`);
+      setAlert({ msg: 'Custom question PDF generated from your edited exam.', ok: true });
+    } catch (err) {
+      setAlert({ msg: `Could not generate custom PDF: ${err instanceof Error ? err.message : String(err)}`, ok: false });
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
+  const downloadCustomKeyPdf = async () => {
+    if (!exam || pdfBusy) return;
+    try {
+      setPdfBusy(true);
+      const bytes = await generateAnswerKeyPdf(exam, { schoolName });
+      const safeName = (exam.title || 'custom-answer-key')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+      downloadPdf(bytes, `${safeName}-custom-key.pdf`);
+      setAlert({ msg: 'Custom answer-key PDF generated from your edited exam.', ok: true });
+    } catch (err) {
+      setAlert({ msg: `Could not generate custom PDF: ${err instanceof Error ? err.message : String(err)}`, ok: false });
     } finally {
       setPdfBusy(false);
     }
@@ -480,6 +541,70 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
             )}
           </div>
 
+          {customizeOpen && exam && !running && (
+            <section aria-labelledby="custom-pdf-title" className="mt-4 rounded-xl border border-mint/25 bg-mint/[.035] p-4 md:p-5">
+              <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 id="custom-pdf-title" className="text-base font-bold text-white">Customize your exam PDF</h3>
+                  <p className="mt-1 text-xs text-white/45">Edit the generated paper and rubric below. These changes update the preview and custom downloads.</p>
+                </div>
+                <button type="button" onClick={() => setCustomizeOpen(false)} className="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-white/65 hover:bg-white/5">Close editor</button>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="text-xs font-semibold text-white/65">PDF title
+                  <input aria-label="Custom PDF title" value={exam.title} onChange={event => updateExam({ title: event.target.value })} className={`${inputCls} mt-1.5`} />
+                </label>
+                <label className="text-xs font-semibold text-white/65">Subject / topic
+                  <input aria-label="Custom PDF subject" value={exam.topic} onChange={event => updateExam({ topic: event.target.value })} className={`${inputCls} mt-1.5`} />
+                </label>
+                <label className="text-xs font-semibold text-white/65">School / organization name <span className="font-normal text-white/40">(optional)</span>
+                  <input aria-label="School name" value={schoolName} maxLength={100} onChange={event => setSchoolName(event.target.value)} placeholder="e.g. Northfield School" className={`${inputCls} mt-1.5`} />
+                </label>
+                <label className="text-xs font-semibold text-white/65">Time allowed
+                  <input aria-label="Time allowed" value={timeAllowed} maxLength={60} onChange={event => setTimeAllowed(event.target.value)} placeholder="e.g. 45 minutes" className={`${inputCls} mt-1.5`} />
+                </label>
+                <label className="text-xs font-semibold text-white/65 sm:col-span-2">Candidate instructions
+                  <textarea aria-label="Candidate instructions" value={exam.instructions} onChange={event => updateExam({ instructions: event.target.value })} rows={2} className={`${inputCls} mt-1.5 resize-y`} />
+                </label>
+                <label className="flex items-center gap-2 text-xs font-semibold text-white/70 sm:col-span-2">
+                  <input type="checkbox" checked={includeAnswerLines} onChange={event => setIncludeAnswerLines(event.target.checked)} />
+                  Include ruled answer lines under questions
+                </label>
+              </div>
+              <div className="mt-4 space-y-3">
+                {exam.questions.map((question, index) => (
+                  <fieldset key={index} className="rounded-xl border border-white/10 bg-black/20 p-3.5">
+                    <legend className="px-1 text-xs font-bold text-mint">Edit question {index + 1}</legend>
+                    <div className="grid gap-3 sm:grid-cols-[1fr_130px]">
+                      <label className="text-[11px] font-semibold text-white/60">Question number
+                        <input aria-label={`Question ${index + 1} number`} value={question.number} onChange={event => updateQuestion(index, { number: event.target.value })} className={`${inputCls} mt-1`} />
+                      </label>
+                      <label className="text-[11px] font-semibold text-white/60">Marks
+                        <input aria-label={`Question ${index + 1} marks`} type="number" min="0" step="0.5" value={question.max_marks} onChange={event => updateQuestion(index, { max_marks: Math.max(0, Number(event.target.value) || 0) })} className={`${inputCls} mt-1`} />
+                      </label>
+                    </div>
+                    <label className="mt-3 block text-[11px] font-semibold text-white/60">Question text
+                      <textarea aria-label={`Question ${index + 1} text`} value={question.text} onChange={event => updateQuestion(index, { text: event.target.value })} rows={3} className={`${inputCls} mt-1 resize-y`} />
+                    </label>
+                    <label className="mt-3 block text-[11px] font-semibold text-white/60">Answer key
+                      <textarea aria-label={`Question ${index + 1} answer`} value={question.expected_answer} onChange={event => updateQuestion(index, { expected_answer: event.target.value })} rows={2} className={`${inputCls} mt-1 resize-y`} />
+                    </label>
+                    <label className="mt-3 block text-[11px] font-semibold text-white/60">Marking scheme
+                      <textarea aria-label={`Question ${index + 1} marking scheme`} value={question.marking_scheme} onChange={event => updateQuestion(index, { marking_scheme: event.target.value })} rows={2} className={`${inputCls} mt-1 resize-y`} />
+                    </label>
+                    <label className="mt-3 block text-[11px] font-semibold text-white/60">Keywords <span className="font-normal text-white/40">(comma separated)</span>
+                      <input aria-label={`Question ${index + 1} keywords`} value={question.keywords.join(', ')} onChange={event => updateQuestion(index, { keywords: event.target.value.split(',').map(keyword => keyword.trim()).filter(Boolean) })} className={`${inputCls} mt-1`} />
+                    </label>
+                  </fieldset>
+                ))}
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button type="button" onClick={() => void downloadCustomPaperPdf()} disabled={pdfBusy} className="rounded-xl bg-mint px-4 py-2.5 text-sm font-bold text-black transition hover:brightness-90 disabled:opacity-50">{pdfBusy ? 'Generating…' : 'Generate Custom Question PDF'}</button>
+                <button type="button" onClick={() => void downloadCustomKeyPdf()} disabled={pdfBusy} className="rounded-xl border border-mint/35 bg-mint/10 px-4 py-2.5 text-sm font-bold text-mint transition hover:bg-mint/15 disabled:opacity-50">{pdfBusy ? 'Generating…' : 'Generate Custom Answer Key PDF'}</button>
+              </div>
+            </section>
+          )}
+
           {exam && exam.questions?.length > 0 && (
             <div className="mt-4 flex flex-wrap items-center gap-2.5 border-t border-white/10 pt-4">
               <button
@@ -489,6 +614,15 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
                 className="cursor-pointer rounded-[13px] border-none bg-gradient-to-br from-pine to-[#3b7a53] px-5 py-2.5 text-sm font-extrabold text-[#0c1a11] transition hover:brightness-110"
               >
                 Send to Exam Grading
+              </button>
+              <button
+                type="button"
+                onClick={() => setCustomizeOpen(open => !open)}
+                aria-expanded={customizeOpen}
+                disabled={running}
+                className="cursor-pointer rounded-[13px] border border-lilac/45 bg-lilac/10 px-4 py-2.5 text-sm font-bold text-[#e6ddff] transition hover:bg-lilac/15 disabled:cursor-wait disabled:opacity-50"
+              >
+                {customizeOpen ? 'Close Custom PDF Editor' : 'Customize & Edit PDF'}
               </button>
               <button
                 type="button"
