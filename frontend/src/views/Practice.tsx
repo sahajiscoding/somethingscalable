@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import LatticeLoader from '../components/LatticeLoader.jsx';
 import {
-  generatePracticeSet,
+  generateExam,
   generatePresentation,
   modelLabel,
   type GeneratedExam,
+  type GeneratedQuestion,
   type PresentationDeck,
 } from '../lib/api';
 import {
@@ -43,13 +44,31 @@ export default function Practice({ model = '' }: { model?: string }) {
     setNotice('');
     setBusy(true);
     setLoaderStatus('working');
+    if (mode === 'questions') {
+      setExam({
+        title: `${topic.trim()} Practice Questions`,
+        topic: topic.trim(),
+        instructions: 'Answer all questions.',
+        total_marks: count * 2,
+        questions: [],
+      });
+      setDeck(null);
+      setShowAnswers(false);
+    } else {
+      setExam(null);
+      setDeck(null);
+    }
     try {
       if (mode === 'questions') {
-        const result = await generatePracticeSet({
+        const result = await generateExam({
           topic: topic.trim(), grade: audience.trim(), difficulty, count,
           marks: count * 2, model: model.trim() || undefined,
+          onQuestionGenerated: (_question, _index, _total, allQuestions) => {
+            const readyQuestions = allQuestions.filter((question): question is GeneratedQuestion => question !== null);
+            setExam(current => current ? { ...current, questions: readyQuestions } : current);
+          },
         });
-        setExam(result.exam);
+        setExam({ ...result.exam, title: `${topic.trim()} Practice Set`, instructions: 'Answer all questions.' });
         setDeck(null);
         setShowAnswers(false);
         setNotice(`Practice set generated with ${modelLabel(result.model)}. Review the answers and adapt before assigning.`);
@@ -163,11 +182,24 @@ export default function Practice({ model = '' }: { model?: string }) {
           {notice && <p role="status" className="rounded-xl border border-pine/20 bg-pine/10 p-3 text-xs leading-relaxed text-green-100">{notice}</p>}
           {busy && <div className="space-y-2">
             <LatticeLoader label={mode === 'questions' ? 'Writing practice set' : 'Drafting slides'} status={loaderStatus ?? 'working'} />
-            {mode === 'questions' && <p className="pl-1 text-[11px] leading-relaxed text-white/40">All {count} questions and answers are requested together, avoiding a long wait between questions.</p>}
+            {mode === 'questions' && <p className="pl-1 text-[11px] leading-relaxed text-white/40">Questions are requested one at a time and appear here as each one finishes.</p>}
           </div>}
         </aside>
 
         <div className="min-h-[420px] rounded-2xl border border-white/10 bg-black/15 p-4 md:p-5">
+          {mode === 'questions' && exam && (busy || exam.questions.length > 0) && (() => {
+            const ready = exam.questions.length;
+            const total = busy ? count : ready;
+            return <div role="status" aria-live="polite" className="mb-4 rounded-xl border border-pine/30 bg-pine/10 px-4 py-3 text-sm text-green-100">
+              <div className="flex items-center justify-between gap-3">
+                <span>{busy ? 'Generating practice questions' : 'Practice questions ready'}</span>
+                <span className="font-mono font-bold">{ready} / {total} {busy ? 'ready' : 'questions'}</span>
+              </div>
+              <div role="progressbar" aria-label="Practice questions generated" aria-valuemin={0} aria-valuemax={Math.max(total, 1)} aria-valuenow={ready} className="mt-2 h-1.5 overflow-hidden rounded-full bg-black/30">
+                <div className="h-full rounded-full bg-pine transition-[width] duration-300" style={{ width: `${total ? Math.min(100, ready / total * 100) : 100}%` }} />
+              </div>
+            </div>;
+          })()}
           {!exam && !deck && <div className="grid min-h-[380px] place-items-center text-center"><div className="max-w-sm"><div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl border border-white/10 bg-white/[.04] text-2xl" aria-hidden="true">✦</div><h2 className="mt-4 text-lg font-bold">{busy ? (mode === 'questions' ? `Writing ${count} practice questions` : 'Preparing your presentation') : 'Your teaching materials will appear here'}</h2><p className="mt-2 text-sm leading-relaxed text-white/50">{busy ? 'The complete draft will appear here as soon as the model finishes.' : 'Describe a topic and choose whether you need student practice questions or a presentation for a teacher-led lesson.'}</p></div></div>}
 
           {exam && <div>
