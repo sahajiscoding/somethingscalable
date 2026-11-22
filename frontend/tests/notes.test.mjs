@@ -11,8 +11,9 @@ import {
 } from '../src/lib/notes.ts';
 import { VIEWS } from '../src/lib/view.ts';
 
-test('Notes is registered as a navigable application view', () => {
+test('Notes and Practice Questions are registered as navigable application views', () => {
   assert.ok(VIEWS.includes('notes'));
+  assert.ok(VIEWS.includes('practice'));
 });
 
 test('AI note requests need a specific multi-word topic and task', () => {

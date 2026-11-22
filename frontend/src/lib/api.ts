@@ -81,6 +81,50 @@ export interface GeneratedNote {
   content: string;
 }
 
+export interface PresentationSlide {
+  title: string;
+  key_points: string[];
+  explanation: string;
+  speaker_notes: string;
+}
+
+export interface PresentationDeck {
+  title: string;
+  subtitle: string;
+  audience: string;
+  slides: PresentationSlide[];
+}
+
+export async function generatePresentation(input: {
+  topic: string;
+  audience: string;
+  slideCount: number;
+  model?: string;
+}): Promise<{ presentation: PresentationDeck; model: string }> {
+  if (input.topic.trim().split(/\s+/).filter(Boolean).length < 3) {
+    throw new Error('Describe a specific lesson topic in at least three words.');
+  }
+  const data = await apiJson<{ presentation: PresentationDeck; model: string }>('/api/generate-presentation', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      topic: input.topic.trim(),
+      audience: input.audience.trim(),
+      slide_count: input.slideCount,
+      model: input.model,
+    }),
+  });
+  if (!data.presentation || typeof data.presentation.title !== 'string' ||
+      typeof data.presentation.subtitle !== 'string' || typeof data.presentation.audience !== 'string' ||
+      !Array.isArray(data.presentation.slides) || data.presentation.slides.length !== input.slideCount ||
+      data.presentation.slides.some(slide => !slide || typeof slide.title !== 'string' ||
+        !Array.isArray(slide.key_points) || slide.key_points.some(point => typeof point !== 'string') ||
+        typeof slide.explanation !== 'string' || typeof slide.speaker_notes !== 'string')) {
+    throw new Error('The AI returned an incomplete slide deck. Please try again.');
+  }
+  return data;
+}
+
 export async function generateNote(input: { prompt: string; audience?: string; model?: string }): Promise<{ note: GeneratedNote; model: string }> {
   if (!isSpecificNotePrompt(input.prompt)) {
     throw new Error('Please describe a specific topic and what the note should include (at least three words).');

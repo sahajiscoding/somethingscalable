@@ -100,7 +100,7 @@ describe('Notes user workflows', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Generate note' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/specific topic/i);
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByText('No notes yet. Create one to get started.')).toBeInTheDocument();
+    expect(screen.getByText('Your library is empty')).toBeInTheDocument();
   });
 
   it('shows AI failures without creating a fallback note', async () => {
@@ -114,6 +114,6 @@ describe('Notes user workflows', () => {
     fireEvent.change(screen.getByLabelText('What should the note cover?'), { target: { value: 'Make a note about atoms' } });
     fireEvent.click(screen.getByRole('button', { name: 'Generate note' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/gateway unavailable/);
-    await waitFor(() => expect(screen.getByText('No notes yet. Create one to get started.')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Your library is empty')).toBeInTheDocument());
   });
 });

@@ -18,6 +18,7 @@ import Generator from './views/Generator';
 import Grading from './views/Grading';
 import Home from './views/Home';
 import Notes from './views/Notes';
+import Practice from './views/Practice';
 import Rubrics from './views/Rubrics';
 
 const NAV: { key: View; label: string; icon: string }[] = [
@@ -52,6 +53,11 @@ const NAV: { key: View; label: string; icon: string }[] = [
     icon: 'M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3 M16 3h5v5 M10 14 21 3 M8 8h3 M8 12h2',
   },
   {
+    key: 'practice',
+    label: 'Practice Questions',
+    icon: 'M9 9a3 3 0 1 1 5.7 1.3c-.9 1.2-2.7 1.6-2.7 3.7 M12 18h.01 M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z',
+  },
+  {
     key: 'analytics',
     label: 'Analytics',
     icon: 'M18 20 V10 M12 20 V4 M6 20 v-6',
@@ -63,6 +69,7 @@ export default function App() {
     const h = window.location.hash.replace('#', '');
     return (VIEWS as string[]).includes(h) ? (h as View) : 'home';
   });
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [files, setFiles] = useState<DocFiles>(EMPTY_FILES);
   const [strict, setStrict] = useState(false);
   const [criteria, setCriteria] = useState<CriteriaState>(EMPTY_CRITERIA);
@@ -96,6 +103,7 @@ export default function App() {
 
   const navigate = useCallback((v: View) => {
     setView(v);
+    setMobileMenuOpen(false);
     window.history.replaceState(null, '', `#${v}`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
@@ -103,7 +111,10 @@ export default function App() {
   useEffect(() => {
     const onHash = () => {
       const h = window.location.hash.replace('#', '');
-      if ((VIEWS as string[]).includes(h)) setView(h as View);
+      if ((VIEWS as string[]).includes(h)) {
+        setView(h as View);
+        setMobileMenuOpen(false);
+      }
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
@@ -144,10 +155,55 @@ export default function App() {
         </div>
       )}
 
-      <div className="relative z-10 mx-auto max-w-[1240px] px-4 pt-4 pb-16">
+      <div className="relative z-10 mx-auto max-w-[1240px] px-4 pt-3 pb-16 sm:pt-4">
+        <div className="sticky top-2 z-[90] mx-auto mb-5 w-full md:hidden">
+          <nav aria-label="Mobile main navigation" className="rounded-2xl border border-white/10 bg-black/60 p-2 shadow-[0_8px_24px_rgba(0,0,0,.4)] backdrop-blur-xl">
+            <div className="flex items-center justify-between gap-2">
+              <button type="button" onClick={() => navigate('home')} aria-label="WeHelpTeachers home" className="flex min-h-11 min-w-0 items-center gap-2 rounded-xl px-1.5 text-left text-white">
+                <span aria-hidden="true" className="grid h-9 w-9 flex-none place-items-center rounded-xl bg-gradient-to-br from-pine to-[#3b7a53] text-sm font-extrabold text-[#0f1a13]">WH</span>
+                <span className="truncate text-sm font-bold tracking-tight">WeHelpTeachers</span>
+              </button>
+              <button
+                type="button"
+                aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+                aria-expanded={mobileMenuOpen}
+                aria-controls="mobile-primary-menu"
+                onClick={() => setMobileMenuOpen(open => !open)}
+                className="flex min-h-11 flex-none items-center gap-2 rounded-xl border border-white/10 bg-white/[.06] px-3.5 text-sm font-semibold text-white/85 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-mint"
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-4 w-4"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+                <span>Menu</span>
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`h-3.5 w-3.5 transition-transform ${mobileMenuOpen ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6" /></svg>
+              </button>
+            </div>
+            {mobileMenuOpen && (
+              <div id="mobile-primary-menu" className="mt-2 border-t border-white/[.08] pt-2.5">
+                <div role="tablist" aria-label="App sections" className="grid grid-cols-2 gap-1.5">
+                  {NAV.map(item => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={view === item.key}
+                      onClick={() => navigate(item.key)}
+                      className={`flex min-h-11 min-w-0 items-center gap-2.5 rounded-xl px-3 text-left text-[13px] font-semibold transition focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-mint ${view === item.key ? 'border border-mint/20 bg-mint/[.11] text-mint' : 'border border-transparent text-white/75 hover:bg-white/[.06]'}`}
+                    >
+                      <svg className="h-4 w-4 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={item.icon} /></svg>
+                      <span className="truncate">{item.label}</span>
+                    </button>
+                  ))}
+                </div>
+                <button type="button" onClick={() => navigate('grading')} className="mt-2 flex min-h-11 w-full items-center justify-center rounded-xl bg-white text-sm font-bold text-black transition hover:bg-white/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-mint">
+                  Start grading
+                </button>
+              </div>
+            )}
+          </nav>
+        </div>
+
         <nav
           aria-label="Main Navigation"
-          className="sticky top-3.5 z-[90] mx-auto mb-7 flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-full border border-white/10 bg-black/45 p-2 shadow-[0_8px_24px_rgba(0,0,0,.4)] backdrop-blur-md"
+          className="sticky top-3.5 z-[90] mx-auto mb-7 hidden w-fit max-w-full items-center gap-1 overflow-x-auto rounded-full border border-white/10 bg-black/45 p-2 shadow-[0_8px_24px_rgba(0,0,0,.4)] backdrop-blur-md md:flex"
         >
           <button
             type="button"
@@ -253,6 +309,7 @@ export default function App() {
           )}
           {view === 'rubrics' && <Rubrics />}
           {view === 'notes' && <Notes notes={notes} onChange={setNotes} model={modelOverride} />}
+          {view === 'practice' && <Practice model={modelOverride} />}
           {view === 'analytics' && <Analytics a={analytics} onReset={() => setAnalytics(EMPTY_ANALYTICS)} />}
         </main>
 
