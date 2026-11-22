@@ -247,9 +247,10 @@ class WhtEngine:
                       instruction: str = "",
                       temperature: float = 0.15,
                       max_tokens: int = 4096,
-                      max_attempts: int = 2) -> Any:
+                      max_attempts: int = 2,
+                      system_prompt: str | None = None) -> Any:
         import time
-        messages = self._build_messages(instruction, document, data)
+        messages = self._build_messages(instruction, document, data, system_prompt)
         start_t = time.monotonic()
 
         last_error = "unknown parse error"
@@ -282,9 +283,18 @@ class WhtEngine:
 
     # -- helpers ------------------------------------------------------------
 
-    def _build_messages(self, instruction: str, document: Any, data: Any):
+    def _build_messages(
+        self,
+        instruction: str,
+        document: Any,
+        data: Any,
+        system_prompt: str | None = None,
+    ):
+        system_content = SYSTEM_INSTRUCTION
+        if system_prompt and system_prompt.strip():
+            system_content += "\n\nTask-specific system instructions:\n" + system_prompt.strip()
         messages: list[Any] = [
-            {"role": "system", "content": SYSTEM_INSTRUCTION}
+            {"role": "system", "content": system_content}
         ]
         if document is None and data is None:
             messages.append({"role": "user", "content": instruction})

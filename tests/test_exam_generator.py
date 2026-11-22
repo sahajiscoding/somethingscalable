@@ -180,6 +180,40 @@ class NoFakeExamTests(unittest.TestCase):
         self.assertEqual(resp.get_json()["question"]["text"], answer["text"])
 
 
+class TaskSystemPromptTests(unittest.TestCase):
+    def test_task_system_prompt_is_sent_as_a_system_message(self):
+        client = engine.WhtEngine(api_key="test-key")
+        messages = client._build_messages(
+            "write notes", None, None, "Reject vague prompts; never write clarification notes."
+        )
+        self.assertEqual(messages[0]["role"], "system")
+        self.assertIn("Reject vague prompts", messages[0]["content"])
+        self.assertIn("never write clarification notes", messages[0]["content"])
+        self.assertEqual(messages[1], {"role": "user", "content": "write notes"})
+
+    def test_task_system_prompt_is_in_the_actual_gateway_request(self):
+        captured = []
+
+        def fake_post(_url, json=None, **_kwargs):
+            captured.append(json)
+            return _completion('{"status":"rejected","reason":"prompt too vague"}')
+
+        with mock.patch.object(engine, "WHT_ENGINE_RPM", 100_000), \
+                mock.patch("requests.post", side_effect=fake_post):
+            client = engine.WhtEngine(api_key="test-key")
+            client.generate_json(
+                "generate_note",
+                instruction="Teacher request: poop.",
+                system_prompt="Reject vague single-word note requests.",
+                max_attempts=1,
+            )
+
+        messages = captured[0]["messages"]
+        self.assertEqual(messages[0]["role"], "system")
+        self.assertIn("Reject vague single-word note requests.", messages[0]["content"])
+        self.assertEqual(messages[1], {"role": "user", "content": "Teacher request: poop."})
+
+
 class NoteGenerationTests(unittest.TestCase):
     """AI note generation validates real model output and never fakes drafts."""
 
@@ -192,16 +226,47 @@ class NoteGenerationTests(unittest.TestCase):
         self.env.stop()
 
     def test_note_endpoint_returns_the_written_note_and_passes_request_context(self):
-        generated = {"title": "Photosynthesis", "content": "Plants turn light into chemical energy."}
+        generated = {"status": "ok", "title": "Photosynthesis", "content": "Plants turn light into chemical energy."}
         with mock.patch.object(engine.WhtEngine, "generate_json", return_value=generated) as generate:
             response = self.client.post("/api/generate-note", json={
-                "prompt": "Explain photosynthesis", "audience": "Grade 8",
+                "prompt": "Explain photosynthesis to Grade 8", "audience": "Grade 8",
             })
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()["note"], generated)
+        self.assertEqual(response.get_json()["note"], {
+            "title": generated["title"], "content": generated["content"],
+        })
         self.assertEqual(generate.call_args.args[0], "generate_note")
-        self.assertIn("Explain photosynthesis", generate.call_args.kwargs["instruction"])
+        self.assertIn("Explain photosynthesis to Grade 8", generate.call_args.kwargs["instruction"])
         self.assertIn("Grade 8", generate.call_args.kwargs["instruction"])
+        self.assertIn("QUALITY GATE", generate.call_args.kwargs["system_prompt"])
+        self.assertIn("clarification/refusal as a note", generate.call_args.kwargs["system_prompt"])
+
+    def test_note_endpoint_returns_model_rejection_as_validation_error(self):
+        rejected = {
+            "status": "rejected",
+            "reason": "Please specify a subject and what the notes should cover.",
+        }
+        with mock.patch.object(engine.WhtEngine, "generate_json", return_value=rejected):
+            response = self.client.post("/api/generate-note", json={
+                "prompt": "Please make notes about poop for biology grade 7",
+            })
+        self.assertEqual(response.status_code, 400)
+        self.assertNotIn("note", response.get_json())
+        self.assertIn("specify a subject", response.get_json()["error"])
+
+    def test_note_endpoint_rejects_a_clarification_message_masquerading_as_a_note(self):
+        clarification = {
+            "status": "ok",
+            "title": "Teacher Request Note",
+            "content": "The teacher provided a single-word request. Please clarify the topic.",
+        }
+        with mock.patch.object(engine.WhtEngine, "generate_json", return_value=clarification):
+            response = self.client.post("/api/generate-note", json={
+                "prompt": "Create study notes about photosynthesis for Grade 8 students",
+            })
+        self.assertEqual(response.status_code, 400)
+        self.assertNotIn("note", response.get_json())
+        self.assertIn("did not produce study notes", response.get_json()["error"])
 
     def test_note_endpoint_surfaces_gateway_failure_without_fabricating_content(self):
         with mock.patch.object(
@@ -216,9 +281,12 @@ class NoteGenerationTests(unittest.TestCase):
     def test_note_endpoint_rejects_empty_or_oversized_prompts_before_calling_model(self):
         with mock.patch.object(server, "make_engine") as make:
             empty = self.client.post("/api/generate-note", json={"prompt": "  "})
+            too_vague = self.client.post("/api/generate-note", json={"prompt": "poop."})
             oversized = self.client.post("/api/generate-note", json={"prompt": "x" * 2001})
             non_object = self.client.post("/api/generate-note", json=["not a request object"])
         self.assertEqual(empty.status_code, 400)
+        self.assertEqual(too_vague.status_code, 400)
+        self.assertIn("specific educational topic", too_vague.get_json()["error"])
         self.assertEqual(oversized.status_code, 400)
         self.assertEqual(non_object.status_code, 400)
         make.assert_not_called()

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   createNote,
   deleteNote,
+  isSpecificNotePrompt,
   loadNotes,
   saveNotes,
   searchNotes,
@@ -12,6 +13,13 @@ import { VIEWS } from '../src/lib/view.ts';
 
 test('Notes is registered as a navigable application view', () => {
   assert.ok(VIEWS.includes('notes'));
+});
+
+test('AI note requests need a specific multi-word topic and task', () => {
+  assert.equal(isSpecificNotePrompt('poop.'), false);
+  assert.equal(isSpecificNotePrompt('   '), false);
+  assert.equal(isSpecificNotePrompt('make concise photosynthesis notes'), true);
+  assert.equal(isSpecificNotePrompt('Grade 8 biology: cell structure'), true);
 });
 
 function memoryStorage(initial = null) {

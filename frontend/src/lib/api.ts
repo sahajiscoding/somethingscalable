@@ -1,5 +1,6 @@
 /* Live backend client — same-origin Flask /api (split pipeline). */
 import { compressMediaIfNeeded } from './mediaCompressor';
+import { isSpecificNotePrompt } from './notes';
 
 export const APP_SECRET: string = (() => {
   const v = (window as unknown as { __APP_SECRET__?: string }).__APP_SECRET__ || '';
@@ -81,6 +82,9 @@ export interface GeneratedNote {
 }
 
 export async function generateNote(input: { prompt: string; audience?: string; model?: string }): Promise<{ note: GeneratedNote; model: string }> {
+  if (!isSpecificNotePrompt(input.prompt)) {
+    throw new Error('Please describe a specific topic and what the note should include (at least three words).');
+  }
   const data = await apiJson<{ note: GeneratedNote; model: string }>('/api/generate-note', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
