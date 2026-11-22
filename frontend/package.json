@@ -17,6 +17,7 @@
     "motion": "^14.0.0",
     "ogl": "^1.0.11",
     "pdf-lib": "^1.17.1",
+    "pptxgenjs": "^4.0.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tailwind-merge": "^3.7.0",
@@ -34,5 +35,8 @@
     "typescript": "~6.0.2",
     "vite": "^8.3.5",
     "vitest": "^5.1.1"
+  },
+  "overrides": {
+    "image-size": "^2.1.0"
   }
 }

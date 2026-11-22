@@ -18,6 +18,7 @@ import Generator from './views/Generator';
 import Grading from './views/Grading';
 import Home from './views/Home';
 import Notes from './views/Notes';
+import Practice from './views/Practice';
 import Rubrics from './views/Rubrics';
 
 const NAV: { key: View; label: string; icon: string }[] = [
@@ -50,6 +51,11 @@ const NAV: { key: View; label: string; icon: string }[] = [
     key: 'notes',
     label: 'Notes',
     icon: 'M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3 M16 3h5v5 M10 14 21 3 M8 8h3 M8 12h2',
+  },
+  {
+    key: 'practice',
+    label: 'Practice Questions',
+    icon: 'M9 9a3 3 0 1 1 5.7 1.3c-.9 1.2-2.7 1.6-2.7 3.7 M12 18h.01 M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z',
   },
   {
     key: 'analytics',
@@ -253,6 +259,7 @@ export default function App() {
           )}
           {view === 'rubrics' && <Rubrics />}
           {view === 'notes' && <Notes notes={notes} onChange={setNotes} model={modelOverride} />}
+          {view === 'practice' && <Practice model={modelOverride} />}
           {view === 'analytics' && <Analytics a={analytics} onReset={() => setAnalytics(EMPTY_ANALYTICS)} />}
         </main>
 

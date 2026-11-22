@@ -298,6 +298,75 @@ class NoteGenerationTests(unittest.TestCase):
         self.assertNotIn("note", response.get_json())
 
 
+class PresentationGenerationTests(unittest.TestCase):
+    def setUp(self):
+        self.client = server.app.test_client()
+        self.env = mock.patch.dict(os.environ, {"KILO_API_KEY": "test-key"}, clear=True)
+        self.env.start()
+        self.payload = {
+            "topic": "Explain the water cycle and its stages",
+            "audience": "Grade 8",
+            "slide_count": 3,
+        }
+        self.generated = {
+            "status": "ok",
+            "title": "The Water Cycle",
+            "subtitle": "A journey through Earth's water",
+            "slides": [
+                {
+                    "title": f"Lesson part {index}",
+                    "key_points": ["First useful fact", "Another useful fact", "A final useful fact"],
+                    "explanation": "Explain this idea with a concrete classroom example.",
+                    "speaker_notes": "Ask learners to explain this idea in their own words.",
+                }
+                for index in range(1, 4)
+            ],
+        }
+
+    def tearDown(self):
+        self.env.stop()
+
+    def test_endpoint_returns_validated_slides_and_passes_instructional_context(self):
+        with mock.patch.object(engine.WhtEngine, "generate_json", return_value=self.generated) as generate:
+            response = self.client.post("/api/generate-presentation", json=self.payload)
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body["presentation"]["title"], "The Water Cycle")
+        self.assertEqual(len(body["presentation"]["slides"]), 3)
+        self.assertEqual(body["presentation"]["audience"], "Grade 8")
+        self.assertEqual(generate.call_args.args[0], "generate_presentation")
+        self.assertIn("exactly 3", generate.call_args.kwargs["instruction"])
+        self.assertIn("instructional designer", generate.call_args.kwargs["system_prompt"])
+        self.assertEqual(generate.call_args.kwargs["temperature"], 0.35)
+
+    def test_endpoint_rejects_invalid_requests_before_calling_model(self):
+        with mock.patch.object(server, "make_engine") as make:
+            vague = self.client.post("/api/generate-presentation", json={**self.payload, "topic": "water"})
+            invalid_count = self.client.post("/api/generate-presentation", json={**self.payload, "slide_count": 2})
+            fractional_count = self.client.post("/api/generate-presentation", json={**self.payload, "slide_count": 3.5})
+            boolean_count = self.client.post("/api/generate-presentation", json={**self.payload, "slide_count": True})
+            no_audience = self.client.post("/api/generate-presentation", json={**self.payload, "audience": " "})
+            non_object = self.client.post("/api/generate-presentation", json=["not a request"])
+        self.assertTrue(all(item.status_code == 400 for item in (
+            vague, invalid_count, fractional_count, boolean_count, no_audience, non_object,
+        )))
+        make.assert_not_called()
+
+    def test_endpoint_rejects_missing_or_wrong_slide_count_from_model(self):
+        invalid = {**self.generated, "slides": self.generated["slides"][:2]}
+        with mock.patch.object(engine.WhtEngine, "generate_json", return_value=invalid):
+            response = self.client.post("/api/generate-presentation", json=self.payload)
+        self.assertEqual(response.status_code, 502)
+        self.assertNotIn("presentation", response.get_json())
+
+    def test_endpoint_returns_model_rejection_without_a_deck(self):
+        rejected = {"status": "rejected", "reason": "Please specify a focused lesson topic."}
+        with mock.patch.object(engine.WhtEngine, "generate_json", return_value=rejected):
+            response = self.client.post("/api/generate-presentation", json=self.payload)
+        self.assertEqual(response.status_code, 400)
+        self.assertNotIn("presentation", response.get_json())
+
+
 if __name__ == "__main__":
     unittest.main()
 
