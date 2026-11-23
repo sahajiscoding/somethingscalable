@@ -27,7 +27,7 @@ describe('exam authoring through Kilo free models', () => {
     expect(result.exam.questions).toEqual([question]);
     expect(result.model).toBe('nvidia/nemotron-3.5-super-vl:free');
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0][0]).toBe('https://ai-gateway.kilo.ai/api/v1/chat/completions');
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.kilo.ai/api/gateway/chat/completions');
     expect(fetchMock.mock.calls[0][1].headers).toEqual({ 'Content-Type': 'application/json' });
     expect(JSON.stringify(fetchMock.mock.calls[0][1])).not.toMatch(/authorization|kilo_api_key/i);
   });

@@ -37,7 +37,7 @@ describe('AI-generated additional lesson slides', () => {
 
     expect(result.slide).toEqual(newSlide);
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0][0]).toBe('https://ai-gateway.kilo.ai/api/v1/chat/completions');
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.kilo.ai/api/gateway/chat/completions');
     expect(fetchMock.mock.calls[0][1].headers).toEqual({ 'Content-Type': 'application/json' });
     const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
     expect(body.messages[1].content).toContain('Explain how families can conserve clean water');

@@ -60,7 +60,7 @@ describe('batched Practice Questions API', () => {
 
     expect(result.exam.questions).toHaveLength(3);
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0][0]).toBe('https://ai-gateway.kilo.ai/api/v1/chat/completions');
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.kilo.ai/api/gateway/chat/completions');
     expect(fetchMock.mock.calls[0][1].headers).toEqual({ 'Content-Type': 'application/json' });
     expect(JSON.stringify(fetchMock.mock.calls[0][1])).not.toMatch(/authorization|kilo_api_key/i);
   });
