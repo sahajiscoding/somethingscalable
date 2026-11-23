@@ -25,11 +25,39 @@ describe('anonymous Kilo free-model client', () => {
     expect(result).toEqual({ status: 'ok', value: 7 });
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, options] = fetchMock.mock.calls[0];
-    expect(url).toBe('https://ai-gateway.kilo.ai/api/v1/chat/completions');
+    expect(url).toBe('https://api.kilo.ai/api/gateway/chat/completions');
     expect((options as RequestInit).credentials).toBe('omit');
     expect((options as RequestInit).headers).toEqual({ 'Content-Type': 'application/json' });
     expect(JSON.parse(String((options as RequestInit).body)).model).toBe('nvidia/model:free');
     expect(JSON.stringify(options)).not.toMatch(/authorization|kilo_api_key/i);
+  });
+
+  it('falls back to the same-origin anonymous relay when the browser blocks Kilo', async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: '{"status":"ok"}' } }] }),
+      } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await generateJsonWithKiloFree<{ status: string }>({
+      model: 'nvidia/model:free',
+      messages: [{ role: 'user', content: 'Return a JSON object.' }],
+      appSecret: 'test-app-secret',
+    });
+
+    expect(result).toEqual({ status: 'ok' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.kilo.ai/api/gateway/chat/completions');
+    expect(fetchMock.mock.calls[0][1].headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/kilo-free');
+    expect(fetchMock.mock.calls[1][1].credentials).toBe('same-origin');
+    expect(fetchMock.mock.calls[1][1].headers).toEqual({
+      'Content-Type': 'application/json', 'X-App-Secret': 'test-app-secret',
+    });
+    expect(JSON.stringify(fetchMock.mock.calls[1][1])).not.toMatch(/authorization|kilo_api_key/i);
   });
 
   it('never sends paid models through anonymous access', async () => {

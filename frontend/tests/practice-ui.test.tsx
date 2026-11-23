@@ -74,7 +74,7 @@ describe('Practice Questions view', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/api/research-book');
     expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).topic).toBe('Explain the water cycle for learners');
     expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).book_title).toBe('Ganita Manjari Part 1');
-    expect(fetchMock.mock.calls[1][0]).toBe('https://ai-gateway.kilo.ai/api/v1/chat/completions');
+    expect(fetchMock.mock.calls[1][0]).toBe('https://api.kilo.ai/api/gateway/chat/completions');
     expect(fetchMock.mock.calls[1][1].credentials).toBe('omit');
     expect(fetchMock.mock.calls[1][1].headers).toEqual({ 'Content-Type': 'application/json' });
   });

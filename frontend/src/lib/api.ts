@@ -158,6 +158,7 @@ export async function generatePresentation(input: {
       model: selectedModel,
       temperature: 0.35,
       maxTokens: Math.min(8192, 700 + input.slideCount * 450),
+      appSecret: APP_SECRET,
       messages: [
         {
           role: 'system',
@@ -241,6 +242,7 @@ export async function generatePresentationSlide(input: {
       model: selectedModel,
       temperature: 0.35,
       maxTokens: 1100,
+      appSecret: APP_SECRET,
       messages: [
         {
           role: 'system',
@@ -296,6 +298,7 @@ export async function generateNote(input: { prompt: string; audience?: string; m
       model: selectedModel,
       temperature: 0.2,
       maxTokens: 1400,
+      appSecret: APP_SECRET,
       messages: [
         {
           role: 'system',
@@ -866,6 +869,7 @@ export async function generatePracticeSet(input: GeneratePracticeSetInput): Prom
       model: selectedModel,
       temperature: 0.45,
       maxTokens: Math.min(4096, 350 + count * 300),
+      appSecret: APP_SECRET,
       messages: [
         {
           role: 'system',
@@ -944,6 +948,7 @@ async function generateAnonymousExamQuestion(input: {
     model: input.model,
     temperature: 0.6,
     maxTokens: 1024,
+    appSecret: APP_SECRET,
     messages: [
       {
         role: 'system',

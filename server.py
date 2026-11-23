@@ -29,6 +29,7 @@ import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
+import requests
 from flask import Flask, Response, jsonify, request
 
 try:
@@ -43,6 +44,7 @@ if load_dotenv is not None:
     load_dotenv(_BASE_DIR / ".env")
 
 from engine import (  # noqa: E402
+    WHT_ENGINE_DEFAULT_ENDPOINT,
     WHT_ENGINE_DEFAULT_MODEL,
     PENALTY_CATEGORIES,
     EngineError,
@@ -137,6 +139,62 @@ def _api_error(exc: Exception):
         return jsonify({
             "error": f"Model inference failed — {detail}"}), 502
     return jsonify({"error": "Failed to process request. Please try again later."}), 502
+
+
+@app.post("/api/kilo-free")
+def api_kilo_free_proxy():
+    """Same-origin fallback for anonymous Kilo :free requests blocked by browser CORS."""
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"error": "A JSON Kilo request is required."}), 400
+    model = body.get("model")
+    messages = body.get("messages")
+    if not isinstance(model, str) or len(model) > 200 or not model.strip().endswith(":free"):
+        return jsonify({"error": "Anonymous Kilo access is restricted to models ending in :free."}), 400
+    if not isinstance(messages, list) or not 1 <= len(messages) <= 64:
+        return jsonify({"error": "Kilo requests must include between 1 and 64 messages."}), 400
+    total_content = 0
+    safe_messages = []
+    for message in messages:
+        if not isinstance(message, dict) or message.get("role") not in {"system", "user", "assistant"}:
+            return jsonify({"error": "Kilo message format is invalid."}), 400
+        content = message.get("content")
+        if not isinstance(content, str):
+            return jsonify({"error": "Kilo message content must be text."}), 400
+        total_content += len(content)
+        if total_content > 100_000:
+            return jsonify({"error": "Kilo request content is too large."}), 413
+        safe_messages.append({"role": message["role"], "content": content})
+
+    raw_tokens = body.get("max_tokens", 2048)
+    if isinstance(raw_tokens, bool) or not isinstance(raw_tokens, int) or not 1 <= raw_tokens <= 8192:
+        return jsonify({"error": "Kilo max_tokens must be an integer from 1 to 8192."}), 400
+    temperature = body.get("temperature", 0.3)
+    if isinstance(temperature, bool) or not isinstance(temperature, (int, float)) or not 0 <= temperature <= 2:
+        return jsonify({"error": "Kilo temperature must be a number from 0 to 2."}), 400
+
+    payload = {
+        "model": model.strip(),
+        "messages": safe_messages,
+        "temperature": temperature,
+        "max_tokens": raw_tokens,
+        "stream": False,
+    }
+    response_format = body.get("response_format")
+    if response_format == {"type": "json_object"}:
+        payload["response_format"] = response_format
+    try:
+        # Deliberately send no Authorization header or configured server key.
+        upstream = requests.post(WHT_ENGINE_DEFAULT_ENDPOINT, json=payload, timeout=90)
+    except requests.RequestException as exc:
+        print(f"[kilo-free-proxy] {type(exc).__name__}: {str(exc)[:200]}", flush=True)
+        return jsonify({"error": "The app server could not reach Kilo. Please retry shortly."}), 502
+
+    return Response(
+        upstream.content,
+        status=upstream.status_code,
+        content_type=upstream.headers.get("Content-Type", "application/json"),
+    )
 
 
 def _params(body: dict) -> GradeParams:

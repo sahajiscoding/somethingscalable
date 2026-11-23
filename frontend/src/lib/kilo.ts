@@ -1,4 +1,4 @@
-const KILO_FREE_GATEWAY_URL = 'https://ai-gateway.kilo.ai/api/v1/chat/completions';
+const KILO_FREE_GATEWAY_URL = 'https://api.kilo.ai/api/gateway/chat/completions';
 
 export interface KiloMessage {
   role: 'system' | 'user' | 'assistant';
@@ -75,6 +75,8 @@ export async function generateJsonWithKiloFree<T>(input: {
   messages: KiloMessage[];
   temperature?: number;
   maxTokens?: number;
+  /** Shared application gate, used only for the same-origin CORS fallback. */
+  appSecret?: string;
 }): Promise<T> {
   const model = input.model.trim();
   if (!isKiloAnonymousFreeModel(model)) {
@@ -113,9 +115,33 @@ export async function generateJsonWithKiloFree<T>(input: {
       });
     }
   } catch {
-    throw new KiloGatewayError(
-      'Could not connect to Kilo from this browser. Check the connection and whether this network allows the Kilo Gateway.',
-    );
+    // Browsers can block the public gateway preflight on some networks. Retry
+    // through our same-origin backend, which forwards only :free requests and
+    // still omits Kilo Authorization credentials.
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (input.appSecret) headers['X-App-Secret'] = input.appSecret;
+      response = await fetch('/api/kilo-free', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers,
+        body: JSON.stringify(payload),
+      });
+      if (response.status === 400 || response.status === 422) {
+        const relaxed = { ...payload } as Record<string, unknown>;
+        delete relaxed.response_format;
+        response = await fetch('/api/kilo-free', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers,
+          body: JSON.stringify(relaxed),
+        });
+      }
+    } catch {
+      throw new KiloGatewayError(
+        'Could not reach Kilo directly or through the app server. Check your connection and retry.',
+      );
+    }
   }
 
   const body = await response.json().catch(() => ({})) as unknown;
