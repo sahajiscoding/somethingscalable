@@ -16,6 +16,8 @@ describe('phone navigation menu', () => {
   it('keeps the desktop icon navigation accessible when labels collapse at tablet widths', () => {
     render(<App />);
     const desktopNav = screen.getByRole('navigation', { name: 'Main Navigation' });
+    expect(desktopNav).not.toHaveClass('overflow-x-auto');
+    expect(within(desktopNav).getByRole('tablist')).toHaveClass('flex-wrap');
     for (const label of ['Home', 'Exam Grading', 'Media Compressor', 'Generate Exam', 'Rubric Studio', 'Notes', 'Practice Questions', 'Analytics']) {
       const tab = within(desktopNav).getByRole('tab', { name: label });
       expect(tab).toHaveAttribute('aria-label', label);
