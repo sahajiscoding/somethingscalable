@@ -709,10 +709,11 @@ class SubtopicPromptTests(unittest.TestCase):
                 mock.patch("requests.post", side_effect=fake_post):
             resp = client.post("/api/generate-exam-question", json={
                 "topic": "Optics", "subtopic": "Snell's law",
-                "index": 1, "total": 3, "marks": 5,
+                "book_title": "Physics for Class 9", "index": 1, "total": 3, "marks": 5,
             })
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(any("Snell's law" in text for text in sent))
+        self.assertTrue(any("Physics for Class 9" in text for text in sent))
 
     def test_blank_subtopic_still_generates(self):
         answer = {"number": "Q1", "text": "Define optics.", "max_marks": 5,

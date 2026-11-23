@@ -826,6 +826,7 @@ export interface GenerateExamInput {
   marks: number;
   /** Optional narrower focus, e.g. "Snell's law" inside the topic "Optics". */
   subtopic?: string;
+  bookTitle?: string;
   model?: string;
   onQuestionGenerated?: (
     question: GeneratedQuestion,
@@ -938,12 +939,16 @@ async function generateAnonymousExamQuestion(input: {
   total: number;
   marks: number;
   subtopic?: string;
+  bookTitle?: string;
 }): Promise<GeneratedQuestion> {
   const aspect = EXAM_QUESTION_ASPECTS[(input.index - 1) % EXAM_QUESTION_ASPECTS.length];
   const focus = input.subtopic
     ? `${input.subtopic} (while still exercising ${aspect})`
     : aspect;
-  const instruction = `You are an expert school examiner setting an official exam paper for ${input.grade}.\nTopic: '${input.topic}'.\nGenerate Question ${input.number} (Question ${input.index} of ${input.total} in the paper).\nSpecific focus for this question: ${focus}.\nDifficulty: ${input.difficulty}. Marks: ${input.marks}.\nCreate an authentic, high-quality, syllabus-accurate question specifically about this topic and focus. Do not write generic placeholders. Return JSON only matching this schema: {"number":"${input.number}","text":"The full, self-contained question text","max_marks":${input.marks},"expected_answer":"Detailed model answer and solution steps","marking_scheme":"Point-by-point marking rubric","keywords":["keyword1","keyword2"]}.`;
+  const bookReference = input.bookTitle?.trim()
+    ? `\nTeacher-specified textbook reference: ${input.bookTitle.trim()}. Use it as context where you are confident; do not invent chapter contents or claim to quote it.`
+    : '';
+  const instruction = `You are an expert school examiner setting an official exam paper for ${input.grade}.\nTopic: '${input.topic}'.${bookReference}\nGenerate Question ${input.number} (Question ${input.index} of ${input.total} in the paper).\nSpecific focus for this question: ${focus}.\nDifficulty: ${input.difficulty}. Marks: ${input.marks}.\nCreate an authentic, high-quality, syllabus-accurate question specifically about this topic and focus. Do not write generic placeholders. Return JSON only matching this schema: {"number":"${input.number}","text":"The full, self-contained question text","max_marks":${input.marks},"expected_answer":"Detailed model answer and solution steps","marking_scheme":"Point-by-point marking rubric","keywords":["keyword1","keyword2"]}.`;
   let generated = await generateJsonWithKiloFree<GeneratedQuestion | { question?: GeneratedQuestion } | GeneratedQuestion[]>({
     model: input.model,
     temperature: 0.6,
@@ -1010,6 +1015,7 @@ export async function generateExam(
             total: count,
             marks: perQMarks,
             subtopic: input.subtopic?.trim() || undefined,
+            bookTitle: input.bookTitle?.trim() || undefined,
           });
         } else {
           const data = await apiJson<{
@@ -1029,6 +1035,7 @@ export async function generateExam(
               total: count,
               marks: perQMarks,
               subtopic: input.subtopic?.trim() || undefined,
+              book_title: input.bookTitle?.trim() || undefined,
               model: selectedModel,
             }),
           });
