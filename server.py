@@ -135,7 +135,7 @@ def _api_error(exc: Exception):
                 "error": "WHT Engine AI Gateway is rate-limiting the model right now (429). "
                          "Wait a moment and try again."}), 429
         return jsonify({
-            "error": "Model inference failed. Please try again shortly."}), 502
+            "error": f"Model inference failed — {detail or 'please try again shortly.'}"}), 502
     return jsonify({"error": "Failed to process request. Please try again later."}), 502
 
 
@@ -1268,6 +1268,10 @@ def api_generate_exam_question():
         marks = 5.0
     difficulty = (body.get("difficulty") or "Medium").strip()
     subtopic = (body.get("subtopic") or "").strip()
+    raw_book_title = body.get("book_title", "")
+    if not isinstance(raw_book_title, str) or len(raw_book_title) > 200:
+        return jsonify({"error": "Textbook title must be 200 characters or fewer."}), 400
+    book_title = raw_book_title.strip()
 
     ASPECTS = [
         "Core definitions, terminology, and foundational concepts",
@@ -1286,9 +1290,15 @@ def api_generate_exam_question():
         f"{subtopic} (while still exercising {aspect})" if subtopic else aspect
     )
 
+    book_context = (
+        f"Teacher-specified textbook reference: {book_title}. Use it as context where you are confident; "
+        "do not invent chapter contents or claim to quote it.\n"
+        if book_title else ""
+    )
     instruction = (
         f"You are an expert school examiner setting an official exam paper for {grade}.\n"
         f"Topic: '{topic}'.\n"
+        f"{book_context}"
         f"Generate Question {number} (Question {index} of {total} in the paper).\n"
         f"Specific focus for this question: {focus}.\n"
         f"Difficulty: {difficulty}. Marks: {marks:g}.\n"

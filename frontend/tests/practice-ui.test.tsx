@@ -20,6 +20,42 @@ describe('Practice Questions view', () => {
     expect(preview).toHaveClass('min-w-0');
   });
 
+  it('routes an explicit exam-practice request to actual questions even from the slides tab', async () => {
+    const question = {
+      number: 'Q1',
+      text: 'A 2 kg object accelerates at 3 m/s². Calculate the force acting on it.',
+      max_marks: 2,
+      expected_answer: 'F = ma = 2 × 3 = 6 N.',
+      marking_scheme: '1 mark for formula; 1 mark for correct answer and unit.',
+      keywords: ['force', 'newton'],
+    };
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ message: { content: JSON.stringify(question) } }] }),
+    }) as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<Practice model="" />);
+    fireEvent.change(screen.getByLabelText(/number of questions/i), { target: { value: '1' } });
+    fireEvent.click(screen.getByRole('tab', { name: /teach with slides/i }));
+    fireEvent.change(screen.getByLabelText(/topic and learning focus/i), {
+      target: { value: 'All chapters practice questions' },
+    });
+    fireEvent.change(screen.getByLabelText(/textbook or syllabus reference/i), {
+      target: { value: 'Ganita Manjari Part 1 and 2' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /generate lesson slides/i }));
+
+    expect(await screen.findByText(question.text)).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /practice questions/i })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getAllByRole('status').some(status => /switched from slides to Practice questions/i.test(status.textContent || ''))).toBe(true);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.kilo.ai/api/gateway/chat/completions');
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).messages[1].content)
+      .toContain('Teacher-specified textbook reference: Ganita Manjari Part 1 and 2');
+  });
+
   it('generates and presents editable lesson slide fields in the separate teaching mode', async () => {
     const slides = Array.from({ length: 3 }, (_, index) => ({
       title: `Concept ${index + 1}`,
@@ -58,7 +94,7 @@ describe('Practice Questions view', () => {
     fireEvent.change(screen.getByLabelText(/topic and learning focus/i), {
       target: { value: 'Explain the water cycle for learners' },
     });
-    fireEvent.change(screen.getByLabelText(/specific book title/i), {
+    fireEvent.change(screen.getByLabelText(/textbook or syllabus reference/i), {
       target: { value: 'Ganita Manjari Part 1' },
     });
     fireEvent.change(screen.getByLabelText(/lesson content slides/i), { target: { value: '3' } });

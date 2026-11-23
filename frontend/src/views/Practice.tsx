@@ -23,6 +23,12 @@ type Mode = 'questions' | 'lesson';
 const inputClass = 'mt-1.5 w-full rounded-xl border border-white/10 bg-black/25 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-pine/70';
 const labelClass = 'block text-xs font-semibold text-white/65';
 
+function isExamPracticeRequest(value: string): boolean {
+  const asksForQuestions = /\b(?:practice|exam|test|revision|mock)\s+questions?\b|\bquestion\s+paper\b/i.test(value);
+  const explicitlyAsksForSlides = /\b(?:teach(?:ing)?|lesson|slides?|presentation|slide deck)\b/i.test(value);
+  return asksForQuestions && !explicitlyAsksForSlides;
+}
+
 export default function Practice({ model = '' }: { model?: string }) {
   const [mode, setMode] = useState<Mode>('questions');
   const [topic, setTopic] = useState('');
@@ -46,12 +52,15 @@ export default function Practice({ model = '' }: { model?: string }) {
 
   const generate = async () => {
     if (busy) return;
+    const autoSwitchedToQuestions = mode === 'lesson' && isExamPracticeRequest(topic);
+    const generationMode: Mode = autoSwitchedToQuestions ? 'questions' : mode;
+    if (autoSwitchedToQuestions) setMode('questions');
     setError('');
     setNotice('');
     setBookResearch(null);
     setBusy(true);
     setLoaderStatus('working');
-    if (mode === 'questions') {
+    if (generationMode === 'questions') {
       setExam({
         title: `${topic.trim()} Practice Questions`,
         topic: topic.trim(),
@@ -66,10 +75,11 @@ export default function Practice({ model = '' }: { model?: string }) {
       setDeck(null);
     }
     try {
-      if (mode === 'questions') {
+      if (generationMode === 'questions') {
         const result = await generateExam({
           topic: topic.trim(), grade: audience.trim(), difficulty, count,
           marks: count * 2, model: model.trim() || undefined,
+          bookTitle: bookTitle.trim() || undefined,
           onQuestionGenerated: (_question, _index, _total, allQuestions) => {
             const readyQuestions = allQuestions.filter((question): question is GeneratedQuestion => question !== null);
             setExam(current => current ? { ...current, questions: readyQuestions } : current);
@@ -78,7 +88,10 @@ export default function Practice({ model = '' }: { model?: string }) {
         setExam({ ...result.exam, title: `${topic.trim()} Practice Set`, instructions: 'Answer all questions.' });
         setDeck(null);
         setShowAnswers(false);
-        setNotice(`Practice set generated with ${modelLabel(result.model)}. Review the answers and adapt before assigning.`);
+        const intentNote = autoSwitchedToQuestions
+          ? 'This request asked for exam practice questions, so I switched from slides to Practice questions. '
+          : '';
+        setNotice(`${intentNote}Practice set generated with ${modelLabel(result.model)}. Review the answers and adapt before assigning.`);
       } else {
         const result = await generatePresentation({
           topic: topic.trim(), audience: audience.trim(), slideCount,
@@ -193,20 +206,18 @@ export default function Practice({ model = '' }: { model?: string }) {
             </select>
           </label>
 
-          {mode === 'lesson' && (
-            <label className={labelClass}>Specific book title (optional)
-              <input
-                className={inputClass}
-                value={bookTitle}
-                onChange={e => setBookTitle(e.target.value)}
-                maxLength={200}
-                placeholder="e.g. Ganita Manjari, Part 1"
-              />
-              <span className="mt-1 block text-[11px] font-normal leading-relaxed text-white/40">
-                Runs only for a named book; uses free web search and public catalogs, with no paid search API or key.
-              </span>
-            </label>
-          )}
+          <label className={labelClass}>Textbook or syllabus reference (optional)
+            <input
+              className={inputClass}
+              value={bookTitle}
+              onChange={e => setBookTitle(e.target.value)}
+              maxLength={200}
+              placeholder="e.g. Ganita Manjari, Part 1"
+            />
+            <span className="mt-1 block text-[11px] font-normal leading-relaxed text-white/40">
+              Adds this title as context for exam questions; named titles can also trigger free public catalog lookups for lesson slides.
+            </span>
+          </label>
 
           {mode === 'questions' ? (
             <>
