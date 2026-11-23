@@ -20,24 +20,28 @@ describe('Practice Questions view', () => {
     expect(preview).toHaveClass('min-w-0');
   });
 
-  it('routes an explicit exam-practice request to actual questions even from the slides tab', async () => {
-    const question = {
-      number: 'Q1',
-      text: 'A 2 kg object accelerates at 3 m/s². Calculate the force acting on it.',
-      max_marks: 2,
-      expected_answer: 'F = ma = 2 × 3 = 6 N.',
-      marking_scheme: '1 mark for formula; 1 mark for correct answer and unit.',
-      keywords: ['force', 'newton'],
+  it('makes exam-practice slides when requested without switching away from slide mode', async () => {
+    const slideDeck = {
+      status: 'ok',
+      title: 'Class 9 Exam Practice',
+      subtitle: 'Questions for revision',
+      slides: [{
+        title: 'Question 1: Force and acceleration',
+        key_points: ['A 2 kg object accelerates at 3 m/s². Calculate the force acting on it.', 'Show the formula used.', 'Write the answer with units.'],
+        explanation: '2 marks',
+        speaker_notes: 'Answer: 6 N. Award one mark for F = ma and one mark for the correct answer and unit.',
+      }],
     };
-    const fetchMock = vi.fn(async () => ({
+    const fetchMock = vi.fn(async (url: string) => ({
       ok: true,
       status: 200,
-      json: async () => ({ choices: [{ message: { content: JSON.stringify(question) } }] }),
+      json: async () => url === '/api/research-book'
+        ? { book_research: null }
+        : { choices: [{ message: { content: JSON.stringify(slideDeck) } }] },
     }) as unknown as Response);
     vi.stubGlobal('fetch', fetchMock);
 
     render(<Practice model="" />);
-    fireEvent.change(screen.getByLabelText(/number of questions/i), { target: { value: '1' } });
     fireEvent.click(screen.getByRole('tab', { name: /teach with slides/i }));
     fireEvent.change(screen.getByLabelText(/topic and learning focus/i), {
       target: { value: 'All chapters practice questions' },
@@ -47,13 +51,18 @@ describe('Practice Questions view', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: /generate lesson slides/i }));
 
-    expect(await screen.findByText(question.text)).toBeTruthy();
-    expect(screen.getByRole('tab', { name: /practice questions/i })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getAllByRole('status').some(status => /switched from slides to Practice questions/i.test(status.textContent || ''))).toBe(true);
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0][0]).toBe('https://api.kilo.ai/api/gateway/chat/completions');
-    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).messages[1].content)
-      .toContain('Teacher-specified textbook reference: Ganita Manjari Part 1 and 2');
+    expect(await screen.findByLabelText('Slide 1 title')).toHaveValue('Question 1: Force and acceleration');
+    expect(screen.getByRole('tab', { name: /teach with slides/i })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /practice questions/i })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByLabelText('Key points (one per line)')).toHaveValue(
+      'A 2 kg object accelerates at 3 m/s². Calculate the force acting on it.\nShow the formula used.\nWrite the answer with units.',
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/research-book');
+    const request = JSON.parse(String(fetchMock.mock.calls[1][1].body));
+    expect(fetchMock.mock.calls[1][0]).toBe('https://api.kilo.ai/api/gateway/chat/completions');
+    expect(request.messages[1].content).toContain('actual exam-practice question slides');
+    expect(request.messages[1].content).toContain('Teacher-specified textbook reference: Ganita Manjari Part 1 and 2');
   });
 
   it('generates and presents editable lesson slide fields in the separate teaching mode', async () => {

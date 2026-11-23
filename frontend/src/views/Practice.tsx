@@ -9,6 +9,7 @@ import {
   type GeneratedExam,
   type GeneratedQuestion,
   type PresentationDeck,
+  type PresentationPurpose,
 } from '../lib/api';
 import {
   buildEditablePresentation,
@@ -19,14 +20,16 @@ import {
 } from '../lib/presentation';
 
 type Mode = 'questions' | 'lesson';
+type SlideStyle = 'auto' | PresentationPurpose;
 
 const inputClass = 'mt-1.5 w-full rounded-xl border border-white/10 bg-black/25 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-pine/70';
 const labelClass = 'block text-xs font-semibold text-white/65';
 
-function isExamPracticeRequest(value: string): boolean {
+function detectSlidePurpose(value: string): PresentationPurpose {
   const asksForQuestions = /\b(?:practice|exam|test|revision|mock)\s+questions?\b|\bquestion\s+paper\b/i.test(value);
-  const explicitlyAsksForSlides = /\b(?:teach(?:ing)?|lesson|slides?|presentation|slide deck)\b/i.test(value);
-  return asksForQuestions && !explicitlyAsksForSlides;
+  const asksForTeaching = /\b(?:teach(?:ing)?|lesson|explain|concepts?)\b/i.test(value);
+  if (/\bmixed\b/i.test(value) || (asksForQuestions && asksForTeaching)) return 'mixed';
+  return asksForQuestions ? 'exam-practice' : 'teaching';
 }
 
 export default function Practice({ model = '' }: { model?: string }) {
@@ -36,6 +39,7 @@ export default function Practice({ model = '' }: { model?: string }) {
   const [count, setCount] = useState(8);
   const [difficulty, setDifficulty] = useState('Medium');
   const [slideCount, setSlideCount] = useState(7);
+  const [slideStyle, setSlideStyle] = useState<SlideStyle>('auto');
   const [theme, setTheme] = useState<PresentationTheme>('emerald');
   const [bookTitle, setBookTitle] = useState('');
   const [bookResearch, setBookResearch] = useState<BookResearch | null>(null);
@@ -52,9 +56,8 @@ export default function Practice({ model = '' }: { model?: string }) {
 
   const generate = async () => {
     if (busy) return;
-    const autoSwitchedToQuestions = mode === 'lesson' && isExamPracticeRequest(topic);
-    const generationMode: Mode = autoSwitchedToQuestions ? 'questions' : mode;
-    if (autoSwitchedToQuestions) setMode('questions');
+    const generationMode = mode;
+    const presentationPurpose = slideStyle === 'auto' ? detectSlidePurpose(topic) : slideStyle;
     setError('');
     setNotice('');
     setBookResearch(null);
@@ -88,13 +91,11 @@ export default function Practice({ model = '' }: { model?: string }) {
         setExam({ ...result.exam, title: `${topic.trim()} Practice Set`, instructions: 'Answer all questions.' });
         setDeck(null);
         setShowAnswers(false);
-        const intentNote = autoSwitchedToQuestions
-          ? 'This request asked for exam practice questions, so I switched from slides to Practice questions. '
-          : '';
-        setNotice(`${intentNote}Practice set generated with ${modelLabel(result.model)}. Review the answers and adapt before assigning.`);
+        setNotice(`Practice set generated with ${modelLabel(result.model)}. Review the answers and adapt before assigning.`);
       } else {
         const result = await generatePresentation({
           topic: topic.trim(), audience: audience.trim(), slideCount,
+          purpose: presentationPurpose,
           model: model.trim() || undefined,
           bookTitle: bookTitle.trim() || undefined,
         });
@@ -110,7 +111,10 @@ export default function Practice({ model = '' }: { model?: string }) {
           ? ` The model produced ${result.presentation.slides.length} complete content slides out of ${slideCount} requested; add more with the AI slide tool below.`
           : '';
         setSlideDescription('');
-        setNotice(`Editable lesson deck generated with ${modelLabel(result.model)}. You can revise every slide before downloading.${countNote}${bookNote}`);
+        const deckKind = presentationPurpose === 'exam-practice'
+          ? 'Exam-practice slides'
+          : presentationPurpose === 'mixed' ? 'Teaching and practice slides' : 'Teaching slides';
+        setNotice(`${deckKind} generated with ${modelLabel(result.model)}. You can revise every slide before downloading.${countNote}${bookNote}`);
       }
       setLoaderStatus('done');
     } catch (e) {
@@ -232,6 +236,17 @@ export default function Practice({ model = '' }: { model?: string }) {
             </>
           ) : (
             <>
+              <label className={labelClass}>Slide style
+                <select className={inputClass} value={slideStyle} onChange={e => setSlideStyle(e.target.value as SlideStyle)}>
+                  <option value="auto">Auto-detect from topic</option>
+                  <option value="teaching">Teach a lesson</option>
+                  <option value="exam-practice">Exam-practice question slides</option>
+                  <option value="mixed">Teach + practice questions</option>
+                </select>
+                <span className="mt-1 block text-[11px] font-normal leading-relaxed text-white/40">
+                  Auto-detect makes practice-question prompts into question slides; choose mixed to teach concepts and test them in one deck.
+                </span>
+              </label>
               <label className={labelClass}>Lesson content slides (+ separate title slide)
                 <input className={inputClass} type="number" min={3} max={15} value={slideCount} onChange={e => setSlideCount(Math.min(15, Math.max(3, Number(e.target.value) || 3)))} />
               </label>
