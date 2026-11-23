@@ -4,6 +4,7 @@ import {
   generateExam,
   generatePresentation,
   modelLabel,
+  type BookResearch,
   type GeneratedExam,
   type GeneratedQuestion,
   type PresentationDeck,
@@ -29,6 +30,8 @@ export default function Practice({ model = '' }: { model?: string }) {
   const [difficulty, setDifficulty] = useState('Medium');
   const [slideCount, setSlideCount] = useState(7);
   const [theme, setTheme] = useState<PresentationTheme>('emerald');
+  const [bookTitle, setBookTitle] = useState('');
+  const [bookResearch, setBookResearch] = useState<BookResearch | null>(null);
   const [exam, setExam] = useState<GeneratedExam | null>(null);
   const [deck, setDeck] = useState<PresentationDeck | null>(null);
   const [showAnswers, setShowAnswers] = useState(false);
@@ -42,6 +45,7 @@ export default function Practice({ model = '' }: { model?: string }) {
     if (busy) return;
     setError('');
     setNotice('');
+    setBookResearch(null);
     setBusy(true);
     setLoaderStatus('working');
     if (mode === 'questions') {
@@ -76,10 +80,17 @@ export default function Practice({ model = '' }: { model?: string }) {
         const result = await generatePresentation({
           topic: topic.trim(), audience: audience.trim(), slideCount,
           model: model.trim() || undefined,
+          bookTitle: bookTitle.trim() || undefined,
         });
         setDeck(result.presentation);
+        setBookResearch(result.bookResearch ?? null);
         setExam(null);
-        setNotice(`Editable lesson deck generated with ${modelLabel(result.model)}. You can revise every slide before downloading.`);
+        const bookNote = result.bookResearch
+          ? result.bookResearch.sources.length
+            ? ` Free catalog search found ${result.bookResearch.sources.length} book reference${result.bookResearch.sources.length === 1 ? '' : 's'}; review the sources alongside the slides.`
+            : ' No matching free catalog record was found; check book-specific details against your copy.'
+          : '';
+        setNotice(`Editable lesson deck generated with ${modelLabel(result.model)}. You can revise every slide before downloading.${bookNote}`);
       }
       setLoaderStatus('done');
     } catch (e) {
@@ -150,6 +161,21 @@ export default function Practice({ model = '' }: { model?: string }) {
             </select>
           </label>
 
+          {mode === 'lesson' && (
+            <label className={labelClass}>Specific book title (optional)
+              <input
+                className={inputClass}
+                value={bookTitle}
+                onChange={e => setBookTitle(e.target.value)}
+                maxLength={200}
+                placeholder="e.g. Ganita Manjari, Part 1"
+              />
+              <span className="mt-1 block text-[11px] font-normal leading-relaxed text-white/40">
+                Runs only for a named book; uses free web search and public catalogs, with no paid search API or key.
+              </span>
+            </label>
+          )}
+
           {mode === 'questions' ? (
             <>
               <label className={labelClass}>Number of questions
@@ -187,6 +213,25 @@ export default function Practice({ model = '' }: { model?: string }) {
         </aside>
 
         <div className="min-w-0 min-h-[420px] rounded-2xl border border-white/10 bg-black/15 p-4 md:p-5">
+          {bookResearch && <section aria-label="Free book search sources" className="mb-4 rounded-xl border border-pine/25 bg-pine/[.06] p-4">
+            <h2 className="text-sm font-bold text-white">Free book search · {bookResearch.query}</h2>
+            {bookResearch.sources.length ? (
+              <ul className="mt-3 space-y-3">
+                {bookResearch.sources.map((source, index) => (
+                  <li key={`${source.provider}-${source.url}-${index}`} className="min-w-0 border-t border-white/10 pt-3 text-xs">
+                    <a href={source.url} target="_blank" rel="noreferrer" className="break-words font-semibold text-mint underline decoration-white/20 underline-offset-2 hover:text-white">
+                      {source.title}
+                    </a>
+                    <p className="mt-1 text-white/45">{source.provider}{source.authors.length ? ` · ${source.authors.join(', ')}` : ''}{source.published_date ? ` · ${source.published_date}` : ''}</p>
+                    {source.description && <p className="mt-1 leading-relaxed text-white/60">{source.description}</p>}
+                    {!!source.categories.length && <p className="mt-1 text-white/40">Topics: {source.categories.slice(0, 5).join(', ')}</p>}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-xs leading-relaxed text-white/55">No matching public catalog record was found. The slides were drafted from your prompt; verify book-specific details against your copy.</p>
+            )}
+          </section>}
           {mode === 'questions' && exam && (busy || exam.questions.length > 0) && (() => {
             const ready = exam.questions.length;
             const total = busy ? count : ready;

@@ -95,16 +95,36 @@ export interface PresentationDeck {
   slides: PresentationSlide[];
 }
 
+export interface BookReferenceSource {
+  provider: 'Google Books' | 'Open Library' | 'DuckDuckGo Web Search';
+  title: string;
+  authors: string[];
+  published_date: string;
+  description?: string;
+  categories: string[];
+  url: string;
+}
+
+export interface BookResearch {
+  query: string;
+  sources: BookReferenceSource[];
+}
+
 export async function generatePresentation(input: {
   topic: string;
   audience: string;
   slideCount: number;
   model?: string;
-}): Promise<{ presentation: PresentationDeck; model: string }> {
+  bookTitle?: string;
+}): Promise<{ presentation: PresentationDeck; model: string; bookResearch?: BookResearch }> {
   if (input.topic.trim().split(/\s+/).filter(Boolean).length < 3) {
     throw new Error('Describe a specific lesson topic in at least three words.');
   }
-  const data = await apiJson<{ presentation: PresentationDeck; model: string }>('/api/generate-presentation', {
+  const data = await apiJson<{
+    presentation: PresentationDeck;
+    model: string;
+    book_research?: BookResearch;
+  }>('/api/generate-presentation', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -112,6 +132,7 @@ export async function generatePresentation(input: {
       audience: input.audience.trim(),
       slide_count: input.slideCount,
       model: input.model,
+      ...(input.bookTitle?.trim() ? { book_title: input.bookTitle.trim() } : {}),
     }),
   });
   if (!data.presentation || typeof data.presentation.title !== 'string' ||
@@ -122,7 +143,15 @@ export async function generatePresentation(input: {
         typeof slide.explanation !== 'string' || typeof slide.speaker_notes !== 'string')) {
     throw new Error('The AI returned an incomplete slide deck. Please try again.');
   }
-  return data;
+  const bookResearch = data.book_research && typeof data.book_research.query === 'string' &&
+    Array.isArray(data.book_research.sources)
+    ? data.book_research
+    : undefined;
+  return {
+    presentation: data.presentation,
+    model: data.model,
+    ...(bookResearch ? { bookResearch } : {}),
+  };
 }
 
 export async function generateNote(input: { prompt: string; audience?: string; model?: string }): Promise<{ note: GeneratedNote; model: string }> {

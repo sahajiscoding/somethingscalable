@@ -33,6 +33,18 @@ describe('Practice Questions view', () => {
       json: async () => ({
         presentation: { title: 'Water Cycle', subtitle: 'A lesson', audience: 'Class 9', slides },
         model: 'nvidia/nemotron-3.5-super-vl:free',
+        book_research: {
+          query: 'Ganita Manjari Part 1',
+          sources: [{
+            provider: 'Google Books',
+            title: 'Ganita Manjari Part 1',
+            authors: ['A. Teacher'],
+            published_date: '2024',
+            description: 'Class 9 mathematics.',
+            categories: ['Mathematics'],
+            url: 'https://books.google.com/books?id=example',
+          }],
+        },
       }),
     }) as unknown as Response);
     vi.stubGlobal('fetch', fetchMock);
@@ -47,16 +59,22 @@ describe('Practice Questions view', () => {
     fireEvent.change(screen.getByLabelText(/topic and learning focus/i), {
       target: { value: 'Explain the water cycle for learners' },
     });
+    fireEvent.change(screen.getByLabelText(/specific book title/i), {
+      target: { value: 'Ganita Manjari Part 1' },
+    });
     fireEvent.change(screen.getByLabelText(/lesson content slides/i), { target: { value: '3' } });
     fireEvent.click(screen.getByRole('button', { name: /generate lesson slides/i }));
 
     expect(await screen.findByLabelText('Slide 1 title')).toHaveProperty('value', 'Concept 1');
     expect(await screen.findByText(/editable teacher presentation · 4 total slides/i)).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Free book search sources' })).toHaveTextContent('Ganita Manjari Part 1');
+    expect(screen.getByRole('link', { name: 'Ganita Manjari Part 1' })).toHaveAttribute('href', 'https://books.google.com/books?id=example');
     expect(screen.getByLabelText('Slide 1 title')).toHaveProperty('value', 'Concept 1');
     expect(screen.getAllByLabelText(/key points/i)[0]).toHaveProperty('value', 'Core point one\nCore point two\nCore point three');
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0][0]).toBe('/api/generate-presentation');
     expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).audience).toBe('Class 9');
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).book_title).toBe('Ganita Manjari Part 1');
   });
 
   it('streams each generated practice question and updates the ready count as it arrives', async () => {
