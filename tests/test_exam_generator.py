@@ -339,6 +339,21 @@ class PresentationGenerationTests(unittest.TestCase):
         self.assertIn("instructional designer", generate.call_args.kwargs["system_prompt"])
         self.assertEqual(generate.call_args.kwargs["temperature"], 0.35)
 
+    def test_endpoint_retries_a_model_response_with_the_wrong_slide_count(self):
+        incomplete = {**self.generated, "slides": self.generated["slides"][:2]}
+        with mock.patch.object(
+            engine.WhtEngine, "generate_json", side_effect=[incomplete, self.generated]
+        ) as generate:
+            response = self.client.post("/api/generate-presentation", json=self.payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.get_json()["presentation"]["slides"]), 3)
+        self.assertEqual(generate.call_count, 2)
+        correction = generate.call_args_list[1].kwargs["instruction"]
+        self.assertIn("previous response contained 2 slides", correction)
+        self.assertIn("exactly 3", correction)
+        self.assertEqual(generate.call_args_list[0].kwargs["max_tokens"], 2050)
+
     def test_endpoint_rejects_invalid_requests_before_calling_model(self):
         with mock.patch.object(server, "make_engine") as make:
             vague = self.client.post("/api/generate-presentation", json={**self.payload, "topic": "water"})
@@ -352,12 +367,16 @@ class PresentationGenerationTests(unittest.TestCase):
         )))
         make.assert_not_called()
 
-    def test_endpoint_rejects_missing_or_wrong_slide_count_from_model(self):
-        invalid = {**self.generated, "slides": self.generated["slides"][:2]}
-        with mock.patch.object(engine.WhtEngine, "generate_json", return_value=invalid):
-            response = self.client.post("/api/generate-presentation", json=self.payload)
+    def test_endpoint_rejects_wrong_count_after_a_budgeted_retry(self):
+        with mock.patch.object(engine.WhtEngine, "generate_json", return_value=self.generated) as generate:
+            response = self.client.post(
+                "/api/generate-presentation", json={**self.payload, "slide_count": 15}
+            )
         self.assertEqual(response.status_code, 502)
         self.assertNotIn("presentation", response.get_json())
+        self.assertEqual(generate.call_count, 2)
+        self.assertEqual(generate.call_args_list[0].kwargs["max_tokens"], 7450)
+        self.assertIn("exactly 15", generate.call_args_list[1].kwargs["instruction"])
 
     def test_endpoint_returns_model_rejection_without_a_deck(self):
         rejected = {"status": "rejected", "reason": "Please specify a focused lesson topic."}

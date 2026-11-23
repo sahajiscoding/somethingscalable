@@ -774,7 +774,7 @@ def api_generate_presentation():
             "generate_presentation",
             instruction=instruction,
             temperature=0.35,
-            max_tokens=min(4096, 700 + slide_count * 360),
+            max_tokens=min(8192, 700 + slide_count * 450),
             max_attempts=2,
             system_prompt=PRESENTATION_SYSTEM_PROMPT,
         )
@@ -787,6 +787,10 @@ def api_generate_presentation():
             return jsonify({"error": " ".join(reason.split())[:240]}), 400
         if generated.get("status") != "ok":
             raise EngineError("The model did not follow the presentation quality contract.")
+
+        # A large 15-slide response can be truncated by models that default to
+        # a modest completion budget, or simply miss the requested count. Give
+        # it a larger budget and one focused correction attempt before failing.
         title = generated.get("title")
         subtitle = generated.get("subtitle")
         slides = generated.get("slides")
@@ -794,8 +798,34 @@ def api_generate_presentation():
             raise EngineError("The model returned an invalid presentation title.")
         if not isinstance(subtitle, str) or len(subtitle.strip()) > 240:
             raise EngineError("The model returned an invalid presentation subtitle.")
-        if not isinstance(slides, list) or len(slides) != slide_count:
-            raise EngineError(f"The model must return exactly {slide_count} slides.")
+        if not isinstance(slides, list):
+            raise EngineError("The model did not return a slide list.")
+        if len(slides) != slide_count:
+            correction = (
+                f"{instruction}\n\n"
+                f"Your previous response contained {len(slides)} slides, but exactly {slide_count} are required. "
+                "Regenerate the complete deck with exactly that number. Keep each slide concise: three short "
+                "key points, a brief explanation, and brief teacher notes. Return only the requested JSON schema."
+            )
+            generated = engine.generate_json(
+                "generate_presentation",
+                instruction=correction,
+                temperature=0.2,
+                max_tokens=min(8192, 700 + slide_count * 450),
+                max_attempts=1,
+                system_prompt=PRESENTATION_SYSTEM_PROMPT,
+            )
+            if not isinstance(generated, dict) or generated.get("status") != "ok":
+                raise EngineError("The model could not complete the requested slide deck.")
+            title = generated.get("title")
+            subtitle = generated.get("subtitle")
+            slides = generated.get("slides")
+            if not isinstance(title, str) or not title.strip() or len(title.strip()) > 140:
+                raise EngineError("The model returned an invalid presentation title.")
+            if not isinstance(subtitle, str) or len(subtitle.strip()) > 240:
+                raise EngineError("The model returned an invalid presentation subtitle.")
+            if not isinstance(slides, list) or len(slides) != slide_count:
+                raise EngineError(f"The model must return exactly {slide_count} slides.")
         cleaned_slides = []
         for index, slide in enumerate(slides, start=1):
             if not isinstance(slide, dict):

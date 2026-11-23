@@ -9,6 +9,17 @@ afterEach(() => {
 });
 
 describe('Practice Questions view', () => {
+  it('uses a shrinkable preview column to prevent horizontal overflow on narrower layouts', () => {
+    render(<Practice />);
+    const section = screen.getByRole('region', { name: 'Practice Questions' });
+    const columns = section.querySelector('.grid');
+    const preview = section.querySelector('.grid > div');
+
+    expect(columns).toHaveClass('min-w-0');
+    expect(columns?.className).toContain('minmax(0,1fr)');
+    expect(preview).toHaveClass('min-w-0');
+  });
+
   it('generates and presents editable lesson slide fields in the separate teaching mode', async () => {
     const slides = Array.from({ length: 3 }, (_, index) => ({
       title: `Concept ${index + 1}`,
