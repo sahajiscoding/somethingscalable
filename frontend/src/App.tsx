@@ -228,6 +228,8 @@ export default function App() {
                 key={t.key}
                 role="tab"
                 aria-selected={view === t.key}
+                aria-label={t.label}
+                title={t.label}
                 type="button"
                 onClick={() => navigate(t.key)}
                 className={`inline-flex cursor-pointer items-center gap-2 rounded-full border border-transparent px-3.5 py-2 text-[13.5px] font-semibold whitespace-nowrap transition ${
@@ -249,7 +251,7 @@ export default function App() {
                 >
                   <path d={t.icon} />
                 </svg>
-                <span className="hidden md:block">{t.label}</span>
+                <span className="hidden xl:block">{t.label}</span>
               </button>
             ))}
           </div>
