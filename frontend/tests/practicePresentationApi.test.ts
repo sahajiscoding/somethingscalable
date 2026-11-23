@@ -39,6 +39,44 @@ describe('practice presentation API client', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('sends an explicitly named book to the free lookup flow and returns source references', async () => {
+    const slides = Array.from({ length: 3 }, (_, index) => ({
+      title: `Slide ${index + 1}`,
+      key_points: ['First point', 'Second point', 'Third point'],
+      explanation: 'A clear explanation.',
+      speaker_notes: 'A teacher note.',
+    }));
+    const bookResearch = {
+      query: 'Ganita Manjari Part 1',
+      sources: [{
+        provider: 'Google Books',
+        title: 'Ganita Manjari Part 1',
+        authors: ['A. Teacher'],
+        published_date: '2024',
+        description: 'Class 9 mathematics.',
+        categories: ['Mathematics'],
+        url: 'https://books.google.com/books?id=example',
+      }],
+    };
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        presentation: { title: 'Ganita Manjari', subtitle: 'Part 1', audience: 'Class 9', slides },
+        model: 'test-model',
+        book_research: bookResearch,
+      }),
+    }) as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await generatePresentation({
+      topic: 'Teach algebra concepts to class nine', audience: 'Class 9', slideCount: 3,
+      bookTitle: '  Ganita Manjari Part 1  ',
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).book_title).toBe('Ganita Manjari Part 1');
+    expect(result.bookResearch).toEqual(bookResearch);
+  });
+
   it('rejects incomplete decks rather than returning an unusable preview', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: true,

@@ -327,9 +327,11 @@ class PresentationGenerationTests(unittest.TestCase):
         self.env.stop()
 
     def test_endpoint_returns_validated_slides_and_passes_instructional_context(self):
-        with mock.patch.object(engine.WhtEngine, "generate_json", return_value=self.generated) as generate:
-            response = self.client.post("/api/generate-presentation", json=self.payload)
+        with mock.patch.object(server, "search_book") as lookup:
+            with mock.patch.object(engine.WhtEngine, "generate_json", return_value=self.generated) as generate:
+                response = self.client.post("/api/generate-presentation", json=self.payload)
         self.assertEqual(response.status_code, 200)
+        lookup.assert_not_called()
         body = response.get_json()
         self.assertEqual(body["presentation"]["title"], "The Water Cycle")
         self.assertEqual(len(body["presentation"]["slides"]), 3)
@@ -338,6 +340,41 @@ class PresentationGenerationTests(unittest.TestCase):
         self.assertIn("exactly 3", generate.call_args.kwargs["instruction"])
         self.assertIn("instructional designer", generate.call_args.kwargs["system_prompt"])
         self.assertEqual(generate.call_args.kwargs["temperature"], 0.35)
+        self.assertIsNone(generate.call_args.kwargs["data"])
+
+    def test_book_search_runs_only_for_a_named_book_and_passes_free_catalog_details_to_model(self):
+        sources = [{
+            "provider": "Google Books",
+            "title": "Ganita Manjari Part 1",
+            "authors": ["A. Teacher"],
+            "published_date": "2024",
+            "description": "A mathematics textbook for Class 9.",
+            "categories": ["Mathematics"],
+            "url": "https://books.google.com/books?id=example",
+        }]
+        with mock.patch.object(server, "search_book", return_value=sources) as lookup:
+            with mock.patch.object(engine.WhtEngine, "generate_json", return_value=self.generated) as generate:
+                response = self.client.post(
+                    "/api/generate-presentation",
+                    json={**self.payload, "book_title": "Ganita Manjari Part 1"},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        lookup.assert_called_once_with("Ganita Manjari Part 1")
+        self.assertEqual(generate.call_args.kwargs["data"]["book_reference"]["sources"], sources)
+        self.assertIn("specific book", generate.call_args.kwargs["instruction"])
+        self.assertEqual(response.get_json()["book_research"]["sources"], sources)
+
+    def test_quoted_book_title_in_topic_triggers_the_same_free_lookup(self):
+        with mock.patch.object(server, "search_book", return_value=[]) as lookup:
+            with mock.patch.object(engine.WhtEngine, "generate_json", return_value=self.generated) as generate:
+                response = self.client.post(
+                    "/api/generate-presentation",
+                    json={**self.payload, "topic": 'Create slides from the textbook "Ganita Manjari Part 1" for Class 9'},
+                )
+        self.assertEqual(response.status_code, 200)
+        lookup.assert_called_once_with("Ganita Manjari Part 1")
+        self.assertEqual(generate.call_args.kwargs["data"]["book_reference"]["query"], "Ganita Manjari Part 1")
 
     def test_endpoint_retries_a_model_response_with_the_wrong_slide_count(self):
         incomplete = {**self.generated, "slides": self.generated["slides"][:2]}
