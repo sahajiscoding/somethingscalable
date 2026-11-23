@@ -133,7 +133,7 @@ export default function Practice({ model = '' }: { model?: string }) {
         <p className="mt-1 max-w-3xl text-sm text-white/55">Create exam-preparation question sets or build a lesson presentation for teaching. AI drafts are editable and should be reviewed before classroom use.</p>
       </header>
 
-      <div className="grid gap-6 p-5 md:grid-cols-[minmax(260px,340px)_1fr] md:p-7">
+      <div className="grid min-w-0 gap-6 p-5 md:grid-cols-[minmax(260px,340px)_minmax(0,1fr)] md:p-7">
         <aside className="space-y-5">
           <div className="grid grid-cols-2 rounded-xl border border-white/10 bg-black/20 p-1" role="tablist" aria-label="Material type">
             <button type="button" role="tab" aria-selected={mode === 'questions'} onClick={() => { setMode('questions'); setError(''); }} className={`rounded-lg px-3 py-2 text-xs font-bold transition ${mode === 'questions' ? 'bg-pine text-[#102016]' : 'text-white/60 hover:text-white'}`}>Practice questions</button>
@@ -186,7 +186,7 @@ export default function Practice({ model = '' }: { model?: string }) {
           </div>}
         </aside>
 
-        <div className="min-h-[420px] rounded-2xl border border-white/10 bg-black/15 p-4 md:p-5">
+        <div className="min-w-0 min-h-[420px] rounded-2xl border border-white/10 bg-black/15 p-4 md:p-5">
           {mode === 'questions' && exam && (busy || exam.questions.length > 0) && (() => {
             const ready = exam.questions.length;
             const total = busy ? count : ready;
