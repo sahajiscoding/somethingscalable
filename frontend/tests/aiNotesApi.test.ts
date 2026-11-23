@@ -25,6 +25,24 @@ describe('AI note API client', () => {
     expect(result.model).toBe('nvidia/nemotron-3.5-super-vl:free');
   });
 
+  it('uses the anonymous direct gateway for the default free model without an Authorization header', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ message: { content: JSON.stringify({
+        status: 'ok', title: 'Photosynthesis', content: 'Plants use light energy to make glucose.',
+      }) } }] }),
+    }) as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await generateNote({ prompt: 'Make revision notes on photosynthesis' });
+
+    expect(result.note.title).toBe('Photosynthesis');
+    expect(fetchMock.mock.calls[0][0]).toBe('https://ai-gateway.kilo.ai/api/v1/chat/completions');
+    expect(fetchMock.mock.calls[0][1].headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(JSON.stringify(fetchMock.mock.calls[0][1])).not.toMatch(/authorization|kilo_api_key/i);
+  });
+
   it('rejects a one-word prompt before making a backend request', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
@@ -47,6 +65,6 @@ describe('AI note API client', () => {
       status: 200,
       json: async () => ({ note: { title: '', content: '' }, model: 'test' }),
     }) as unknown as Response));
-    await expect(generateNote({ prompt: 'Create a note' })).rejects.toThrow('incomplete note');
+    await expect(generateNote({ prompt: 'Create a note', model: 'provider/paid-model' })).rejects.toThrow('incomplete note');
   });
 });
