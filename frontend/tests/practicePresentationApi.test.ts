@@ -27,7 +27,7 @@ describe('practice presentation API client', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0][0]).toBe('/api/generate-presentation');
     expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual({
-      topic: 'Explain the water cycle', audience: 'Grade 8', slide_count: 3, model: 'selected-model',
+      topic: 'Explain the water cycle', audience: 'Grade 8', slide_count: 3, purpose: 'teaching', model: 'selected-model',
     });
     expect(result.presentation.slides).toHaveLength(3);
   });

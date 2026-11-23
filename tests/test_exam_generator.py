@@ -342,6 +342,20 @@ class PresentationGenerationTests(unittest.TestCase):
         self.assertEqual(generate.call_args.kwargs["temperature"], 0.35)
         self.assertIsNone(generate.call_args.kwargs["data"])
 
+    def test_presentation_purpose_controls_prompt_and_rejects_unknown_values(self):
+        invalid = self.client.post(
+            "/api/generate-presentation", json={**self.payload, "purpose": "worksheet"}
+        )
+        self.assertEqual(invalid.status_code, 400)
+        with mock.patch.object(engine.WhtEngine, "generate_json", return_value=self.generated) as generate:
+            response = self.client.post(
+                "/api/generate-presentation", json={**self.payload, "purpose": "mixed"}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("at least one third", generate.call_args.kwargs["instruction"])
+        self.assertIn("answers and marking guidance", generate.call_args.kwargs["instruction"])
+        self.assertIn("question slides", generate.call_args.kwargs["system_prompt"])
+
     def test_free_book_research_route_never_calls_the_model_and_skips_generic_topics(self):
         with mock.patch.object(server, "search_book", return_value=[]) as lookup, mock.patch.object(server, "make_engine") as make:
             generic = self.client.post(
