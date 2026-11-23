@@ -203,7 +203,7 @@ export default function App() {
 
         <nav
           aria-label="Main Navigation"
-          className="sticky top-3.5 z-[90] mx-auto mb-7 hidden w-fit max-w-full items-center gap-1 overflow-x-auto rounded-full border border-white/10 bg-black/45 p-2 shadow-[0_8px_24px_rgba(0,0,0,.4)] backdrop-blur-md md:flex"
+          className="sticky top-3.5 z-[90] mx-auto mb-7 hidden w-full max-w-full items-center gap-1 rounded-full border border-white/10 bg-black/45 p-2 shadow-[0_8px_24px_rgba(0,0,0,.4)] backdrop-blur-md md:flex"
         >
           <button
             type="button"
@@ -222,7 +222,7 @@ export default function App() {
             </span>
           </button>
           <span aria-hidden="true" className="h-6 w-px flex-none bg-white/10" />
-          <div role="tablist" className="flex items-center gap-1">
+          <div role="tablist" className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-1">
             {NAV.map(t => (
               <button
                 key={t.key}
