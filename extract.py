@@ -19,7 +19,7 @@ import re
 from dataclasses import dataclass, field, asdict
 from typing import Any
 
-from engine import EngineError
+from engine import EngineError, KILO_FREE_VISION_MODELS
 
 
 class ExtractionError(ValueError):
@@ -640,7 +640,8 @@ def _vision_student_answers(engine, doc) -> list[StudentAnswer]:
     model = str(getattr(engine, "model", "") or "").strip()
     is_vision = getattr(engine, "_is_vision_capable", None)
     if model and callable(is_vision) and not is_vision(model):
-        model = ""
+        configured = (os.environ.get("WHT_ENGINE_MODEL") or "").strip()
+        model = configured if configured and is_vision(configured) else KILO_FREE_VISION_MODELS[0]
     pages = transcribe_document(doc, providers=build_providers(model=model or None))
     if not pages or not any(page.crops for page in pages):
         return []

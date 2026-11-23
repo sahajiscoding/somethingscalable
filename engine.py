@@ -48,19 +48,37 @@ WHT_ENGINE_DEFAULT_MODEL = (
     or "nvidia/nemotron-3.5-super-vl:free"
 )
 
-# Vision fallbacks (used when messages include images/scans). The default is
-# tried first; kilo-auto/free remains a gateway-side fallback option.
-_VISION_FALLBACK_MODELS = (
-    WHT_ENGINE_DEFAULT_MODEL,
+# Kilo's free routes from the inference leaderboard. Keep this list in sync
+# with frontend/src/lib/kilo.ts. Some free Kilo IDs do not end in ':free'; the
+# exact IDs matter. Availability and free pricing can change at the gateway.
+KILO_FREE_TEXT_MODELS = (
+    "nvidia/nemotron-3.5-super-vl:free",
+    "baidu/ernie-5.5-flash-preview:free",
+    "particle-ai/particle-1:free",
+    "stealth/glyph-cluster",
+    "reflection/beam-free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "dots-studio/dots-3-note-preview:free",
+    "nvidia/nemotron-3.5-lightning:free",
     "kilo-auto/free",
+)
+# Image/scan requests must never fall through to text-only models, including
+# kilo-auto/free. Particle and Dots accept images despite their model names.
+KILO_FREE_VISION_MODELS = (
+    "nvidia/nemotron-3.5-super-vl:free",
+    "particle-ai/particle-1:free",
+    "dots-studio/dots-3-note-preview:free",
 )
 
-# Fast text/grading fallbacks (used for grading batches, exam generation, and
-# digital text extraction).
-_FALLBACK_MODELS = (
-    WHT_ENGINE_DEFAULT_MODEL,
-    "kilo-auto/free",
-)
+_VISION_FALLBACK_MODELS = KILO_FREE_VISION_MODELS
+_FALLBACK_MODELS = KILO_FREE_TEXT_MODELS
+
+
+def is_kilo_free_model(model_id: str) -> bool:
+    """Allow the explicit free IDs as well as ordinary ':free' routes."""
+    model_id = model_id.strip()
+    return model_id.endswith(":free") or model_id in KILO_FREE_TEXT_MODELS
+
 
 # Per-request HTTP timeout (seconds). The WHT Engine free tier routinely needs
 # 30-60 s for multi-page vision + JSON, so 24 s was aborting healthy
@@ -123,7 +141,7 @@ def get_wht_engine_keys(explicit_key: str | None = None) -> list[str]:
 try:
     # Kilo's free tier allows 200 requests/hour (~3.3/min); 39/min was tuned
     # for a different gateway and only trips 429s here.
-    WHT_ENGINE_RPM = int(os.environ.get("WHT_ENGINE_RPM", 3))
+    WHT_ENGINE_RPM = max(1, int(os.environ.get("WHT_ENGINE_RPM", 3)))
 except ValueError:  # a bad env value must never crash the import
     WHT_ENGINE_RPM = 3
 _bucket_lock = threading.Lock()
@@ -131,13 +149,15 @@ _bucket_tokens = float(WHT_ENGINE_RPM)
 _bucket_last: float | None = None
 
 
-def _acquire_wht_engine_token() -> None:
-    """Block until a rate-limit token is available, then consume it."""
+def _acquire_wht_engine_token(deadline: float | None = None) -> bool:
+    """Consume a token, or stop waiting when the caller's deadline expires."""
     import time
     global _bucket_tokens, _bucket_last
     while True:
         with _bucket_lock:
             now = time.monotonic()
+            if deadline is not None and now >= deadline:
+                return False
             if _bucket_last is None:
                 _bucket_last = now
             _bucket_tokens = min(
@@ -147,9 +167,12 @@ def _acquire_wht_engine_token() -> None:
             _bucket_last = now
             if _bucket_tokens >= 1.0:
                 _bucket_tokens -= 1.0
-                return
+                return True
             wait = (1.0 - _bucket_tokens) * 60.0 / WHT_ENGINE_RPM
-        time.sleep(min(max(wait, 0.05), 2.0))
+        sleep_for = min(max(wait, 0.05), 2.0)
+        if deadline is not None:
+            sleep_for = min(sleep_for, max(0.0, deadline - time.monotonic()))
+        time.sleep(sleep_for)
 
 
 def _get_pdf_renderer():
@@ -237,6 +260,7 @@ class WhtEngine:
         self.key = keys[0]
         self._keys = keys
         self.model = model or WHT_ENGINE_DEFAULT_MODEL
+        self.last_model: str | None = None
 
     # -- public API ---------------------------------------------------------
 
@@ -436,7 +460,7 @@ class WhtEngine:
     @staticmethod
     def _is_vision_capable(model_id: str) -> bool:
         m = (model_id or "").lower().strip()
-        return any(k in m for k in ("vl", "vision", "multimodal"))
+        return m in KILO_FREE_VISION_MODELS or any(k in m for k in ("vl", "vision", "multimodal"))
 
     @staticmethod
     def _uses_thinking_kwargs(model_id: str) -> bool:
@@ -463,12 +487,17 @@ class WhtEngine:
                 "Install dependencies with: pip install -r requirements.txt"
             ) from exc
 
+        self.last_model = None
+        started = time.monotonic()
         last_auth_error: str | None = None
         for key in getattr(self, "_keys", [self.key]):
+            remaining = wall_budget - (time.monotonic() - started)
+            if remaining <= 2:
+                break
             try:
                 return self._chat_with_key(
                     messages, temperature, max_tokens=max_tokens,
-                    wall_budget=wall_budget, api_key=key,
+                    wall_budget=remaining, api_key=key,
                 )
             except EngineError as exc:
                 if "rejected the key" not in str(exc):
@@ -516,13 +545,12 @@ class WhtEngine:
                     models_to_try.append(alt)
 
         chat_start = time.monotonic()
+        deadline = chat_start + wall_budget
         last = "no response"
-        for idx, candidate_model in enumerate(models_to_try):
-            elapsed = time.monotonic() - chat_start
-            remaining = wall_budget - elapsed
-            if idx > 0 and remaining < 6.0:
+        saw_rate_limit = False
+        for candidate_model in models_to_try:
+            if deadline - time.monotonic() <= 2:
                 break
-            req_timeout = max(6, min(_WHT_ENGINE_TIMEOUT, int(remaining) - 1)) if idx > 0 else min(_WHT_ENGINE_TIMEOUT, max(10, int(remaining)))
 
             endpoint_url = WHT_ENGINE_ENDPOINT
             payload = {
@@ -547,36 +575,38 @@ class WhtEngine:
                 # is only set when the request carries no image blocks.
                 payload["response_format"] = {"type": "json_object"}
 
-            _acquire_wht_engine_token()
-            try:
-                resp = requests.post(
-                    endpoint_url,
-                    headers=headers,
-                    json=payload,
-                    timeout=(_WHT_ENGINE_CONNECT_TIMEOUT, req_timeout),
+            if not _acquire_wht_engine_token(deadline=deadline - 2):
+                last = "time budget exhausted waiting for the gateway throttle"
+                break
+
+            def post(candidate_payload: dict) -> requests.Response:
+                remaining = deadline - time.monotonic()
+                if remaining <= 1:
+                    raise requests.Timeout("Gateway request time budget exhausted")
+                connect_timeout = min(_WHT_ENGINE_CONNECT_TIMEOUT, max(0.5, remaining / 4))
+                read_timeout = max(0.5, min(_WHT_ENGINE_TIMEOUT, remaining - connect_timeout))
+                return requests.post(
+                    endpoint_url, headers=headers, json=candidate_payload,
+                    timeout=(connect_timeout, read_timeout),
                 )
-                # If a model rejects chat_template_kwargs with 400/422, retry immediately without it
+
+            try:
+                resp = post(payload)
+                # Some models reject optional OpenAI-compatible knobs. Drop
+                # them one at a time, keeping all retries within the deadline.
                 if resp.status_code in (400, 422):
-                    # Drop the optional knobs one at a time so a gateway that
-                    # does not accept them still gets a valid request.
                     relaxed = dict(payload)
                     for knob in ("chat_template_kwargs", "reasoning", "response_format"):
                         if knob in relaxed:
                             relaxed.pop(knob)
-                            resp = requests.post(
-                                endpoint_url,
-                                headers=headers,
-                                json=relaxed,
-                                timeout=(_WHT_ENGINE_CONNECT_TIMEOUT, req_timeout),
-                            )
+                            resp = post(relaxed)
                             if resp.status_code not in (400, 422):
                                 payload = relaxed
                                 break
                     else:
                         payload = relaxed
             except requests.Timeout as exc:
-                last = (f"Timed out after {req_timeout}s on {candidate_model} "
-                        f"(gateway took too long): {exc}")
+                last = f"Timed out on {candidate_model} (gateway took too long): {exc}"
                 continue
             except requests.RequestException as exc:
                 last = f"Network error on {candidate_model}: {exc}"
@@ -593,9 +623,11 @@ class WhtEngine:
                             if _parse_json(content_text)[0] is None and len(models_to_try) > 1:
                                 last = f"Non-JSON response on {candidate_model}: {content_text[:120]}"
                                 continue
+                            self.last_model = candidate_model
                             return content_text
                         reasoning_text = (choice_msg.get("reasoning_content") or "").strip()
                         if reasoning_text and _parse_json(reasoning_text)[0] is not None:
+                            self.last_model = candidate_model
                             return reasoning_text
                     # 200 but the gateway returned no usable completion content.
                     # Retry the same model a couple of times — it can be transient
@@ -606,56 +638,48 @@ class WhtEngine:
                         if time.monotonic() - chat_start >= wall_budget - 4:
                             break
                         try:
-                            resp2 = requests.post(
-                                endpoint_url,
-                                headers=headers,
-                                json=payload,
-                                timeout=(_WHT_ENGINE_CONNECT_TIMEOUT, req_timeout),
-                            )
+                            resp2 = post(payload)
+                            if resp2.status_code != 200:
+                                saw_rate_limit |= resp2.status_code == 429
+                                break
                             body2 = resp2.json()
                             choices2 = body2.get("choices") or []
                             if choices2:
                                 msg2 = choices2[0].get("message") or {}
                                 ct2 = (msg2.get("content") or "").strip()
-                                if ct2:
+                                if ct2 and _parse_json(ct2)[0] is not None:
+                                    self.last_model = candidate_model
                                     return ct2
                                 rt2 = (msg2.get("reasoning_content") or "").strip()
                                 if rt2 and _parse_json(rt2)[0] is not None:
+                                    self.last_model = candidate_model
                                     return rt2
-                        except Exception:  # nosec B110 - transient; try next model
-                            pass
+                        except (requests.RequestException, ValueError, KeyError, IndexError, TypeError, AttributeError):
+                            break  # transient or malformed; try the next model
                     last = f"empty completion on {candidate_model}"
                     continue
-                except (KeyError, IndexError, TypeError, ValueError):
-                    return ""
+                except (KeyError, IndexError, TypeError, ValueError, AttributeError):
+                    last = f"malformed completion on {candidate_model}"
+                    continue
             elif resp.status_code in (401, 403):
                 raise EngineError(
                     f"WHT Engine AI Gateway rejected the key (HTTP {resp.status_code}). "
                     "Check WHT_ENGINE_API_KEY (or KILO_API_KEY) in Vercel."
                 )
             elif resp.status_code == 429:
-                # Kilo's free tier allows 200 requests/hour. A burst from the
-                # frontend (5 questions + page OCR) can trip it, so back off
-                # and retry inside the same wall budget instead of failing the
-                # user's exam outright.
-                retry_after = resp.headers.get("Retry-After") if hasattr(resp, "headers") else None
-                try:
-                    wait_s = float(retry_after) if retry_after else 0.0
-                except (TypeError, ValueError):
-                    wait_s = 0.0
-                wait_s = min(max(wait_s, 3.0), 20.0)
-                if time.monotonic() - chat_start + wait_s < wall_budget - 6:
-                    time.sleep(wait_s)
-                    last = f"rate limited (429) on {candidate_model}"
-                    continue
-                raise EngineError(
-                    "WHT Engine AI Gateway rate limit (HTTP 429). The free tier "
-                    "allows ~200 requests/hour — wait a minute and retry, or "
-                    "raise WHT_ENGINE_RPM if your plan allows more."
-                )
+                # Try another provider rather than sleeping on a model whose
+                # quota may have been exhausted for an entire hour.
+                saw_rate_limit = True
+                last = f"rate limited (429) on {candidate_model}"
+                continue
             else:
                 last = f"HTTP {resp.status_code} on {candidate_model}: {resp.text[:200]}"
 
+        if saw_rate_limit:
+            raise EngineError(
+                "WHT Engine AI Gateway rate limit (HTTP 429); the available "
+                "free models could not complete the request. Please retry later."
+            )
         raise EngineError(
             f"WHT Engine AI Gateway call failed ({WHT_ENGINE_ENDPOINT}): {last}"
         )
