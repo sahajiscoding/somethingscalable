@@ -342,6 +342,20 @@ class PresentationGenerationTests(unittest.TestCase):
         self.assertEqual(generate.call_args.kwargs["temperature"], 0.35)
         self.assertIsNone(generate.call_args.kwargs["data"])
 
+    def test_free_book_research_route_never_calls_the_model_and_skips_generic_topics(self):
+        with mock.patch.object(server, "search_book", return_value=[]) as lookup, mock.patch.object(server, "make_engine") as make:
+            generic = self.client.post(
+                "/api/research-book", json={"topic": "Teach algebra and geometry"}
+            )
+            named = self.client.post(
+                "/api/research-book", json={"book_title": "Ganita Manjari Part 1"}
+            )
+        self.assertEqual(generic.status_code, 200)
+        self.assertIsNone(generic.get_json()["book_research"])
+        self.assertEqual(named.status_code, 200)
+        lookup.assert_called_once_with("Ganita Manjari Part 1")
+        make.assert_not_called()
+
     def test_book_search_runs_only_for_a_named_book_and_passes_free_catalog_details_to_model(self):
         sources = [{
             "provider": "Google Books",

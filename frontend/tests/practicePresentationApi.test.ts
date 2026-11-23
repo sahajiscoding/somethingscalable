@@ -58,14 +58,12 @@ describe('practice presentation API client', () => {
         url: 'https://books.google.com/books?id=example',
       }],
     };
-    const fetchMock = vi.fn(async () => ({
+    const fetchMock = vi.fn(async (url: string) => ({
       ok: true,
       status: 200,
-      json: async () => ({
-        presentation: { title: 'Ganita Manjari', subtitle: 'Part 1', audience: 'Class 9', slides },
-        model: 'test-model',
-        book_research: bookResearch,
-      }),
+      json: async () => url === '/api/research-book'
+        ? { book_research: bookResearch }
+        : { choices: [{ message: { content: JSON.stringify({ status: 'ok', title: 'Ganita Manjari', subtitle: 'Part 1', slides }) } }] },
     }) as unknown as Response);
     vi.stubGlobal('fetch', fetchMock);
 
@@ -73,7 +71,13 @@ describe('practice presentation API client', () => {
       topic: 'Teach algebra concepts to class nine', audience: 'Class 9', slideCount: 3,
       bookTitle: '  Ganita Manjari Part 1  ',
     });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/research-book');
     expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).book_title).toBe('Ganita Manjari Part 1');
+    expect(fetchMock.mock.calls[1][0]).toBe('https://ai-gateway.kilo.ai/api/v1/chat/completions');
+    expect(fetchMock.mock.calls[1][1].credentials).toBe('omit');
+    expect(fetchMock.mock.calls[1][1].headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1].body)).messages[1].content).toContain('Ganita Manjari Part 1');
     expect(result.bookResearch).toEqual(bookResearch);
   });
 
@@ -83,6 +87,6 @@ describe('practice presentation API client', () => {
       status: 200,
       json: async () => ({ presentation: { title: 'Broken', slides: [] }, model: 'test' }),
     }) as unknown as Response));
-    await expect(generatePresentation({ topic: 'Explain the water cycle', audience: 'Grade 8', slideCount: 3 })).rejects.toThrow(/incomplete slide deck/i);
+    await expect(generatePresentation({ topic: 'Explain the water cycle', audience: 'Grade 8', slideCount: 3, model: 'provider/paid-model' })).rejects.toThrow(/incomplete slide deck/i);
   });
 });

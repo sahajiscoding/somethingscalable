@@ -27,25 +27,24 @@ describe('Practice Questions view', () => {
       explanation: 'A useful teacher explanation.',
       speaker_notes: 'Ask students to share an example.',
     }));
-    const fetchMock = vi.fn(async () => ({
+    const bookResearch = {
+      query: 'Ganita Manjari Part 1',
+      sources: [{
+        provider: 'Google Books',
+        title: 'Ganita Manjari Part 1',
+        authors: ['A. Teacher'],
+        published_date: '2024',
+        description: 'Class 9 mathematics.',
+        categories: ['Mathematics'],
+        url: 'https://books.google.com/books?id=example',
+      }],
+    };
+    const fetchMock = vi.fn(async (url: string) => ({
       ok: true,
       status: 200,
-      json: async () => ({
-        presentation: { title: 'Water Cycle', subtitle: 'A lesson', audience: 'Class 9', slides },
-        model: 'nvidia/nemotron-3.5-super-vl:free',
-        book_research: {
-          query: 'Ganita Manjari Part 1',
-          sources: [{
-            provider: 'Google Books',
-            title: 'Ganita Manjari Part 1',
-            authors: ['A. Teacher'],
-            published_date: '2024',
-            description: 'Class 9 mathematics.',
-            categories: ['Mathematics'],
-            url: 'https://books.google.com/books?id=example',
-          }],
-        },
-      }),
+      json: async () => url === '/api/research-book'
+        ? { book_research: bookResearch }
+        : { choices: [{ message: { content: JSON.stringify({ status: 'ok', title: 'Water Cycle', subtitle: 'A lesson', slides }) } }] },
     }) as unknown as Response);
     vi.stubGlobal('fetch', fetchMock);
 
@@ -71,10 +70,13 @@ describe('Practice Questions view', () => {
     expect(screen.getByRole('link', { name: 'Ganita Manjari Part 1' })).toHaveAttribute('href', 'https://books.google.com/books?id=example');
     expect(screen.getByLabelText('Slide 1 title')).toHaveProperty('value', 'Concept 1');
     expect(screen.getAllByLabelText(/key points/i)[0]).toHaveProperty('value', 'Core point one\nCore point two\nCore point three');
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/generate-presentation');
-    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).audience).toBe('Class 9');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/research-book');
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).topic).toBe('Explain the water cycle for learners');
     expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).book_title).toBe('Ganita Manjari Part 1');
+    expect(fetchMock.mock.calls[1][0]).toBe('https://ai-gateway.kilo.ai/api/v1/chat/completions');
+    expect(fetchMock.mock.calls[1][1].credentials).toBe('omit');
+    expect(fetchMock.mock.calls[1][1].headers).toEqual({ 'Content-Type': 'application/json' });
   });
 
   it('streams each generated practice question and updates the ready count as it arrives', async () => {
@@ -84,7 +86,7 @@ describe('Practice Questions view', () => {
     }));
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<Practice />);
+    render(<Practice model="provider/paid-model" />);
     fireEvent.change(screen.getByLabelText(/topic and learning focus/i), {
       target: { value: 'Explain photosynthesis in plants' },
     });

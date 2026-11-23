@@ -43,6 +43,28 @@ describe('batched Practice Questions API', () => {
     expect(result.exam.questions).toHaveLength(3);
   });
 
+  it('uses anonymous Kilo access for the default free-model practice set', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ message: { content: JSON.stringify({
+        status: 'ok', title: 'Photosynthesis Practice', topic: 'Photosynthesis in plants',
+        instructions: 'Answer all questions.', total_marks: 6, questions,
+      }) } }] }),
+    }) as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await generatePracticeSet({
+      topic: 'Explain photosynthesis in plants', grade: 'Class 9', difficulty: 'Medium', count: 3, marks: 6,
+    });
+
+    expect(result.exam.questions).toHaveLength(3);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][0]).toBe('https://ai-gateway.kilo.ai/api/v1/chat/completions');
+    expect(fetchMock.mock.calls[0][1].headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(JSON.stringify(fetchMock.mock.calls[0][1])).not.toMatch(/authorization|kilo_api_key/i);
+  });
+
   it('rejects vague topics before sending a request', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
@@ -60,7 +82,7 @@ describe('batched Practice Questions API', () => {
         model: 'test-model',
       }),
     }) as unknown as Response));
-    await expect(generatePracticeSet({ topic: 'Explain photosynthesis in plants', grade: 'Class 9', difficulty: 'Medium', count: 3, marks: 6 }))
+    await expect(generatePracticeSet({ topic: 'Explain photosynthesis in plants', grade: 'Class 9', difficulty: 'Medium', count: 3, marks: 6, model: 'provider/paid-model' }))
       .rejects.toThrow(/incomplete practice set/i);
   });
 });
