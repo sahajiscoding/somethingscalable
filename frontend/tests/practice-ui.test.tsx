@@ -79,6 +79,48 @@ describe('Practice Questions view', () => {
     expect(fetchMock.mock.calls[1][1].headers).toEqual({ 'Content-Type': 'application/json' });
   });
 
+  it('adds an AI-generated single slide from the teacher description', async () => {
+    const slides = Array.from({ length: 3 }, (_, index) => ({
+      title: `Concept ${index + 1}`,
+      key_points: ['Core point one', 'Core point two', 'Core point three'],
+      explanation: 'A useful teacher explanation.',
+      speaker_notes: 'Ask students to share an example.',
+    }));
+    let modelCalls = 0;
+    const fetchMock = vi.fn(async (url: string) => ({
+      ok: true,
+      status: 200,
+      json: async () => url === '/api/research-book'
+        ? { book_research: null }
+        : { choices: [{ message: { content: JSON.stringify(modelCalls++ === 0
+          ? { status: 'ok', title: 'Water Cycle', subtitle: 'A lesson', slides }
+          : { status: 'ok', slide: {
+            title: 'Saving Water at Home',
+            key_points: ['Fix leaks', 'Use less water', 'Reuse water safely'],
+            explanation: 'Families can conserve clean water with small daily choices.',
+            speaker_notes: 'Ask learners to choose one action to try.',
+          } }) } }] },
+    }) as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<Practice model="" />);
+    fireEvent.click(screen.getByRole('tab', { name: /teach with slides/i }));
+    fireEvent.change(screen.getByLabelText(/topic and learning focus/i), {
+      target: { value: 'Explain the water cycle and its stages' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /generate lesson slides/i }));
+    expect(await screen.findByLabelText('Slide 1 title')).toHaveValue('Concept 1');
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Describe the new slide' }), {
+      target: { value: 'Explain how families can conserve clean water' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '+ Add 1 new slide' }));
+
+    expect(await screen.findByLabelText('Slide 4 title')).toHaveValue('Saving Water at Home');
+    expect(screen.getByRole('status')).toHaveTextContent(/one new editable slide generated/i);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it('streams each generated practice question and updates the ready count as it arrives', async () => {
     const pendingRequests: Array<{ url: string; body: Record<string, unknown>; resolve: (response: Response) => void }> = [];
     const fetchMock = vi.fn((url: string, options: RequestInit) => new Promise<Response>(resolve => {

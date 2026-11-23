@@ -337,7 +337,7 @@ class PresentationGenerationTests(unittest.TestCase):
         self.assertEqual(len(body["presentation"]["slides"]), 3)
         self.assertEqual(body["presentation"]["audience"], "Grade 8")
         self.assertEqual(generate.call_args.args[0], "generate_presentation")
-        self.assertIn("exactly 3", generate.call_args.kwargs["instruction"])
+        self.assertIn("aim for 3 complete slides", generate.call_args.kwargs["instruction"])
         self.assertIn("instructional designer", generate.call_args.kwargs["system_prompt"])
         self.assertEqual(generate.call_args.kwargs["temperature"], 0.35)
         self.assertIsNone(generate.call_args.kwargs["data"])
@@ -390,20 +390,15 @@ class PresentationGenerationTests(unittest.TestCase):
         lookup.assert_called_once_with("Ganita Manjari Part 1")
         self.assertEqual(generate.call_args.kwargs["data"]["book_reference"]["query"], "Ganita Manjari Part 1")
 
-    def test_endpoint_retries_a_model_response_with_the_wrong_slide_count(self):
-        incomplete = {**self.generated, "slides": self.generated["slides"][:2]}
-        with mock.patch.object(
-            engine.WhtEngine, "generate_json", side_effect=[incomplete, self.generated]
-        ) as generate:
+    def test_endpoint_accepts_a_shorter_complete_deck_without_requiring_exact_count(self):
+        shorter = {**self.generated, "slides": self.generated["slides"][:2]}
+        with mock.patch.object(engine.WhtEngine, "generate_json", return_value=shorter) as generate:
             response = self.client.post("/api/generate-presentation", json=self.payload)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.get_json()["presentation"]["slides"]), 3)
-        self.assertEqual(generate.call_count, 2)
-        correction = generate.call_args_list[1].kwargs["instruction"]
-        self.assertIn("previous response contained 2 slides", correction)
-        self.assertIn("exactly 3", correction)
-        self.assertEqual(generate.call_args_list[0].kwargs["max_tokens"], 2050)
+        self.assertEqual(len(response.get_json()["presentation"]["slides"]), 2)
+        self.assertEqual(generate.call_count, 1)
+        self.assertEqual(generate.call_args.kwargs["max_tokens"], 2050)
 
     def test_endpoint_rejects_invalid_requests_before_calling_model(self):
         with mock.patch.object(server, "make_engine") as make:
@@ -418,16 +413,58 @@ class PresentationGenerationTests(unittest.TestCase):
         )))
         make.assert_not_called()
 
-    def test_endpoint_rejects_wrong_count_after_a_budgeted_retry(self):
+    def test_endpoint_accepts_shorter_deck_when_many_slides_are_requested(self):
         with mock.patch.object(engine.WhtEngine, "generate_json", return_value=self.generated) as generate:
             response = self.client.post(
                 "/api/generate-presentation", json={**self.payload, "slide_count": 15}
             )
-        self.assertEqual(response.status_code, 502)
-        self.assertNotIn("presentation", response.get_json())
-        self.assertEqual(generate.call_count, 2)
-        self.assertEqual(generate.call_args_list[0].kwargs["max_tokens"], 7450)
-        self.assertIn("exactly 15", generate.call_args_list[1].kwargs["instruction"])
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.get_json()["presentation"]["slides"]), 3)
+        self.assertEqual(generate.call_count, 1)
+        self.assertEqual(generate.call_args.kwargs["max_tokens"], 7450)
+        self.assertIn("aim for 15 complete slides", generate.call_args.kwargs["instruction"])
+
+    def test_additional_slide_endpoint_generates_one_slide_with_existing_deck_context(self):
+        new_slide = {
+            "status": "ok",
+            "slide": {
+                "title": "Saving Water at Home",
+                "key_points": ["Fix leaks", "Use less water", "Reuse where safe"],
+                "explanation": "Small changes at home can conserve water.",
+                "speaker_notes": "Ask learners which change they can try this week.",
+            },
+        }
+        payload = {
+            "topic": "Explain the water cycle and its stages",
+            "audience": "Class 9",
+            "deck_title": "The Water Cycle",
+            "deck_subtitle": "A connected system",
+            "description": "Explain how families can conserve clean water.",
+            "existing_slides": [{
+                "title": "Evaporation",
+                "key_points": ["Sun warms water", "Liquid becomes vapor", "Vapor rises"],
+            }],
+        }
+        with mock.patch.object(engine.WhtEngine, "generate_json", return_value=new_slide) as generate:
+            response = self.client.post("/api/generate-presentation-slide", json=payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["slide"]["title"], "Saving Water at Home")
+        self.assertEqual(generate.call_args.args[0], "generate_presentation_slide")
+        instruction = generate.call_args.kwargs["instruction"]
+        self.assertIn("Explain how families can conserve clean water", instruction)
+        self.assertIn("Evaporation", instruction)
+        self.assertIn("exactly one", instruction)
+
+    def test_additional_slide_endpoint_rejects_vague_descriptions_before_model_call(self):
+        with mock.patch.object(server, "make_engine") as make:
+            response = self.client.post("/api/generate-presentation-slide", json={
+                "topic": "Explain the water cycle and its stages",
+                "audience": "Class 9",
+                "description": "Water map",
+            })
+        self.assertEqual(response.status_code, 400)
+        make.assert_not_called()
 
     def test_endpoint_returns_model_rejection_without_a_deck(self):
         rejected = {"status": "rejected", "reason": "Please specify a focused lesson topic."}
