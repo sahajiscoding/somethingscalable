@@ -2,7 +2,7 @@
 
 Same proven layout as the reference AI project: one Flask WSGI app,
 re-exported from ``api/index.py`` for Vercel. API keys live ONLY in the
-environment (``WHT_ENGINE_API_KEY``) — they are never
+environment (``KILO_API_KEY`` or ``WHT_ENGINE_API_KEY``) — they are never
 hardcoded, never committed, and never sent to the browser.
 
 Split-pipeline endpoints keep every call to ~1 LLM request so capped hosts
@@ -46,9 +46,13 @@ if load_dotenv is not None:
 from engine import (  # noqa: E402
     WHT_ENGINE_DEFAULT_ENDPOINT,
     WHT_ENGINE_DEFAULT_MODEL,
+    _WHT_ENGINE_WALL_BUDGET,
+    KILO_FREE_TEXT_MODELS,
     PENALTY_CATEGORIES,
     EngineError,
+    WhtEngine,
     get_wht_engine_key,
+    is_kilo_free_model,
     make_engine,
 )
 from extract import (  # noqa: E402
@@ -139,37 +143,35 @@ def _api_error(exc: Exception):
     return jsonify({"error": "Failed to process request. Please try again later."}), 502
 
 
-@app.post("/api/kilo-free")
-def api_kilo_free_proxy():
-    """Same-origin fallback for anonymous Kilo :free requests blocked by browser CORS."""
-    body = request.get_json(silent=True)
+def _validated_kilo_free_payload(body):
+    """Bound both relays to text-only chat requests for free model IDs."""
     if not isinstance(body, dict):
-        return jsonify({"error": "A JSON Kilo request is required."}), 400
+        return None, (jsonify({"error": "A JSON Kilo request is required."}), 400)
     model = body.get("model")
     messages = body.get("messages")
-    if not isinstance(model, str) or len(model) > 200 or not model.strip().endswith(":free"):
-        return jsonify({"error": "Anonymous Kilo access is restricted to models ending in :free."}), 400
+    if not isinstance(model, str) or len(model) > 200 or not is_kilo_free_model(model):
+        return None, (jsonify({"error": "Kilo access is restricted to models ending in :free or known free routes."}), 400)
     if not isinstance(messages, list) or not 1 <= len(messages) <= 64:
-        return jsonify({"error": "Kilo requests must include between 1 and 64 messages."}), 400
+        return None, (jsonify({"error": "Kilo requests must include between 1 and 64 messages."}), 400)
     total_content = 0
     safe_messages = []
     for message in messages:
-        if not isinstance(message, dict) or message.get("role") not in {"system", "user", "assistant"}:
-            return jsonify({"error": "Kilo message format is invalid."}), 400
+        if not isinstance(message, dict) or not isinstance(message.get("role"), str) or message["role"] not in {"system", "user", "assistant"}:
+            return None, (jsonify({"error": "Kilo message format is invalid."}), 400)
         content = message.get("content")
         if not isinstance(content, str):
-            return jsonify({"error": "Kilo message content must be text."}), 400
+            return None, (jsonify({"error": "Kilo message content must be text."}), 400)
         total_content += len(content)
         if total_content > 100_000:
-            return jsonify({"error": "Kilo request content is too large."}), 413
+            return None, (jsonify({"error": "Kilo request content is too large."}), 413)
         safe_messages.append({"role": message["role"], "content": content})
 
     raw_tokens = body.get("max_tokens", 2048)
     if isinstance(raw_tokens, bool) or not isinstance(raw_tokens, int) or not 1 <= raw_tokens <= 8192:
-        return jsonify({"error": "Kilo max_tokens must be an integer from 1 to 8192."}), 400
+        return None, (jsonify({"error": "Kilo max_tokens must be an integer from 1 to 8192."}), 400)
     temperature = body.get("temperature", 0.3)
     if isinstance(temperature, bool) or not isinstance(temperature, (int, float)) or not 0 <= temperature <= 2:
-        return jsonify({"error": "Kilo temperature must be a number from 0 to 2."}), 400
+        return None, (jsonify({"error": "Kilo temperature must be a number from 0 to 2."}), 400)
 
     payload = {
         "model": model.strip(),
@@ -181,6 +183,15 @@ def api_kilo_free_proxy():
     response_format = body.get("response_format")
     if response_format == {"type": "json_object"}:
         payload["response_format"] = response_format
+    return payload, None
+
+
+@app.post("/api/kilo-free")
+def api_kilo_free_proxy():
+    """Same-origin relay for anonymous Kilo calls blocked by browser CORS."""
+    payload, error = _validated_kilo_free_payload(request.get_json(silent=True))
+    if error is not None:
+        return error
     try:
         # Deliberately send no Authorization header or configured server key.
         upstream = requests.post(WHT_ENGINE_DEFAULT_ENDPOINT, json=payload, timeout=90)
@@ -193,6 +204,43 @@ def api_kilo_free_proxy():
         status=upstream.status_code,
         content_type=upstream.headers.get("Content-Type", "application/json"),
     )
+
+
+@app.post("/api/kilo-keyed")
+def api_kilo_keyed_fallback():
+    """Use the server key only after the browser's anonymous attempts fail.
+
+    Unlike the anonymous relay, the keyed route is restricted to the explicitly
+    listed free models, not arbitrary caller-supplied ':free' IDs. For a custom
+    free ID it starts with our default free model instead. No upstream error
+    body or credentials are returned to the browser.
+    """
+    payload, error = _validated_kilo_free_payload(request.get_json(silent=True))
+    if error is not None:
+        return error
+    if not get_wht_engine_key():
+        return jsonify({"error": "Anonymous Kilo access failed and no KILO_API_KEY or WHT_ENGINE_API_KEY is configured on the server."}), 503
+
+    chosen_model = payload["model"] if payload["model"] in KILO_FREE_TEXT_MODELS else KILO_FREE_TEXT_MODELS[0]
+    try:
+        client = WhtEngine(model=chosen_model)
+        content = client._chat(
+            payload["messages"], payload["temperature"],
+            max_tokens=payload["max_tokens"],
+            wall_budget=max(5, min(_WHT_ENGINE_WALL_BUDGET, 250)),
+        )
+    except EngineError as exc:
+        # Gateway details may contain sensitive server configuration: do not
+        # forward or log their contents from this endpoint.
+        if "429" in str(exc):
+            return jsonify({"error": "The server's Kilo key is rate-limited on the available free models (429). Please wait and try again."}), 429
+        if "rejected the key" in str(exc):
+            return jsonify({"error": "Kilo rejected the configured server API key. Check KILO_API_KEY or WHT_ENGINE_API_KEY in Vercel."}), 502
+        return jsonify({"error": "The configured Kilo key could not complete the request with the available free models. Please try again."}), 502
+    return jsonify({
+        "model": client.last_model or chosen_model,
+        "choices": [{"message": {"content": content}}],
+    })
 
 
 def _params(body: dict) -> GradeParams:

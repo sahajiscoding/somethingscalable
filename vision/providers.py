@@ -11,11 +11,13 @@ from __future__ import annotations
 import base64
 import os
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
 import requests
 
+from engine import KILO_FREE_VISION_MODELS
 from .models import Crop, Transcription
 from .ocr import build_prompt, parse_items
 
@@ -24,6 +26,8 @@ WHT_ENGINE_DEFAULT_MODEL = "nvidia/nemotron-3.5-super-vl:free"
 GROQ_DEFAULT_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 CONNECT_TIMEOUT = 6.0
+# Leave time for the rest of the extraction pipeline within Vercel's limit.
+VISION_FALLBACK_WALL_BUDGET = 150.0
 
 
 @dataclass
@@ -37,6 +41,7 @@ class ProviderConfig:
     batch_size: int = 4
     max_workers: int = 6
     extra_payload: dict = field(default_factory=dict)
+    fallback_models: tuple[str, ...] = ()
 
 
 def _uses_thinking_kwargs(model: str) -> bool:
@@ -108,24 +113,66 @@ class VisionProvider:
     # -- internals ---------------------------------------------------------
 
     def _call(self, crops: list[Crop], prompt: str) -> dict[str, Transcription]:
+        # Preserve successful crops and only retry missing ones. Fallbacks are
+        # configured for Kilo's vision models, never for text-only routes.
+        results: dict[str, Transcription] = {}
+        remaining = list(crops)
+        deadline = time.monotonic() + VISION_FALLBACK_WALL_BUDGET
+        original_prompt = build_prompt(crops)
+        prefix = prompt[:-len(original_prompt)] if prompt.endswith(original_prompt) else None
+        for model in dict.fromkeys((self.config.model, *self.config.fallback_models)):
+            candidate_prompt = (prefix + build_prompt(remaining)) if prefix is not None else prompt
+            candidate_results = self._call_model(remaining, candidate_prompt, model, deadline)
+            for crop in remaining:
+                results[crop.crop_id] = candidate_results[crop.crop_id]
+            remaining = [crop for crop in remaining if not results[crop.crop_id].ok]
+            if not remaining or time.monotonic() >= deadline:
+                break
+        return results
+
+    def _call_model(self, crops: list[Crop], prompt: str, model: str,
+                    deadline: float) -> dict[str, Transcription]:
         response = None
         last_err = ""
-        for attempt in range(2):
+
+        def post(include_extra: bool = True) -> requests.Response:
+            remaining = deadline - time.monotonic()
+            if remaining <= 1:
+                raise requests.Timeout("vision request time budget exhausted")
+            connect_timeout = min(CONNECT_TIMEOUT, max(0.5, remaining / 4))
+            read_timeout = max(0.5, min(self.config.timeout, remaining - connect_timeout))
+            # Keep per-thread timeouts separate when several batches run at once.
+            self._local.request_timeouts = (connect_timeout, read_timeout)
             try:
-                response = self._post(crops, prompt)
-                if response.status_code not in (429, 500, 502, 503, 504):
+                # Preserve the existing _post(crops, prompt) contract for
+                # custom providers when using their configured model.
+                if model == self.config.model:
+                    return self._post(crops, prompt) if include_extra else self._post(crops, prompt, include_extra=False)
+                return self._post(crops, prompt, include_extra=include_extra, model=model)
+            finally:
+                del self._local.request_timeouts
+
+        for _attempt in range(2):
+            try:
+                response = post()
+                if response.status_code == 429:
+                    break  # a different model may have its own quota
+                if response.status_code not in (500, 502, 503, 504):
                     break
                 last_err = f"HTTP {response.status_code}: {response.text[:160]}"
             except requests.Timeout:
+                response = None
                 last_err = "timeout"
             except requests.RequestException as exc:
+                response = None
                 last_err = f"network error: {exc}"
         if response is None:
             return self._fail(crops, last_err or "timeout")
 
-        if response.status_code in (400, 422) and self.config.extra_payload:
+        extra = self._extra_for_model(model)
+        if response.status_code in (400, 422) and extra:
             try:
-                response = self._post(crops, prompt, include_extra=False)
+                response = post(include_extra=False)
             except requests.RequestException:
                 pass
 
@@ -133,7 +180,7 @@ class VisionProvider:
             # Provider cannot take several images in one message; retry singly.
             merged: dict[str, Transcription] = {}
             for crop in crops:
-                merged.update(self._call([crop], build_prompt([crop])))
+                merged.update(self._call_model([crop], build_prompt([crop]), model, deadline))
             return merged
 
         if response.status_code != 200:
@@ -147,10 +194,12 @@ class VisionProvider:
         except (ValueError, KeyError, IndexError, TypeError):
             return self._fail(crops, "malformed response envelope")
 
-        content = (message.get("content") or "").strip()
-        if not content:
-            content = (message.get("reasoning_content") or "").strip()
-        parsed = parse_items(content, crops, self.name)
+        if not isinstance(message, dict):
+            return self._fail(crops, "malformed response message")
+        content = message.get("content") or message.get("reasoning_content") or ""
+        if not isinstance(content, str):
+            return self._fail(crops, "malformed response content")
+        parsed = parse_items(content.strip(), crops, self.name)
         for crop_id, transcription in parsed.items():
             if transcription.plain:
                 transcription.note = transcription.note or ""
@@ -158,8 +207,16 @@ class VisionProvider:
                 transcription.confidence = 0.0
         return parsed
 
+    def _extra_for_model(self, model: str) -> dict:
+        if model == self.config.model:
+            return self.config.extra_payload
+        return (
+            {"chat_template_kwargs": {"enable_thinking": False, "thinking": False}}
+            if _uses_thinking_kwargs(model) else {}
+        )
+
     def _post(self, crops: list[Crop], prompt: str,
-              *, include_extra: bool = True) -> requests.Response:
+              *, include_extra: bool = True, model: str | None = None) -> requests.Response:
         content: list[dict] = [{"type": "text", "text": prompt}]
         for crop in crops:
             content.append({
@@ -167,9 +224,10 @@ class VisionProvider:
                 "image_url": {"url": _data_url(crop.image)},
             })
 
-        extra = self.config.extra_payload if include_extra else {}
+        chosen = model or self.config.model
+        extra = self._extra_for_model(chosen) if include_extra else {}
         payload = {
-            "model": self.config.model,
+            "model": chosen,
             "messages": [
                 {"role": "system", "content": "You are a precise OCR engine."},
                 {"role": "user", "content": content},
@@ -187,7 +245,7 @@ class VisionProvider:
                 "Accept": "application/json",
             },
             json=payload,
-            timeout=(CONNECT_TIMEOUT, self.config.timeout),
+            timeout=getattr(self._local, "request_timeouts", (CONNECT_TIMEOUT, self.config.timeout)),
         )
 
     def _fail(self, crops: list[Crop], reason: str) -> dict[str, Transcription]:
@@ -220,9 +278,9 @@ def wht_engine_provider(api_key: str | None = None,
     source = env if env is not None else os.environ
     key = (
         api_key
+        or source.get("KILO_API_KEY")
         or source.get("WHT_ENGINE_API_KEY")
         or source.get("WHT_ENGINE_KEY")
-        or source.get("KILO_API_KEY")
         or ""
     ).strip()
     if not key and env is None:
@@ -258,6 +316,7 @@ def wht_engine_provider(api_key: str | None = None,
         max_tokens=1600,
         batch_size=4,
         extra_payload=extra,
+        fallback_models=KILO_FREE_VISION_MODELS,
     ))
 
 

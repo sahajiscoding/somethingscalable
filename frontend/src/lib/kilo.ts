@@ -1,7 +1,38 @@
 const KILO_FREE_GATEWAY_URL = 'https://api.kilo.ai/api/gateway/chat/completions';
+const ANONYMOUS_BUDGET_MS = 120_000;
+const ANONYMOUS_REQUEST_TIMEOUT_MS = 90_000;
+const KEYED_REQUEST_TIMEOUT_MS = 260_000;
+
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+  if (timeoutMs <= 0) throw new Error('Kilo request time budget exhausted.');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Keep in sync with KILO_FREE_TEXT_MODELS in engine.py. The three IDs without
+// a ':free' suffix are explicitly known free routes; a similar name alone
+// doesn't mean a model is free.
+export const KILO_FREE_TEXT_MODELS = [
+  'nvidia/nemotron-3.5-super-vl:free',
+  'baidu/ernie-5.5-flash-preview:free',
+  'particle-ai/particle-1:free',
+  'stealth/glyph-cluster',
+  'reflection/beam-free',
+  'nvidia/nemotron-3-ultra-550b-a55b:free',
+  'dots-studio/dots-3-note-preview:free',
+  'nvidia/nemotron-3.5-lightning:free',
+  'kilo-auto/free',
+] as const;
 
 export interface KiloMessage {
   role: 'system' | 'user' | 'assistant';
+  // Browser generation is text-only. Scanned images go through the server's
+  // vision-aware engine instead, which only uses image-capable backups.
   content: string;
 }
 
@@ -15,9 +46,10 @@ export class KiloGatewayError extends Error {
   }
 }
 
-/** Anonymous browser access is intentionally restricted to Kilo's :free models. */
+/** Anonymous access is restricted to :free IDs and explicitly known free routes. */
 export function isKiloAnonymousFreeModel(model: string): boolean {
-  return model.trim().endsWith(':free');
+  const id = model.trim();
+  return id.endsWith(':free') || (KILO_FREE_TEXT_MODELS as readonly string[]).includes(id);
 }
 
 function decodeJson(content: string): unknown {
@@ -38,49 +70,69 @@ function decodeJson(content: string): unknown {
         else if (char === '"') inString = false;
       } else if (char === '"') inString = true;
       else if (char === '{') depth++;
-      else if (char === '}' && --depth === 0) return JSON.parse(trimmed.slice(start, index + 1));
+      else if (char === '}' && --depth === 0) {
+        try {
+          return JSON.parse(trimmed.slice(start, index + 1));
+        } catch {
+          throw new KiloGatewayError('The free model returned invalid JSON. Please retry.');
+        }
+      }
     }
     throw new KiloGatewayError('The free model returned incomplete JSON. Please retry.');
   }
 }
 
+function errorDetail(body: unknown): string {
+  if (typeof body !== 'object' || body === null || !('error' in body)) return '';
+  const error = (body as { error?: unknown }).error;
+  if (typeof error === 'string') return error;
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    return String((error as { message?: unknown }).message || '');
+  }
+  return '';
+}
+
 function gatewayError(status: number, body: unknown, model: string): KiloGatewayError {
   if (status === 429) {
     return new KiloGatewayError(
-      'Kilo anonymous free-model limit reached for this IP (up to 200 requests per hour). Wait and retry, or use another :free model.',
+      'Kilo anonymous free-model limit reached for this IP (up to 200 requests per hour).',
       status,
     );
   }
   if (status === 401 || status === 403) {
-    return new KiloGatewayError(
-      `Kilo did not allow anonymous access for ${model}. Anonymous browser calls are only enabled for models ending in :free.`,
-      status,
-    );
+    return new KiloGatewayError(`Kilo did not allow anonymous access for ${model}.`, status);
   }
-  const detail = typeof body === 'object' && body !== null && 'error' in body
-    ? String((body as { error?: { message?: string } | string }).error &&
-      typeof (body as { error?: { message?: string } }).error === 'object'
-      ? (body as { error: { message?: string } }).error.message || ''
-      : (body as { error?: string }).error || '')
-    : '';
-  return new KiloGatewayError(detail || `Kilo free-model request failed (HTTP ${status}).`, status);
+  return new KiloGatewayError(errorDetail(body) || `Kilo free-model request failed (HTTP ${status}).`, status);
+}
+
+function completion(body: unknown): { content: string; model?: string } {
+  const data = body as {
+    model?: unknown;
+    choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+  } | null;
+  const choice = data?.choices?.[0]?.message;
+  const content = choice?.content?.trim() || choice?.reasoning_content?.trim();
+  if (!content) throw new KiloGatewayError('Kilo returned an empty response. Please retry.');
+  return { content, model: typeof data?.model === 'string' ? data.model : undefined };
 }
 
 /**
- * Call Kilo directly from the user's browser without an Authorization header.
- * Never pass a KILO_API_KEY here: anonymous access is limited to :free models.
+ * Use free models anonymously first. If those fail, the same-origin server can
+ * use its configured Kilo key; that key is never present in browser code.
  */
 export async function generateJsonWithKiloFree<T>(input: {
   model: string;
   messages: KiloMessage[];
   temperature?: number;
   maxTokens?: number;
-  /** Shared application gate, used only for the same-origin CORS fallback. */
+  /** Shared application gate, sent only to the same-origin server. */
   appSecret?: string;
+  /** Reports which model produced the valid response, including a backup. */
+  onModelUsed?: (model: string) => void;
 }): Promise<T> {
   const model = input.model.trim();
   if (!isKiloAnonymousFreeModel(model)) {
-    throw new KiloGatewayError('Anonymous direct access is restricted to Kilo models ending in :free.');
+    throw new KiloGatewayError('Anonymous direct access is restricted to Kilo models ending in :free or known free routes.');
   }
 
   const payload = {
@@ -91,65 +143,103 @@ export async function generateJsonWithKiloFree<T>(input: {
     stream: false,
     response_format: { type: 'json_object' },
   };
+  const serverHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (input.appSecret) serverHeaders['X-App-Secret'] = input.appSecret;
+  const anonymousDeadline = Date.now() + ANONYMOUS_BUDGET_MS;
+  let useAnonymousRelay = false;
+
+  function anonymousFetch(url: string, options: RequestInit): Promise<Response> {
+    return fetchWithTimeout(url, options, Math.min(ANONYMOUS_REQUEST_TIMEOUT_MS, anonymousDeadline - Date.now()));
+  }
+
+  async function anonymousRequest(body: Record<string, unknown>): Promise<Response> {
+    if (!useAnonymousRelay) {
+      try {
+        return await anonymousFetch(KILO_FREE_GATEWAY_URL, {
+          method: 'POST',
+          mode: 'cors',
+          credentials: 'omit',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      } catch {
+        // A browser/CORS failure can be specific to the direct connection.
+        // Keep using the anonymous relay for the remaining candidates.
+        useAnonymousRelay = true;
+      }
+    }
+    return anonymousFetch('/api/kilo-free', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: serverHeaders,
+      body: JSON.stringify(body),
+    });
+  }
+
+  const candidates = Array.from(new Set<string>([model, ...KILO_FREE_TEXT_MODELS]));
+  for (const candidate of candidates) {
+    if (Date.now() >= anonymousDeadline) break;
+    const candidatePayload = { ...payload, model: candidate };
+    let response: Response;
+    try {
+      response = await anonymousRequest(candidatePayload);
+      // Models such as Glyph Cluster do not implement JSON mode, even though
+      // they can still be prompted to return JSON as plain text.
+      if (response.status === 400 || response.status === 422) {
+        const relaxed: Record<string, unknown> = { ...candidatePayload };
+        delete relaxed.response_format;
+        response = await anonymousRequest(relaxed);
+      }
+    } catch {
+      // The same-origin server itself is unreachable. The keyed route will
+      // report that failure clearly instead of retrying it for every model.
+      break;
+    }
+
+    const body = await response.json().catch(() => ({})) as unknown;
+    if (!response.ok) {
+      const detail = errorDetail(body);
+      if (useAnonymousRelay && response.status === 401 && detail === 'Missing or invalid X-App-Secret header.') {
+        throw new KiloGatewayError(detail, 401);
+      }
+      // Invalid or oversized requests cannot be repaired by changing models.
+      if (response.status === 413) throw gatewayError(response.status, body, candidate);
+      continue;
+    }
+    let result: { content: string; model?: string };
+    let parsed: T;
+    try {
+      result = completion(body);
+      parsed = decodeJson(result.content) as T;
+    } catch {
+      // An empty, malformed, or non-JSON completion is not a usable result.
+      // Try the next model rather than inventing a response.
+      continue;
+    }
+    input.onModelUsed?.(result.model || candidate);
+    return parsed;
+  }
 
   let response: Response;
   try {
-    response = await fetch(KILO_FREE_GATEWAY_URL, {
+    response = await fetchWithTimeout('/api/kilo-keyed', {
       method: 'POST',
-      mode: 'cors',
-      credentials: 'omit',
-      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      headers: serverHeaders,
       body: JSON.stringify(payload),
-    });
-    // Some free models do not implement JSON mode. Retry once without that
-    // optional OpenAI-compatible parameter; never add authentication on retry.
-    if (response.status === 400 || response.status === 422) {
-      const relaxed = { ...payload } as Record<string, unknown>;
-      delete relaxed.response_format;
-      response = await fetch(KILO_FREE_GATEWAY_URL, {
-        method: 'POST',
-        mode: 'cors',
-        credentials: 'omit',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(relaxed),
-      });
-    }
+    }, KEYED_REQUEST_TIMEOUT_MS);
   } catch {
-    // Browsers can block the public gateway preflight on some networks. Retry
-    // through our same-origin backend, which forwards only :free requests and
-    // still omits Kilo Authorization credentials.
-    try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (input.appSecret) headers['X-App-Secret'] = input.appSecret;
-      response = await fetch('/api/kilo-free', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers,
-        body: JSON.stringify(payload),
-      });
-      if (response.status === 400 || response.status === 422) {
-        const relaxed = { ...payload } as Record<string, unknown>;
-        delete relaxed.response_format;
-        response = await fetch('/api/kilo-free', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers,
-          body: JSON.stringify(relaxed),
-        });
-      }
-    } catch {
-      throw new KiloGatewayError(
-        'Could not reach Kilo directly or through the app server. Check your connection and retry.',
-      );
-    }
+    throw new KiloGatewayError('Free models were unavailable and the app server fallback could not be reached. Check your connection and retry.');
   }
-
   const body = await response.json().catch(() => ({})) as unknown;
-  if (!response.ok) throw gatewayError(response.status, body, model);
-
-  const choice = (body as { choices?: Array<{ message?: { content?: string; reasoning_content?: string } }> })
-    ?.choices?.[0]?.message;
-  const content = choice?.content?.trim() || choice?.reasoning_content?.trim();
-  if (!content) throw new KiloGatewayError('Kilo returned an empty response. Please retry.');
-  return decodeJson(content) as T;
+  if (!response.ok) {
+    throw new KiloGatewayError(
+      errorDetail(body) || `The app server could not use the configured Kilo key (HTTP ${response.status}).`,
+      response.status,
+    );
+  }
+  const result = completion(body);
+  const parsed = decodeJson(result.content) as T;
+  input.onModelUsed?.(result.model || model);
+  return parsed;
 }

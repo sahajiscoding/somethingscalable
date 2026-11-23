@@ -41,6 +41,17 @@ class AnonymousKiloProxyTests(TestCase):
         self.assertNotIn("headers", post.call_args.kwargs)
         self.assertNotIn("KILO_API_KEY", str(post.call_args.kwargs))
 
+    def test_known_free_ids_without_the_suffix_are_still_anonymous(self):
+        upstream = mock.Mock(content=b'{}', status_code=200, headers={"Content-Type": "application/json"})
+        with mock.patch.object(server.requests, "post", return_value=upstream) as post:
+            for model in ("reflection/beam-free", "stealth/glyph-cluster", "kilo-auto/free"):
+                response = self.client.post("/api/kilo-free", json={
+                    "model": model, "messages": [{"role": "user", "content": "test"}],
+                })
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(post.call_args.kwargs["json"]["model"], model)
+                self.assertNotIn("headers", post.call_args.kwargs)
+
     def test_proxy_rejects_non_free_models_without_contacting_gateway(self):
         with mock.patch.object(server.requests, "post") as post:
             response = self.client.post("/api/kilo-free", json={
