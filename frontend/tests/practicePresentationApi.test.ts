@@ -32,6 +32,29 @@ describe('practice presentation API client', () => {
     expect(result.presentation.slides).toHaveLength(3);
   });
 
+  it('accepts a shorter complete deck when the model cannot return every requested slide', async () => {
+    const slides = Array.from({ length: 3 }, (_, index) => ({
+      title: `Slide ${index + 1}`,
+      key_points: ['One point', 'Another point', 'Final point'],
+      explanation: 'A complete explanation.',
+      speaker_notes: 'A useful teaching note.',
+    }));
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        presentation: { title: 'The Water Cycle', subtitle: '', audience: 'Class 9', slides },
+        model: 'provider/paid-model',
+      }),
+    }) as unknown as Response));
+
+    const result = await generatePresentation({
+      topic: 'Explain the water cycle and its stages', audience: 'Class 9', slideCount: 15, model: 'provider/paid-model',
+    });
+
+    expect(result.presentation.slides).toHaveLength(3);
+  });
+
   it('counts words with whitespace, rejecting vague prompts before fetch', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
@@ -87,6 +110,6 @@ describe('practice presentation API client', () => {
       status: 200,
       json: async () => ({ presentation: { title: 'Broken', slides: [] }, model: 'test' }),
     }) as unknown as Response));
-    await expect(generatePresentation({ topic: 'Explain the water cycle', audience: 'Grade 8', slideCount: 3, model: 'provider/paid-model' })).rejects.toThrow(/incomplete slide deck/i);
+    await expect(generatePresentation({ topic: 'Explain the water cycle', audience: 'Grade 8', slideCount: 3, model: 'provider/paid-model' })).rejects.toThrow(/no usable slides/i);
   });
 });

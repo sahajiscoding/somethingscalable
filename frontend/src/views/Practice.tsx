@@ -3,6 +3,7 @@ import LatticeLoader from '../components/LatticeLoader.jsx';
 import {
   generateExam,
   generatePresentation,
+  generatePresentationSlide,
   modelLabel,
   type BookResearch,
   type GeneratedExam,
@@ -34,6 +35,8 @@ export default function Practice({ model = '' }: { model?: string }) {
   const [bookResearch, setBookResearch] = useState<BookResearch | null>(null);
   const [exam, setExam] = useState<GeneratedExam | null>(null);
   const [deck, setDeck] = useState<PresentationDeck | null>(null);
+  const [slideDescription, setSlideDescription] = useState('');
+  const [addingSlide, setAddingSlide] = useState(false);
   const [showAnswers, setShowAnswers] = useState(false);
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -90,7 +93,11 @@ export default function Practice({ model = '' }: { model?: string }) {
             ? ` Free catalog search found ${result.bookResearch.sources.length} book reference${result.bookResearch.sources.length === 1 ? '' : 's'}; review the sources alongside the slides.`
             : ' No matching free catalog record was found; check book-specific details against your copy.'
           : '';
-        setNotice(`Editable lesson deck generated with ${modelLabel(result.model)}. You can revise every slide before downloading.${bookNote}`);
+        const countNote = result.presentation.slides.length < slideCount
+          ? ` The model produced ${result.presentation.slides.length} complete content slides out of ${slideCount} requested; add more with the AI slide tool below.`
+          : '';
+        setSlideDescription('');
+        setNotice(`Editable lesson deck generated with ${modelLabel(result.model)}. You can revise every slide before downloading.${countNote}${bookNote}`);
       }
       setLoaderStatus('done');
     } catch (e) {
@@ -106,6 +113,31 @@ export default function Practice({ model = '' }: { model?: string }) {
       ...current,
       slides: current.slides.map((slide, i) => i === index ? { ...slide, ...patch } : slide),
     } : current);
+  };
+
+  const addAiSlide = async () => {
+    if (!deck || addingSlide || deck.slides.length >= 15 || !slideDescription.trim()) return;
+    setAddingSlide(true);
+    setError('');
+    setNotice('');
+    try {
+      const result = await generatePresentationSlide({
+        topic: topic.trim(),
+        audience: audience.trim(),
+        deckTitle: deck.title,
+        deckSubtitle: deck.subtitle,
+        description: slideDescription,
+        existingSlides: deck.slides,
+        model: model.trim() || undefined,
+      });
+      setDeck(current => current ? { ...current, slides: [...current.slides, result.slide] } : current);
+      setSlideDescription('');
+      setNotice(`One new editable slide generated with ${modelLabel(result.model)} and added to the presentation.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAddingSlide(false);
+    }
   };
 
   const exportDeck = async () => {
@@ -265,7 +297,11 @@ export default function Practice({ model = '' }: { model?: string }) {
               <><label className={`${labelClass} mt-3`}>Key points (one per line)<textarea className={`${inputClass} min-h-24`} value={slide.key_points.join('\n')} onChange={e => updateSlide(index, { key_points: e.target.value.split('\n').slice(0, 5) })} /></label><label className={`${labelClass} mt-3`}>Explanation<textarea className={`${inputClass} min-h-20`} value={slide.explanation} onChange={e => updateSlide(index, { explanation: e.target.value })} /></label></>
               <label className={`${labelClass} mt-3`}>Teacher speaker notes<textarea className={`${inputClass} min-h-16`} value={slide.speaker_notes} onChange={e => updateSlide(index, { speaker_notes: e.target.value })} /></label>
             </article>)}
-              {deck.slides.length < 15 && <button type="button" onClick={() => setDeck(current => current ? { ...current, slides: [...current.slides, createBlankSlide(current.slides.length + 1)] } : current)} className="w-full rounded-xl border border-dashed border-white/20 py-3 text-xs font-semibold text-white/65 hover:border-pine/50 hover:text-white">+ Add editable slide</button>}
+              {deck.slides.length < 15 ? <section className="space-y-2 rounded-xl border border-pine/25 bg-pine/[.04] p-4" aria-label="Add an AI-generated slide">
+                <label className={labelClass}>Describe the new slide<textarea aria-label="Describe the new slide" className={`${inputClass} min-h-20 resize-y`} value={slideDescription} onChange={e => setSlideDescription(e.target.value)} maxLength={1200} placeholder="e.g. Add a slide explaining how water conservation helps local communities" /></label>
+                <button type="button" onClick={addAiSlide} disabled={addingSlide || !slideDescription.trim()} className="w-full rounded-xl bg-pine px-4 py-3 text-xs font-extrabold text-[#102016] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">{addingSlide ? 'Creating slide with AI…' : '+ Add 1 new slide'}</button>
+                <button type="button" onClick={() => setDeck(current => current ? { ...current, slides: [...current.slides, createBlankSlide(current.slides.length + 1)] } : current)} disabled={addingSlide} className="w-full rounded-xl border border-dashed border-white/20 py-2.5 text-xs font-semibold text-white/55 hover:border-pine/50 hover:text-white disabled:opacity-50">+ Add blank editable slide</button>
+              </section> : <p className="rounded-xl border border-white/10 p-3 text-xs text-white/50">This deck has reached the 15-content-slide limit.</p>}
             </div>
           </div>}
         </div>
