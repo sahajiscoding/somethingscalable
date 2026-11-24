@@ -28,7 +28,8 @@ const labelClass = 'block text-xs font-semibold text-white/65';
 function detectSlidePurpose(value: string): PresentationPurpose {
   const asksForQuestions = /\b(?:practice|exam|test|revision|mock)\s+questions?\b|\bquestion\s+paper\b/i.test(value);
   const asksForTeaching = /\b(?:teach(?:ing)?|lesson|explain|concepts?)\b/i.test(value);
-  if (/\bmixed\b/i.test(value) || (asksForQuestions && asksForTeaching)) return 'mixed';
+  const asksToIncludeQuestions = /\b(?:with|include|including|add|alongside|plus)\b.{0,80}\b(?:practice|exam|test|revision|mock)?\s*questions?\b|\b(?:practice|exam|test|revision|mock)\s+questions?\b.{0,80}\b(?:in|on)\s+(?:the\s+)?slides?\b/i.test(value);
+  if (/\bmixed\b/i.test(value) || (asksForQuestions && (asksForTeaching || asksToIncludeQuestions))) return 'mixed';
   return asksForQuestions ? 'exam-practice' : 'teaching';
 }
 
@@ -190,7 +191,7 @@ export default function Practice({ model = '' }: { model?: string }) {
       <header className="border-b border-white/10 px-5 py-5 md:px-7">
         <div className="text-[11px] font-bold tracking-[.18em] text-white/45 uppercase">Teacher workspace</div>
         <h1 id="practice-heading" className="mt-1 text-2xl font-bold tracking-tight">Practice Questions</h1>
-        <p className="mt-1 max-w-3xl text-sm text-white/55">Create exam-preparation question sets or build a lesson presentation for teaching. AI drafts are editable and should be reviewed before classroom use.</p>
+        <p className="mt-1 max-w-3xl text-sm text-white/55">Create standalone practice sets, teaching slide decks, or lesson slides that include practice questions. AI drafts are editable and should be reviewed before classroom use.</p>
       </header>
 
       <div className="grid min-w-0 gap-6 p-5 md:grid-cols-[minmax(260px,340px)_minmax(0,1fr)] md:p-7">
@@ -201,7 +202,7 @@ export default function Practice({ model = '' }: { model?: string }) {
           </div>
 
           <label className={labelClass}>Topic and learning focus
-            <textarea className={`${inputClass} min-h-28 resize-y`} value={topic} onChange={e => setTopic(e.target.value)} maxLength={1200} placeholder="e.g. Explain the water cycle, including evaporation, condensation, and precipitation" />
+            <textarea className={`${inputClass} min-h-28 resize-y`} value={topic} onChange={e => setTopic(e.target.value)} maxLength={1200} placeholder="e.g. Teach the water cycle and include practice questions on evaporation and condensation" />
           </label>
           <label className={labelClass}>Learner audience / class
             <select className={inputClass} value={audience} onChange={e => setAudience(e.target.value)}>
@@ -244,7 +245,7 @@ export default function Practice({ model = '' }: { model?: string }) {
                   <option value="mixed">Teach + practice questions</option>
                 </select>
                 <span className="mt-1 block text-[11px] font-normal leading-relaxed text-white/40">
-                  Auto-detect makes practice-question prompts into question slides; choose mixed to teach concepts and test them in one deck.
+                  Ask to teach a topic and include practice questions to get both teaching and question slides. Choose Exam-practice for all-question slides, or select Teach + practice questions to force a mixed deck.
                 </span>
               </label>
               <label className={labelClass}>Lesson content slides (+ separate title slide)
@@ -260,7 +261,7 @@ export default function Practice({ model = '' }: { model?: string }) {
           )}
 
           <button type="button" onClick={generate} disabled={busy || !topic.trim() || !audience.trim()} className="w-full rounded-xl bg-pine px-4 py-3 text-sm font-extrabold text-[#102016] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">
-            {busy ? 'Generating with AI…' : mode === 'questions' ? 'Generate practice set' : 'Generate lesson slides'}
+            {busy ? 'Generating with AI…' : mode === 'questions' ? 'Generate practice set' : 'Generate slides'}
           </button>
           {error && <p role="alert" className="rounded-xl border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-200">{error}</p>}
           {notice && <p role="status" className="rounded-xl border border-pine/20 bg-pine/10 p-3 text-xs leading-relaxed text-green-100">{notice}</p>}

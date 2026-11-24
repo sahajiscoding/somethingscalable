@@ -49,7 +49,7 @@ describe('Practice Questions view', () => {
     fireEvent.change(screen.getByLabelText(/textbook or syllabus reference/i), {
       target: { value: 'Ganita Manjari Part 1 and 2' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /generate lesson slides/i }));
+    fireEvent.click(screen.getByRole('button', { name: /generate slides/i }));
 
     expect(await screen.findByLabelText('Slide 1 title')).toHaveValue('Question 1: Force and acceleration');
     expect(screen.getByRole('tab', { name: /teach with slides/i })).toHaveAttribute('aria-selected', 'true');
@@ -63,6 +63,35 @@ describe('Practice Questions view', () => {
     expect(fetchMock.mock.calls[1][0]).toBe('https://api.kilo.ai/api/gateway/chat/completions');
     expect(request.messages[1].content).toContain('actual exam-practice question slides');
     expect(request.messages[1].content).toContain('Teacher-specified textbook reference: Ganita Manjari Part 1 and 2');
+  });
+
+  it('auto-detects a teaching deck that asks to include practice questions', async () => {
+    const slides = Array.from({ length: 3 }, (_, index) => ({
+      title: `Photosynthesis ${index + 1}`,
+      key_points: ['Plants use light energy.', 'Carbon dioxide and water are reactants.', 'Glucose stores chemical energy.'],
+      explanation: 'A short explanation for the class.',
+      speaker_notes: 'Teacher notes and answer guidance.',
+    }));
+    const fetchMock = vi.fn(async (url: string) => ({
+      ok: true,
+      status: 200,
+      json: async () => url === '/api/research-book'
+        ? { book_research: null }
+        : { choices: [{ message: { content: JSON.stringify({ status: 'ok', title: 'Photosynthesis', subtitle: 'Learn and practise', slides }) } }] },
+    }) as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<Practice model="" />);
+    fireEvent.click(screen.getByRole('tab', { name: /teach with slides/i }));
+    fireEvent.change(screen.getByLabelText(/topic and learning focus/i), {
+      target: { value: 'Teach photosynthesis and include practice questions' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /generate slides/i }));
+
+    expect(await screen.findByText(/Teaching and practice slides generated/i)).toBeInTheDocument();
+    const request = JSON.parse(String(fetchMock.mock.calls[1][1].body));
+    expect(request.messages[1].content).toContain('mixed teaching-and-practice deck');
+    expect(screen.getByRole('tab', { name: /teach with slides/i })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('generates and presents editable lesson slide fields in the separate teaching mode', async () => {
@@ -107,7 +136,7 @@ describe('Practice Questions view', () => {
       target: { value: 'Ganita Manjari Part 1' },
     });
     fireEvent.change(screen.getByLabelText(/lesson content slides/i), { target: { value: '3' } });
-    fireEvent.click(screen.getByRole('button', { name: /generate lesson slides/i }));
+    fireEvent.click(screen.getByRole('button', { name: /generate slides/i }));
 
     expect(await screen.findByLabelText('Slide 1 title')).toHaveProperty('value', 'Concept 1');
     expect(await screen.findByText(/editable teacher presentation · 4 total slides/i)).toBeTruthy();
@@ -153,7 +182,7 @@ describe('Practice Questions view', () => {
     fireEvent.change(screen.getByLabelText(/topic and learning focus/i), {
       target: { value: 'Explain the water cycle and its stages' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /generate lesson slides/i }));
+    fireEvent.click(screen.getByRole('button', { name: /generate slides/i }));
     expect(await screen.findByLabelText('Slide 1 title')).toHaveValue('Concept 1');
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Describe the new slide' }), {
