@@ -1,0 +1,149 @@
+{
+  "report_version": 1,
+  "generated_at": "2026-10-24T10:38:58+00:00",
+  "engine": "mock",
+  "model": "mock-offline",
+  "mode": {
+    "strict": false,
+    "penalty_criteria": [
+      "formatting",
+      "handwriting"
+    ]
+  },
+  "documents": {
+    "paper": {
+      "file": "question_paper.txt",
+      "kind": "text",
+      "pages": 1
+    },
+    "key": {
+      "file": "answer_key.txt",
+      "kind": "text",
+      "pages": 1
+    },
+    "student": {
+      "file": "student_sheet.txt",
+      "kind": "text",
+      "pages": 1
+    }
+  },
+  "summary": {
+    "questions_graded": 5,
+    "total_marks": 25.0,
+    "marks_awarded": 15.5,
+    "marks_deducted": 9.5,
+    "percentage": 62.0,
+    "deductions_by_category": {
+      "content": 9.0,
+      "handwriting": 0.5
+    },
+    "questions_without_answer": 0
+  },
+  "warnings": [],
+  "questions": [
+    {
+      "number": "1",
+      "question": "Solve the quadratic equation x^2 - 3x - 10 = 0. Show all working and state both roots.",
+      "student_answer": "(x - 5)(x + 2) = 0 so x = 5 and x = -2. Checked by expanding back to x^2 - 3x - 10.",
+      "expected_answer": "Factorise as (x - 5)(x + 2) = 0, giving roots x = 5 and x = -2. Marks: factorisation 2, correct roots 2, verification 1.",
+      "max_marks": 5.0,
+      "marks_awarded": 1.5,
+      "marks_deducted": 3.5,
+      "deductions": [
+        {
+          "category": "content",
+          "marks": 3.5,
+          "reason": "student response matched 33% of the expected answer under token-overlap scoring (mock engine)"
+        }
+      ],
+      "feedback": "[MOCK] scored 1.5/5 by token overlap; replace with a real NVIDIA run for genuine marking.",
+      "ocr_note": "",
+      "legibility": "good",
+      "page": 1,
+      "warnings": []
+    },
+    {
+      "number": "2",
+      "question": "State Lenz's law and draw a labelled diagram of a bar magnet falling through a copper tube, showing the direction of the induced current.",
+      "student_answer": "The induced current flows to oppose the change in flux. Diagram drawn with magnet, tube, field lines and current arrows.",
+      "expected_answer": "Lenz's law: the induced current flows in the direction that opposes the change in flux producing it. The diagram must show the magnet, the copper tube, the field lines and arrows for the induced current direction. Marks: correct statement of the law 2, labelled diagram with current direction 4.",
+      "max_marks": 6.0,
+      "marks_awarded": 5.0,
+      "marks_deducted": 1.0,
+      "deductions": [
+        {
+          "category": "content",
+          "marks": 1.0,
+          "reason": "student response matched 85% of the expected answer under token-overlap scoring (mock engine)"
+        }
+      ],
+      "feedback": "[MOCK] scored 5.0/6 by token overlap; replace with a real NVIDIA run for genuine marking.",
+      "ocr_note": "",
+      "legibility": "good",
+      "page": 1,
+      "warnings": []
+    },
+    {
+      "number": "3",
+      "question": "On what date was the Treaty of Versailles signed and which two sides did it end the war between?",
+      "student_answer": "Signed on 28 June 1919 between the Allied Powers and Germany.",
+      "expected_answer": "Signed on 28 June 1919 between the Allied Powers and Germany.",
+      "max_marks": 4.0,
+      "marks_awarded": 4.0,
+      "marks_deducted": 0.0,
+      "deductions": [],
+      "feedback": "[MOCK] scored 4.0/4 by token overlap; replace with a real NVIDIA run for genuine marking.",
+      "ocr_note": "",
+      "legibility": "good",
+      "page": 1,
+      "warnings": []
+    },
+    {
+      "number": "4",
+      "question": "2.0 g of NaOH (M = 40 g/mol) reacts with excess HCl. Calculate the moles of NaOH, identify the limiting reagent, and give the theoretical yield of NaCl in grams.",
+      "student_answer": "moles = 2.0/40 = 0.05 mol, limiting reagent NaOH, yield = 0.05 x 58.5 = 2.925 g",
+      "expected_answer": "n(NaOH) = 2.0 g / 40 g/mol = 0.05 mol. NaOH is the limiting reagent. Yield = 0.05 mol x 58.5 g/mol = 2.925 g of NaCl.",
+      "max_marks": 5.0,
+      "marks_awarded": 4.5,
+      "marks_deducted": 0.5,
+      "deductions": [
+        {
+          "category": "content",
+          "marks": 0.5,
+          "reason": "student response matched 92% of the expected answer under token-overlap scoring (mock engine)"
+        }
+      ],
+      "feedback": "[MOCK] scored 4.5/5 by token overlap; replace with a real NVIDIA run for genuine marking.",
+      "ocr_note": "",
+      "legibility": "good",
+      "page": 1,
+      "warnings": []
+    },
+    {
+      "number": "5",
+      "question": "Write a structured response arguing whether homework improves exam performance. Include a claim, evidence, reasoning and a conclusion.",
+      "student_answer": "[smudged - partly illegible] claim: homework improves exam performance, evidence shows students revise more",
+      "expected_answer": "A full-mark answer gives a clear claim, evidence linked back to the claim, a reasoning chain connecting them, and a conclusion that weighs the evidence.",
+      "max_marks": 5.0,
+      "marks_awarded": 0.5,
+      "marks_deducted": 4.5,
+      "deductions": [
+        {
+          "category": "content",
+          "marks": 4.0,
+          "reason": "student response matched 15% of the expected answer under token-overlap scoring (mock engine)"
+        },
+        {
+          "category": "handwriting",
+          "marks": 0.5,
+          "reason": "handwriting penalties were applied (mock heuristic)"
+        }
+      ],
+      "feedback": "[MOCK] scored 0.5/5 by token overlap; replace with a real NVIDIA run for genuine marking.",
+      "ocr_note": "",
+      "legibility": "poor",
+      "page": 1,
+      "warnings": []
+    }
+  ]
+}
