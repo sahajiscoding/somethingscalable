@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import LatticeLoader from '../components/LatticeLoader.jsx';
 import {
+  extractPresentationResources,
   generateExam,
   generatePresentation,
   generatePresentationSlide,
@@ -10,6 +11,7 @@ import {
   type GeneratedQuestion,
   type PresentationDeck,
   type PresentationPurpose,
+  type PresentationResource,
 } from '../lib/api';
 import {
   buildEditablePresentation,
@@ -41,6 +43,9 @@ export default function Practice({ model = '' }: { model?: string }) {
   const [difficulty, setDifficulty] = useState('Medium');
   const [slideCount, setSlideCount] = useState(7);
   const [slideStyle, setSlideStyle] = useState<SlideStyle>('auto');
+  const [resources, setResources] = useState<PresentationResource[]>([]);
+  const [resourceBusy, setResourceBusy] = useState(false);
+  const [resourceError, setResourceError] = useState('');
   const [theme, setTheme] = useState<PresentationTheme>('emerald');
   const [bookTitle, setBookTitle] = useState('');
   const [bookResearch, setBookResearch] = useState<BookResearch | null>(null);
@@ -54,6 +59,28 @@ export default function Practice({ model = '' }: { model?: string }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [loaderStatus, setLoaderStatus] = useState<'working' | 'done' | 'error' | null>(null);
+
+  const attachResources = async (files: File[]) => {
+    if (!files.length) return;
+    setResourceError('');
+    if (resources.length + files.length > 5) {
+      setResourceError('Attach up to 5 resources per presentation. Remove a source before adding another.');
+      return;
+    }
+    setResourceBusy(true);
+    try {
+      const extracted = await extractPresentationResources(files);
+      const combined = [...resources, ...extracted];
+      if (combined.reduce((total, resource) => total + resource.text.length, 0) > 60_000) {
+        throw new Error('Combined resource text is over 60,000 characters. Remove a source or select smaller files.');
+      }
+      setResources(combined);
+    } catch (e) {
+      setResourceError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setResourceBusy(false);
+    }
+  };
 
   const generate = async () => {
     if (busy) return;
@@ -99,6 +126,7 @@ export default function Practice({ model = '' }: { model?: string }) {
           purpose: presentationPurpose,
           model: model.trim() || undefined,
           bookTitle: bookTitle.trim() || undefined,
+          resources,
         });
         setDeck(result.presentation);
         setBookResearch(result.bookResearch ?? null);
@@ -134,7 +162,7 @@ export default function Practice({ model = '' }: { model?: string }) {
   };
 
   const addAiSlide = async () => {
-    if (!deck || addingSlide || deck.slides.length >= 15 || !slideDescription.trim()) return;
+    if (!deck || addingSlide || !slideDescription.trim()) return;
     setAddingSlide(true);
     setError('');
     setNotice('');
@@ -147,6 +175,7 @@ export default function Practice({ model = '' }: { model?: string }) {
         description: slideDescription,
         existingSlides: deck.slides,
         model: model.trim() || undefined,
+        resources,
       });
       setDeck(current => current ? { ...current, slides: [...current.slides, result.slide] } : current);
       setSlideDescription('');
@@ -237,6 +266,32 @@ export default function Practice({ model = '' }: { model?: string }) {
             </>
           ) : (
             <>
+              <section className="space-y-2 rounded-xl border border-white/10 bg-black/15 p-3" aria-label="Slide source resources">
+                <label className={labelClass}>PDFs and teaching resources
+                  <input
+                    className={inputClass}
+                    type="file"
+                    accept=".pdf,.txt,.md,.markdown,.csv,.text,application/pdf,text/plain,text/markdown,text/csv"
+                    multiple
+                    disabled={resourceBusy}
+                    onChange={event => {
+                      void attachResources(Array.from(event.currentTarget.files || []));
+                      event.currentTarget.value = '';
+                    }}
+                  />
+                  <span className="mt-1 block text-[11px] font-normal leading-relaxed text-white/40">
+                    Add up to 5 searchable PDFs or TXT/Markdown/CSV resources (4 MB combined). Text is extracted for slide references; files are not stored.
+                  </span>
+                </label>
+                {resourceBusy && <p role="status" className="text-xs text-pine">Extracting resource text…</p>}
+                {resourceError && <p role="alert" className="text-xs text-red-200">{resourceError}</p>}
+                {resources.length > 0 && <ul className="space-y-1.5">
+                  {resources.map((resource, index) => <li key={`${resource.name}-${index}`} className="flex items-center justify-between gap-2 rounded-lg bg-white/[.04] px-2.5 py-2 text-[11px] text-white/70">
+                    <span className="min-w-0 truncate">{resource.name}{resource.page_count ? ` · ${resource.page_count} pages` : ''}{resource.truncated ? ' · excerpted' : ''}</span>
+                    <button type="button" aria-label={`Remove resource ${resource.name}`} onClick={() => setResources(current => current.filter((_, i) => i !== index))} className="shrink-0 text-white/45 hover:text-red-200">Remove</button>
+                  </li>)}
+                </ul>}
+              </section>
               <label className={labelClass}>Slide style
                 <select className={inputClass} value={slideStyle} onChange={e => setSlideStyle(e.target.value as SlideStyle)}>
                   <option value="auto">Auto-detect from topic</option>
@@ -248,8 +303,11 @@ export default function Practice({ model = '' }: { model?: string }) {
                   Ask to teach a topic and include practice questions to get both teaching and question slides. Choose Exam-practice for all-question slides, or select Teach + practice questions to force a mixed deck.
                 </span>
               </label>
-              <label className={labelClass}>Lesson content slides (+ separate title slide)
-                <input className={inputClass} type="number" min={3} max={15} value={slideCount} onChange={e => setSlideCount(Math.min(15, Math.max(3, Number(e.target.value) || 3)))} />
+              <label className={labelClass}>Content slides (no fixed slide limit)
+                <input className={inputClass} type="number" min={3} step={1} value={slideCount} onChange={e => {
+                  const value = Number(e.target.value);
+                  setSlideCount(Number.isSafeInteger(value) ? Math.max(3, value) : 3);
+                }} />
               </label>
               <label className={labelClass}>PowerPoint color theme
                 <select className={inputClass} value={theme} onChange={e => setTheme(e.target.value as PresentationTheme)}>
@@ -260,7 +318,7 @@ export default function Practice({ model = '' }: { model?: string }) {
             </>
           )}
 
-          <button type="button" onClick={generate} disabled={busy || !topic.trim() || !audience.trim()} className="w-full rounded-xl bg-pine px-4 py-3 text-sm font-extrabold text-[#102016] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" onClick={generate} disabled={busy || resourceBusy || !topic.trim() || !audience.trim()} className="w-full rounded-xl bg-pine px-4 py-3 text-sm font-extrabold text-[#102016] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">
             {busy ? 'Generating with AI…' : mode === 'questions' ? 'Generate practice set' : 'Generate slides'}
           </button>
           {error && <p role="alert" className="rounded-xl border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-200">{error}</p>}
@@ -324,11 +382,11 @@ export default function Practice({ model = '' }: { model?: string }) {
               <><label className={`${labelClass} mt-3`}>Key points (one per line)<textarea className={`${inputClass} min-h-24`} value={slide.key_points.join('\n')} onChange={e => updateSlide(index, { key_points: e.target.value.split('\n').slice(0, 5) })} /></label><label className={`${labelClass} mt-3`}>Explanation<textarea className={`${inputClass} min-h-20`} value={slide.explanation} onChange={e => updateSlide(index, { explanation: e.target.value })} /></label></>
               <label className={`${labelClass} mt-3`}>Teacher speaker notes<textarea className={`${inputClass} min-h-16`} value={slide.speaker_notes} onChange={e => updateSlide(index, { speaker_notes: e.target.value })} /></label>
             </article>)}
-              {deck.slides.length < 15 ? <section className="space-y-2 rounded-xl border border-pine/25 bg-pine/[.04] p-4" aria-label="Add an AI-generated slide">
+              <section className="space-y-2 rounded-xl border border-pine/25 bg-pine/[.04] p-4" aria-label="Add an AI-generated slide">
                 <label className={labelClass}>Describe the new slide<textarea aria-label="Describe the new slide" className={`${inputClass} min-h-20 resize-y`} value={slideDescription} onChange={e => setSlideDescription(e.target.value)} maxLength={1200} placeholder="e.g. Add a slide explaining how water conservation helps local communities" /></label>
                 <button type="button" onClick={addAiSlide} disabled={addingSlide || !slideDescription.trim()} className="w-full rounded-xl bg-pine px-4 py-3 text-xs font-extrabold text-[#102016] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">{addingSlide ? 'Creating slide with AI…' : '+ Add 1 new slide'}</button>
                 <button type="button" onClick={() => setDeck(current => current ? { ...current, slides: [...current.slides, createBlankSlide(current.slides.length + 1)] } : current)} disabled={addingSlide} className="w-full rounded-xl border border-dashed border-white/20 py-2.5 text-xs font-semibold text-white/55 hover:border-pine/50 hover:text-white disabled:opacity-50">+ Add blank editable slide</button>
-              </section> : <p className="rounded-xl border border-white/10 p-3 text-xs text-white/50">This deck has reached the 15-content-slide limit.</p>}
+              </section>
             </div>
           </div>}
         </div>

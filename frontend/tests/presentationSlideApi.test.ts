@@ -53,19 +53,25 @@ describe('AI-generated additional lesson slides', () => {
     }) as unknown as Response);
     vi.stubGlobal('fetch', fetchMock);
 
+    const manySlides = Array.from({ length: 25 }, (_, index) => ({
+      ...previousSlides[0], title: `Existing slide ${index + 1}`,
+    }));
     await generatePresentationSlide({
       topic: 'Explain the water cycle and its stages',
       audience: 'Class 9',
       deckTitle: 'The Water Cycle',
       deckSubtitle: 'A connected system',
       description: 'Explain how families can conserve clean water.',
-      existingSlides: previousSlides,
+      existingSlides: manySlides,
       model: 'provider/paid-model',
+      resources: [{ name: 'source.txt', text: 'Water is continuously recycled.' }],
     });
 
     expect(fetchMock.mock.calls[0][0]).toBe('/api/generate-presentation-slide');
     const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
     expect(body.description).toContain('conserve clean water');
-    expect(body.existing_slides[0].title).toBe('Evaporation');
+    expect(body.existing_slides).toHaveLength(20);
+    expect(body.existing_slides[0].title).toBe('Existing slide 6');
+    expect(body.resources[0].name).toBe('source.txt');
   });
 });

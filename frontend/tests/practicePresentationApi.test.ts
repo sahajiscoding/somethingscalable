@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { generatePresentation } from '../src/lib/api';
+import { extractPresentationResources, generatePresentation } from '../src/lib/api';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -23,13 +23,32 @@ describe('practice presentation API client', () => {
 
     const result = await generatePresentation({
       topic: 'Explain the water cycle', audience: 'Grade 8', slideCount: 3, model: 'selected-model',
+      resources: [{ name: 'Water cycle.pdf', text: 'Evaporation turns liquid water into vapor.', page_count: 2 }],
     });
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0][0]).toBe('/api/generate-presentation');
     expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual({
       topic: 'Explain the water cycle', audience: 'Grade 8', slide_count: 3, purpose: 'teaching', model: 'selected-model',
+      resources: [{ name: 'Water cycle.pdf', text: 'Evaporation turns liquid water into vapor.', page_count: 2 }],
     });
     expect(result.presentation.slides).toHaveLength(3);
+  });
+
+  it('uploads selected PDF and text resources for safe text extraction', async () => {
+    const resources = [{ name: 'notes.txt', text: 'Teacher-approved source notes.', truncated: false, page_count: null }];
+    const fetchMock = vi.fn(async (_url: string, options: RequestInit) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ resources }),
+      body: options.body,
+    }) as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const file = new File(['Teacher-approved source notes.'], 'notes.txt', { type: 'text/plain' });
+    await expect(extractPresentationResources([file])).resolves.toEqual(resources);
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/presentation-resources');
+    const form = fetchMock.mock.calls[0][1].body as FormData;
+    expect((form.get('files') as File).name).toBe('notes.txt');
   });
 
   it('accepts a shorter complete deck when the model cannot return every requested slide', async () => {
@@ -39,20 +58,54 @@ describe('practice presentation API client', () => {
       explanation: 'A complete explanation.',
       speaker_notes: 'A useful teaching note.',
     }));
-    vi.stubGlobal('fetch', vi.fn(async () => ({
+    const fetchMock = vi.fn(async () => ({
       ok: true,
       status: 200,
       json: async () => ({
         presentation: { title: 'The Water Cycle', subtitle: '', audience: 'Class 9', slides },
         model: 'provider/paid-model',
       }),
-    }) as unknown as Response));
+    }) as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await generatePresentation({
       topic: 'Explain the water cycle and its stages', audience: 'Class 9', slideCount: 15, model: 'provider/paid-model',
     });
 
-    expect(result.presentation.slides).toHaveLength(3);
+    expect(result.presentation.slides).toHaveLength(6);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('generates arbitrarily long decks in continuation batches', async () => {
+    const fetchMock = vi.fn(async (_url: string, options: RequestInit) => {
+      const body = JSON.parse(String(options.body));
+      const offset = body.existing_slides?.length || 0;
+      const slides = Array.from({ length: body.slide_count }, (_, index) => ({
+        title: `Slide ${offset + index + 1}`,
+        key_points: ['One clear idea', 'A second useful point', 'A final key point'],
+        explanation: 'A complete explanation.',
+        speaker_notes: 'Teacher guidance.',
+      }));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          presentation: { title: 'Long deck', subtitle: 'Continued', audience: 'Class 9', slides },
+          model: 'provider/paid-model',
+        }),
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await generatePresentation({
+      topic: 'Explain the history of mathematics', audience: 'Class 9', slideCount: 27,
+      model: 'provider/paid-model',
+    });
+
+    expect(result.presentation.slides).toHaveLength(27);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.map(call => JSON.parse(String(call[1].body)).slide_count)).toEqual([10, 10, 7]);
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1].body)).existing_slides).toHaveLength(10);
   });
 
   it('counts words with whitespace, rejecting vague prompts before fetch', async () => {
