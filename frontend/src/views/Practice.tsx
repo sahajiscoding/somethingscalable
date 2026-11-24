@@ -66,18 +66,10 @@ export default function Practice({ model = '' }: { model?: string }) {
   const attachResources = async (files: File[]) => {
     if (!files.length) return;
     setResourceError('');
-    if (resources.length + files.length > 5) {
-      setResourceError('Attach up to 5 resources per presentation. Remove a source before adding another.');
-      return;
-    }
     setResourceBusy(true);
     try {
       const extracted = await extractPresentationResources(files);
-      const combined = [...resources, ...extracted];
-      if (combined.reduce((total, resource) => total + resource.text.length, 0) > 60_000) {
-        throw new Error('Combined resource text is over 60,000 characters. Remove a source or select smaller files.');
-      }
-      setResources(combined);
+      setResources(current => [...current, ...extracted]);
     } catch (e) {
       setResourceError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -287,7 +279,7 @@ export default function Practice({ model = '' }: { model?: string }) {
                     }}
                   />
                   <span className="mt-1 block text-[11px] font-normal leading-relaxed text-white/40">
-                    Add up to 5 searchable PDFs or TXT/Markdown/CSV resources (4 MB combined). Text is extracted for slide references; files are not stored.
+                    Add searchable PDFs or TXT/Markdown/CSV resources (4 MB per file). Text is extracted for slide references; files are not stored.
                   </span>
                 </label>
                 {resourceBusy && <p role="status" className="text-xs text-pine">Extracting resource text…</p>}
@@ -387,7 +379,8 @@ export default function Practice({ model = '' }: { model?: string }) {
             </div>
             <div className="mt-4 space-y-4">{deck.slides.map((slide, index) => <article key={index} className="rounded-xl border border-white/10 bg-white/[.025] p-4"><div className="flex items-center justify-between gap-3"><span className="text-[10px] font-bold tracking-wider text-pine uppercase">Slide {index + 2}</span>{deck.slides.length > 3 && <button type="button" aria-label={`Remove slide ${index + 1}`} onClick={() => setDeck(current => current ? { ...current, slides: current.slides.filter((_, i) => i !== index) } : current)} className="text-xs text-white/45 hover:text-red-200">Remove</button>}</div>
               <input aria-label={`Slide ${index + 1} title`} className="mt-2 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm font-bold text-white outline-none focus:border-pine/50" value={slide.title} maxLength={140} onChange={e => updateSlide(index, { title: e.target.value })} />
-              <><label className={`${labelClass} mt-3`}>Key points (one per line)<textarea className={`${inputClass} min-h-24`} value={slide.key_points.join('\n')} onChange={e => updateSlide(index, { key_points: e.target.value.split('\n').slice(0, 5) })} /></label><label className={`${labelClass} mt-3`}>Explanation<textarea className={`${inputClass} min-h-20`} value={slide.explanation} onChange={e => updateSlide(index, { explanation: e.target.value })} /></label></>
+              <label className={`${labelClass} mt-3`}>{deckPurpose === 'question-only' || deckPurpose === 'exam-practice' ? 'Student-facing question(s), one per line' : 'Key points (one per line)'}<textarea className={`${inputClass} min-h-24`} value={slide.key_points.join('\n')} onChange={e => updateSlide(index, { key_points: e.target.value.split('\n').slice(0, 5) })} /></label>
+              {deckPurpose !== 'question-only' && deckPurpose !== 'exam-practice' && <label className={`${labelClass} mt-3`}>Explanation<textarea className={`${inputClass} min-h-20`} value={slide.explanation} onChange={e => updateSlide(index, { explanation: e.target.value })} /></label>}
               <label className={`${labelClass} mt-3`}>Teacher speaker notes<textarea className={`${inputClass} min-h-16`} value={slide.speaker_notes} onChange={e => updateSlide(index, { speaker_notes: e.target.value })} /></label>
             </article>)}
               <section className="space-y-2 rounded-xl border border-pine/25 bg-pine/[.04] p-4" aria-label="Add an AI-generated slide">

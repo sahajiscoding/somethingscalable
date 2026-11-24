@@ -24,6 +24,7 @@ Local dev: put keys in ``.env``, then ``python server.py``.
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 import uuid
 from io import BytesIO
@@ -844,9 +845,7 @@ def api_research_book():
     return jsonify({"book_research": {"query": title, "sources": sources}})
 
 
-PRESENTATION_RESOURCE_MAX_FILES = 5
 PRESENTATION_RESOURCE_MAX_UPLOAD_BYTES = 4_000_000
-PRESENTATION_RESOURCE_MAX_TEXT_CHARS = 60_000
 PRESENTATION_RESOURCE_EXTENSIONS = {".pdf", ".txt", ".md", ".markdown", ".csv", ".text"}
 
 
@@ -856,31 +855,19 @@ def api_extract_presentation_resources():
     uploads = [item for item in request.files.getlist("files") if item and item.filename]
     if not uploads:
         return jsonify({"error": "Choose one or more PDF or text resources first."}), 400
-    if len(uploads) > PRESENTATION_RESOURCE_MAX_FILES:
-        return jsonify({"error": f"Choose no more than {PRESENTATION_RESOURCE_MAX_FILES} resources at a time."}), 400
-    if request.content_length and request.content_length > PRESENTATION_RESOURCE_MAX_UPLOAD_BYTES + 200_000:
-        return jsonify({"error": "The selected resources are too large. Keep the combined upload under 4 MB."}), 413
-
     resources = []
-    total_upload_bytes = 0
-    total_text_chars = 0
     for upload in uploads:
         filename = Path(upload.filename).name[:240]
         suffix = Path(filename).suffix.lower()
         if suffix not in PRESENTATION_RESOURCE_EXTENSIONS:
             return jsonify({"error": f"{filename}: use a PDF, TXT, Markdown, or CSV resource."}), 400
         raw = upload.read(PRESENTATION_RESOURCE_MAX_UPLOAD_BYTES + 1)
-        total_upload_bytes += len(raw)
         if not raw:
             return jsonify({"error": f"{filename} is empty."}), 400
-        if len(raw) > PRESENTATION_RESOURCE_MAX_UPLOAD_BYTES or total_upload_bytes > PRESENTATION_RESOURCE_MAX_UPLOAD_BYTES:
-            return jsonify({"error": "The selected resources are too large. Keep the combined upload under 4 MB."}), 413
+        if len(raw) > PRESENTATION_RESOURCE_MAX_UPLOAD_BYTES:
+            return jsonify({"error": f"{filename} is larger than the 4 MB per-file limit."}), 413
 
         page_count = None
-        remaining = PRESENTATION_RESOURCE_MAX_TEXT_CHARS - total_text_chars
-        if remaining <= 0:
-            return jsonify({"error": "Combined extracted resource text exceeds the 60,000-character limit."}), 400
-        was_truncated = False
         if suffix == ".pdf":
             try:
                 from pypdf import PdfReader
@@ -894,18 +881,12 @@ def api_extract_presentation_resources():
                 if page_count > 300:
                     return jsonify({"error": f"{filename} has over 300 pages. Split it into smaller resources."}), 400
                 text_parts = []
-                text_chars = 0
                 for index, page in enumerate(reader.pages):
                     page_text = (page.extract_text() or "").strip()
                     if not page_text:
                         continue
                     part = f"[Page {index + 1}] {page_text}"
-                    if text_chars + len(part) > remaining:
-                        text_parts.append(part[:max(0, remaining - text_chars)])
-                        was_truncated = True
-                        break
                     text_parts.append(part)
-                    text_chars += len(part)
                 if not text_parts:
                     return jsonify({"error": f"{filename} has no selectable text. Scanned/image-only PDFs are not supported as slide sources yet."}), 400
                 text = "\n".join(text_parts).strip()
@@ -918,14 +899,10 @@ def api_extract_presentation_resources():
             if not text:
                 return jsonify({"error": f"{filename} contains no readable text."}), 400
 
-        truncated = was_truncated or len(text) > remaining
-        if len(text) > remaining:
-            text = text[:remaining]
-        total_text_chars += len(text)
         resources.append({
             "name": filename,
             "text": text,
-            "truncated": truncated,
+            "truncated": False,
             "page_count": page_count,
         })
     return jsonify({"resources": resources})
@@ -935,10 +912,9 @@ def _validated_presentation_resources(value):
     """Validate already-extracted, untrusted teacher resource text."""
     if value is None:
         return []
-    if not isinstance(value, list) or len(value) > PRESENTATION_RESOURCE_MAX_FILES:
-        raise ValueError(f"Provide no more than {PRESENTATION_RESOURCE_MAX_FILES} extracted resources.")
+    if not isinstance(value, list):
+        raise ValueError("Extracted presentation resources must be a list.")
     resources = []
-    total_chars = 0
     for resource in value:
         if not isinstance(resource, dict):
             raise ValueError("An attached presentation resource is invalid.")
@@ -947,9 +923,6 @@ def _validated_presentation_resources(value):
             raise ValueError("An attached resource must have a valid filename.")
         if not isinstance(text, str) or not text.strip():
             raise ValueError(f"{name[:120]} contains no extracted text.")
-        total_chars += len(text)
-        if total_chars > PRESENTATION_RESOURCE_MAX_TEXT_CHARS:
-            raise ValueError("Combined extracted resource text exceeds the 60,000-character limit.")
         resources.append({
             "name": name.strip(),
             "text": text,
@@ -957,6 +930,69 @@ def _validated_presentation_resources(value):
             "page_count": resource.get("page_count") if isinstance(resource.get("page_count"), int) else None,
         })
     return resources
+
+
+_PRACTICE_PROMPT_START = re.compile(
+    r"^(?:find|calculate|compute|solve|simplify|evaluate|determine|write|state|explain|construct|"
+    r"prove|show\s+that|compare|factori[sz]e|expand|draw|identify|convert|express|list|give|"
+    r"name|complete|represent|how\s+many|how\s+much|what\s+is|what\s+are|which|why|when|where)\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_practice_questions(title, points, explanation):
+    """Pull student-answerable prompts from model fields, not generic slide advice."""
+    questions = []
+    seen = set()
+
+    def add(candidate):
+        candidate = re.sub(r"^\s*(?:[-*•]\s*|(?:question|problem)\s*:\s*)", "", candidate).strip()
+        if not candidate or len(candidate) > 1400:
+            return
+        if re.match(r"^(?:read|attempt|show\s+your\s+working|write\s+(?:(?:your|the)\s+)?(?:answer|solution|working)|state\s+(?:(?:your|the)\s+)?answer|use\s+the\s+time|do\s+not\s+discuss)\b", candidate, re.IGNORECASE):
+            return
+        if "?" not in candidate and not _PRACTICE_PROMPT_START.search(candidate):
+            return
+        normalized = " ".join(candidate.split()).casefold()
+        if normalized not in seen:
+            seen.add(normalized)
+            questions.append(" ".join(candidate.split()))
+
+    if isinstance(title, str) and ("?" in title or _PRACTICE_PROMPT_START.match(title)):
+        add(title)
+
+    # Keep the whole key point together when it includes a concrete task after
+    # its setup (for example, a word problem followed by "Calculate the force").
+    for text in points or []:
+        if not isinstance(text, str):
+            continue
+        for line in re.split(r"\n+", text):
+            if "?" in line or _PRACTICE_PROMPT_START.search(line):
+                add(line)
+            else:
+                for candidate in re.split(r"(?<=[.!?])\s+", line):
+                    add(candidate)
+
+    # Explanations may contain both the prompt and an answer; take only complete
+    # prompt sentences from this field, then discard the rest of the explanation.
+    if isinstance(explanation, str):
+        for line in re.split(r"\n+", explanation):
+            for candidate in re.split(r"(?<=[.!?])\s+", line):
+                add(candidate)
+    return questions[:5]
+
+
+def _normalize_practice_slide(title, points, explanation, speaker_notes, purpose, slide_number):
+    if purpose not in {"exam-practice", "question-only"}:
+        return points, explanation, speaker_notes
+    questions = _extract_practice_questions(title, points, explanation)
+    if not questions:
+        raise EngineError(
+            f"Slide {slide_number} did not include a complete student-facing question. Please try again."
+        )
+    if purpose == "question-only":
+        speaker_notes = "Give students time to attempt the question independently; do not reveal a solution."
+    return questions, "", speaker_notes
 
 
 PRESENTATION_PURPOSE_GUIDANCE = {
@@ -1146,11 +1182,15 @@ def api_generate_presentation():
             speaker_notes = speaker_notes.strip()
             if len(speaker_notes) > 1800:
                 speaker_notes = speaker_notes[:1797].rstrip() + "..."
+            clean_points, clean_explanation, clean_notes = _normalize_practice_slide(
+                slide_title.strip(), [point.strip() for point in points], explanation.strip(),
+                speaker_notes, purpose, index,
+            )
             cleaned_slides.append({
                 "title": slide_title.strip(),
-                "key_points": [point.strip() for point in points],
-                "explanation": explanation.strip(),
-                "speaker_notes": speaker_notes.strip(),
+                "key_points": clean_points,
+                "explanation": clean_explanation,
+                "speaker_notes": clean_notes,
             })
     except Exception as exc:  # noqa: BLE001 - no canned slide decks
         return _api_error(exc)
@@ -1161,6 +1201,7 @@ def api_generate_presentation():
             "title": title.strip(),
             "subtitle": subtitle.strip(),
             "audience": audience.strip(),
+            "purpose": purpose,
             "slides": cleaned_slides,
         },
         "model": getattr(engine, "model", WHT_ENGINE_DEFAULT_MODEL),
@@ -1279,11 +1320,15 @@ def api_generate_presentation_slide():
                 if purpose == "question-only"
                 else f"Teach the key ideas in {title.strip()}. {explanation.strip()}"
             )
+        clean_points, clean_explanation, clean_notes = _normalize_practice_slide(
+            title.strip(), [point.strip() for point in points], explanation.strip(),
+            speaker_notes.strip()[:1800], purpose, 1,
+        )
         slide_result = {
             "title": title.strip(),
-            "key_points": [point.strip() for point in points],
-            "explanation": explanation.strip(),
-            "speaker_notes": speaker_notes.strip()[:1800],
+            "key_points": clean_points,
+            "explanation": clean_explanation,
+            "speaker_notes": clean_notes,
         }
     except Exception as exc:  # noqa: BLE001 - never fabricate lesson content
         return _api_error(exc)

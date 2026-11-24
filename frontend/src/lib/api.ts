@@ -103,6 +103,7 @@ export interface PresentationDeck {
   subtitle: string;
   audience: string;
   slides: PresentationSlide[];
+  purpose?: PresentationPurpose;
 }
 
 export type PresentationPurpose = 'teaching' | 'exam-practice' | 'question-only' | 'mixed';
@@ -116,7 +117,6 @@ export interface PresentationResource {
 
 export async function extractPresentationResources(files: File[]): Promise<PresentationResource[]> {
   if (!files.length) return [];
-  if (files.length > 5) throw new Error('Choose no more than 5 PDF or text resources.');
   const form = new FormData();
   files.forEach(file => form.append('files', file));
   const result = await apiJson<{ resources?: PresentationResource[] }>('/api/presentation-resources', {
@@ -136,6 +136,45 @@ const PRESENTATION_PURPOSE_GUIDANCE: Record<PresentationPurpose, string> = {
   'question-only': 'Purpose: create a practice deck containing questions only, with absolutely no answers. Every content slide must show one complete, self-contained question students can answer. Do not include answers, solutions, hints, explanations that reveal a solution, or marking guidance anywhere in the deck, including speaker notes. Use speaker notes only for neutral facilitation instructions such as giving students time to work.',
   mixed: 'Purpose: create a mixed teaching-and-practice deck. Teach concepts clearly, then include authentic exam-style question slides throughout (at least one third of content slides when there are 3 or more). Each question slide must contain a complete student-facing question and marks; keep its answer and marking guidance in teacher speaker notes only.',
 };
+
+const PRACTICE_PROMPT_START = /^(?:find|calculate|compute|solve|simplify|evaluate|determine|write|state|explain|construct|prove|show\s+that|compare|factorize|factorise|expand|draw|identify|convert|express|list|give|name|complete|represent|how\s+many|how\s+much|what\s+is|what\s+are|which|why|when|where)\b/i;
+const PRACTICE_PROMPT_ANYWHERE = /\b(?:find|calculate|compute|solve|simplify|evaluate|determine|write|state|explain|construct|prove|show\s+that|compare|factorize|factorise|expand|draw|identify|convert|express|list|give|name|complete|represent)\b/i;
+const QUESTION_ONLY_NOTES = 'Give students time to attempt the question independently; do not reveal a solution.';
+
+function normalizePracticeSlide(slide: PresentationSlide, purpose: PresentationPurpose): PresentationSlide {
+  if (purpose !== 'question-only' && purpose !== 'exam-practice') return slide;
+  const questions: string[] = [];
+  const seen = new Set<string>();
+  const addQuestion = (candidateText: string) => {
+    const candidate = candidateText.replace(/^\s*(?:[-*•]\s*|(?:question|problem)\s*:\s*)/i, '').trim();
+    if (/^(?:read|attempt|show\s+your\s+working|write\s+(?:(?:your|the)\s+)?(?:answer|solution|working)|state\s+(?:(?:your|the)\s+)?answer|use\s+the\s+time|do\s+not\s+discuss)\b/i.test(candidate)) return;
+    if (!candidate || candidate.length > 1400 || (!candidate.includes('?') && !PRACTICE_PROMPT_ANYWHERE.test(candidate) && !PRACTICE_PROMPT_START.test(candidate))) return;
+    const normalized = candidate.replace(/\s+/g, ' ').toLocaleLowerCase();
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      questions.push(candidate.replace(/\s+/g, ' '));
+    }
+  };
+  if (slide.title.includes('?') || PRACTICE_PROMPT_START.test(slide.title)) addQuestion(slide.title);
+  for (const text of slide.key_points) {
+    for (const line of text.split(/[\r\n]+/)) {
+      if (line.includes('?') || PRACTICE_PROMPT_ANYWHERE.test(line)) addQuestion(line);
+      else line.split(/(?<=[.!?])\s+/).forEach(addQuestion);
+    }
+  }
+  for (const line of slide.explanation.split(/[\r\n]+/)) {
+    line.split(/(?<=[.!?])\s+/).forEach(addQuestion);
+  }
+  if (!questions.length) {
+    throw new Error('A practice slide is missing a complete student-facing question. Please regenerate the deck.');
+  }
+  return {
+    ...slide,
+    key_points: questions.slice(0, 5),
+    explanation: '',
+    speaker_notes: purpose === 'question-only' ? QUESTION_ONLY_NOTES : slide.speaker_notes,
+  };
+}
 
 export interface BookReferenceSource {
   provider: 'Google Books' | 'Open Library' | 'DuckDuckGo Web Search';
@@ -174,9 +213,6 @@ async function generatePresentationBatch(input: GeneratePresentationInput & {
   const purpose = input.purpose || 'teaching';
   const purposeGuidance = PRESENTATION_PURPOSE_GUIDANCE[purpose];
   const resources = input.resources || [];
-  if (resources.length > 5 || resources.reduce((total, resource) => total + resource.text.length, 0) > 60_000) {
-    throw new Error('Use up to 5 resources with no more than 60,000 characters of extracted text.');
-  }
   const existingSlides = input.existingSlides || [];
   const existingContext = existingSlides.slice(-12).map((slide, index) =>
     `Earlier slide ${Math.max(1, existingSlides.length - 11) + index}: ${slide.title}. ${slide.key_points.join('; ')}`,
@@ -281,7 +317,11 @@ async function generatePresentationBatch(input: GeneratePresentationInput & {
     ? data.book_research
     : undefined;
   return {
-    presentation: data.presentation,
+    presentation: {
+      ...data.presentation,
+      purpose,
+      slides: data.presentation.slides.map(slide => normalizePracticeSlide(slide, purpose)),
+    },
     model: data.model,
     ...(bookResearch ? { bookResearch } : {}),
   };
@@ -338,9 +378,6 @@ export async function generatePresentationSlide(input: {
     throw new Error('Describe the new slide in at least three words.');
   }
   const resources = input.resources || [];
-  if (resources.length > 5 || resources.reduce((total, resource) => total + resource.text.length, 0) > 60_000) {
-    throw new Error('Use up to 5 resources with no more than 60,000 characters of extracted text.');
-  }
   const selectedModel = input.model?.trim() || DEFAULT_MODEL_ID;
   const purposeGuidance = input.purpose ? PRESENTATION_PURPOSE_GUIDANCE[input.purpose] : '';
   const contextSlides = input.existingSlides.slice(-20);
@@ -391,13 +428,14 @@ export async function generatePresentationSlide(input: {
     });
   }
   const slide = data.slide;
+  const minimumPointCount = input.purpose === 'question-only' || input.purpose === 'exam-practice' ? 1 : 3;
   if (!slide || typeof slide.title !== 'string' || !slide.title.trim() ||
-      !Array.isArray(slide.key_points) || slide.key_points.length < 3 || slide.key_points.length > 5 ||
+      !Array.isArray(slide.key_points) || slide.key_points.length < minimumPointCount || slide.key_points.length > 5 ||
       slide.key_points.some(point => typeof point !== 'string' || !point.trim()) ||
       typeof slide.explanation !== 'string' || typeof slide.speaker_notes !== 'string') {
     throw new Error('The AI returned an incomplete slide. Please try again.');
   }
-  return { slide, model: data.model };
+  return { slide: normalizePracticeSlide(slide, input.purpose || 'teaching'), model: data.model };
 }
 
 export async function generateNote(input: { prompt: string; audience?: string; model?: string }): Promise<{ note: GeneratedNote; model: string }> {

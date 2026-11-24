@@ -109,7 +109,7 @@ export async function buildEditablePresentation(
       y += 0.72;
     }
 
-    if (item.explanation.trim()) {
+    if (item.explanation.trim() && deck.purpose !== 'question-only' && deck.purpose !== 'exam-practice') {
       slide.addShape(pptx.ShapeType.roundRect, {
         x: 0.82, y: 5.52, w: 11.65, h: 0.86,
         rectRadius: 0.1,
@@ -130,8 +130,12 @@ export async function buildEditablePresentation(
       align: 'right', margin: 0,
       objectName: `Editable slide number ${pageNumber}`,
     });
-    const notes = [item.speaker_notes.trim(), item.explanation.trim() ? `Teaching explanation: ${item.explanation.trim()}` : '']
-      .filter(Boolean)
+    const notes = [
+      item.speaker_notes.trim(),
+      deck.purpose !== 'question-only' && item.explanation.trim()
+        ? `Teaching explanation: ${item.explanation.trim()}`
+        : '',
+    ].filter(Boolean)
       .join('\n\n');
     if (notes) slide.addNotes(notes);
   });

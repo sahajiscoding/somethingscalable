@@ -95,8 +95,15 @@ For EVERY question produce one JSON object with these fields:
                      "Result Error", "Missing Root", "Sign Error",
                      "Incomplete Step") on the primary wrong line of an error
                      step, and provide a 1-sentence "explanation" for why that
-                     step is wrong. Map "crop_id" from the question's geometry
-                     list when available.
+                     step is wrong. Concept Error means a false rule, definition,
+                     or inference; Calculation Error means arithmetic/algebra
+                     execution. Tag only the actual incorrect claim, not a true
+                     observation that merely sets up the misconception. Example:
+                     if the student writes "Constant is negative (-7)" followed
+                     by "Polynomials should have only positive terms", the first
+                     line is a correct observation and the second line is the
+                     Concept Error. Map "crop_id" from the question's geometry
+                     list when available, matching each tag to the exact line.
 (Do NOT repeat student_answer or expected_answer in the output JSON.)
 
 MARKING RULES:
@@ -183,6 +190,13 @@ CRITICAL RECHECK RULES:
    - Mark each valid step with "status": "correct" and "ok": true on its lines.
    - Only mark a step "status": "error" if that specific step is genuinely
      wrong after accounting for the teacher's recheck instructions.
+   - Tag only the incorrect line with its error_tag. Use "Concept Error" for a
+     false concept/rule/inference and "Calculation Error" for arithmetic or
+     algebra execution. Do not tag a true observation that precedes a wrong
+     inference; e.g. "Constant is negative (-7)" is true, while "Polynomials
+     should have only positive terms" is the Concept Error.
+   - Map the error_tag to that exact line's crop_id from the page geometry when
+     available so the UI callout points to the actual misconception.
 4. You may include an updated "student_answer" field (with newlines "\\n"
    separating distinct points or columns) if the original transcription
    flattened a two-column table or misread the scan.
@@ -798,7 +812,16 @@ def _infer_error_tag(reason: str, category: str = "content", is_last: bool = Fal
         return "Unreadable Span"
     if category == "formatting":
         return "Missing Steps"
-    if any(w in low for w in ("calculat", "arithmetic", "evaluat", "substitut", "multipl", "divid", "add", "subtract", "sign")):
+    # Identify conceptual misconceptions before result/conclusion wording: a
+    # wrong conclusion can still be caused by a false rule, not a result slip.
+    if any(w in low for w in (
+        "concept", "misconception", "misunderstand", "definition", "principle",
+        "false rule", "incorrect rule", "belief", "assumption",
+    )):
+        return "Concept Error"
+    if "sign error" in low or "wrong sign" in low:
+        return "Sign Error"
+    if any(w in low for w in ("calculat", "arithmetic", "evaluat", "substitut", "multipl", "divid", "add", "subtract")):
         return "Calculation Error"
     if any(w in low for w in ("root", "missing", "omitted", "forgot", "incomplete")):
         return "Missing Root" if "root" in low else "Incomplete Step"
@@ -865,6 +888,8 @@ def _normalise_steps(
                         ok_val = ln.get("ok")
                         ok = bool(ok_val) if isinstance(ok_val, bool) else (status == "correct")
                         tag = str(ln.get("error_tag") or "").strip()
+                        if tag:
+                            ok = False
                         norm_lines.append({
                             "crop_id": cid,
                             "text": txt,
@@ -897,6 +922,8 @@ def _normalise_steps(
                     })
                     line_cursor += 1
 
+            if any((not ln["ok"]) or ln.get("error_tag") for ln in norm_lines):
+                status = "error"
             if status == "error" and norm_lines:
                 if all(ln["ok"] for ln in norm_lines):
                     for ln in norm_lines:

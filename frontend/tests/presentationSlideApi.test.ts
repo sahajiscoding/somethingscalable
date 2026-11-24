@@ -11,8 +11,15 @@ const previousSlides = [{
 const newSlide = {
   title: 'Saving Water at Home',
   key_points: ['Fix leaks', 'Use less water', 'Reuse water safely'],
-  explanation: 'Families can conserve clean water with small daily choices.',
-  speaker_notes: 'Ask learners to choose one action to try.',
+  explanation: 'Find ways families can conserve clean water at home.',
+  speaker_notes: 'Answer: families can reuse rainwater.',
+};
+
+const normalizedQuestionSlide = {
+  ...newSlide,
+  key_points: ['Find ways families can conserve clean water at home.'],
+  explanation: '',
+  speaker_notes: 'Give students time to attempt the question independently; do not reveal a solution.',
 };
 
 afterEach(() => vi.unstubAllGlobals());
@@ -36,7 +43,7 @@ describe('AI-generated additional lesson slides', () => {
       purpose: 'question-only',
     });
 
-    expect(result.slide).toEqual(newSlide);
+    expect(result.slide).toEqual(normalizedQuestionSlide);
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0][0]).toBe('https://api.kilo.ai/api/gateway/chat/completions');
     expect(fetchMock.mock.calls[0][1].headers).toEqual({ 'Content-Type': 'application/json' });

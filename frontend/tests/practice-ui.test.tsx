@@ -54,8 +54,8 @@ describe('Practice Questions view', () => {
     expect(await screen.findByLabelText('Slide 1 title')).toHaveValue('Question 1: Force and acceleration');
     expect(screen.getByRole('tab', { name: /teach with slides/i })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tab', { name: /practice questions/i })).toHaveAttribute('aria-selected', 'false');
-    expect(screen.getByLabelText('Key points (one per line)')).toHaveValue(
-      'A 2 kg object accelerates at 3 m/s². Calculate the force acting on it.\nShow the formula used.\nWrite the answer with units.',
+    expect(screen.getByLabelText('Student-facing question(s), one per line')).toHaveValue(
+      'A 2 kg object accelerates at 3 m/s². Calculate the force acting on it.',
     );
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[0][0]).toBe('/api/research-book');
@@ -71,10 +71,16 @@ describe('Practice Questions view', () => {
       title: 'Fractions Practice',
       subtitle: 'Questions only',
       slides: [{
-        title: 'Question 1: Compare fractions',
-        key_points: ['Compare 3/4 and 5/8.', 'Show your working.', 'State which fraction is greater.'],
-        explanation: 'Practice question only.',
-        speaker_notes: 'Give students time to solve independently.',
+      title: 'Number Systems',
+      key_points: [
+        'Read the question carefully',
+        'Attempt the question independently',
+        'Show your working clearly',
+        'Use the time provided',
+        'Do not discuss answers with classmates',
+      ],
+      explanation: 'Find five rational numbers between 3/4 and 4/5.',
+      speaker_notes: 'Answer: 4/5 is the greater number.',
       }],
     };
     const fetchMock = vi.fn(async (url: string) => ({
@@ -96,6 +102,13 @@ describe('Practice Questions view', () => {
     fireEvent.click(screen.getByRole('button', { name: /generate slides/i }));
 
     expect(await screen.findByText(/Question-only practice slides generated/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Student-facing question(s), one per line')).toHaveValue(
+      'Find five rational numbers between 3/4 and 4/5.',
+    );
+    expect(screen.queryByLabelText('Explanation')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Teacher speaker notes')).toHaveValue(
+      'Give students time to attempt the question independently; do not reveal a solution.',
+    );
     const prompt = JSON.parse(String(fetchMock.mock.calls[1][1].body)).messages[1].content;
     expect(prompt).toContain('absolutely no answers');
     expect(prompt).toContain('Do not include answers, solutions, hints');
@@ -135,6 +148,35 @@ describe('Practice Questions view', () => {
     const prompt = JSON.parse(String(fetchMock.mock.calls[2][1].body)).messages[1].content;
     expect(prompt).toContain('source.pdf');
     expect(prompt).toContain('Evaporation changes liquid water to vapor.');
+  });
+
+  it('accepts more than five reference files and more than sixty thousand extracted characters', async () => {
+    const files = Array.from({ length: 7 }, (_, index) =>
+      new File([`reference ${index} ${'x'.repeat(10_000)}`], `source-${index}.txt`, { type: 'text/plain' }),
+    );
+    const resources = files.map((file, index) => ({
+      name: file.name,
+      text: `reference ${index} ${'x'.repeat(10_000)}`,
+      truncated: false,
+      page_count: null,
+    }));
+    const fetchMock = vi.fn(async (_url: string, _options: RequestInit) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ resources }),
+    }) as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<Practice />);
+    fireEvent.click(screen.getByRole('tab', { name: /teach with slides/i }));
+    fireEvent.change(screen.getByLabelText(/pdfs and teaching resources/i), { target: { files } });
+
+    expect(await screen.findByText(/source-0.txt/)).toBeInTheDocument();
+    expect(screen.getByText(/source-6.txt/)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const form = fetchMock.mock.calls[0][1].body as FormData;
+    expect(form.getAll('files')).toHaveLength(7);
   });
 
   it('auto-detects a teaching deck that asks to include practice questions', async () => {
