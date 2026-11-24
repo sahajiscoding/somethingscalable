@@ -103,22 +103,21 @@ class KeyRotationTests(_FastBucket):
 
 
 class EmptyCompletionTests(_FastBucket):
-    def test_empty_completion_falls_through_to_next_model(self):
+    def test_empty_completion_does_not_switch_models(self):
         tried: list[str] = []
 
         def fake_post(url, headers=None, json=None, timeout=None, **_kw):
             tried.append(json["model"])
-            if json["model"] == engine.WHT_ENGINE_DEFAULT_MODEL:
-                return _completion("")
-            return _completion('{"ok": true}')
+            return _completion("")
 
         with mock.patch.dict(os.environ, {"KILO_API_KEY": "k"}, clear=True), \
                 mock.patch("requests.post", side_effect=fake_post):
             eng = engine.make_engine()
-            out = eng.generate_json("q", instruction="x", max_attempts=1)
+            with self.assertRaisesRegex(engine.EngineError, "Empty completion"):
+                eng.generate_json("q", instruction="x", max_attempts=1)
 
-        self.assertEqual(out, {"ok": True})
-        self.assertGreater(len(set(tried)), 1)
+        self.assertTrue(tried)
+        self.assertEqual(set(tried), {engine.WHT_ENGINE_DEFAULT_MODEL})
 
 
 class NoFakeExamTests(unittest.TestCase):
@@ -356,6 +355,20 @@ class PresentationGenerationTests(unittest.TestCase):
         self.assertIn("at least one third", generate.call_args.kwargs["instruction"])
         self.assertIn("answers and marking guidance", generate.call_args.kwargs["instruction"])
         self.assertIn("question slides", generate.call_args.kwargs["system_prompt"])
+        question_only_deck = {**self.generated, "slides": [dict(slide) for slide in self.generated["slides"]]}
+        for slide in question_only_deck["slides"]:
+            slide.pop("speaker_notes")
+        with mock.patch.object(engine.WhtEngine, "generate_json", return_value=question_only_deck) as generate:
+            response = self.client.post(
+                "/api/generate-presentation", json={**self.payload, "purpose": "question-only"}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("absolutely no answers", generate.call_args.kwargs["instruction"])
+        self.assertIn("must not include answers, solutions, hints", generate.call_args.kwargs["system_prompt"])
+        self.assertIn("include questions when required", generate.call_args.kwargs["system_prompt"])
+        notes = response.get_json()["presentation"]["slides"][0]["speaker_notes"]
+        self.assertIn("do not reveal a solution", notes)
+        self.assertNotIn("Answer:", notes)
 
     def test_teacher_pdf_and_text_resources_are_extracted_without_storage(self):
         import pymupdf
@@ -489,6 +502,7 @@ class PresentationGenerationTests(unittest.TestCase):
             "deck_title": "The Water Cycle",
             "deck_subtitle": "A connected system",
             "description": "Explain how families can conserve clean water.",
+            "purpose": "question-only",
             "resources": [{"name": "source.txt", "text": "Communities can reuse rainwater safely."}],
             "existing_slides": [
                 {"title": "Evaporation", "key_points": ["Sun warms water", "Liquid becomes vapor", "Vapor rises"]},
@@ -508,6 +522,8 @@ class PresentationGenerationTests(unittest.TestCase):
         self.assertIn("Explain how families can conserve clean water", instruction)
         self.assertIn("Evaporation", instruction)
         self.assertIn("exactly one", instruction)
+        self.assertIn("absolutely no answers", instruction)
+        self.assertIn("absolutely no answers", generate.call_args.kwargs["system_prompt"])
         self.assertIn("source_resources", instruction)
         self.assertEqual(generate.call_args.kwargs["data"]["source_resources"][0]["name"], "source.txt")
 

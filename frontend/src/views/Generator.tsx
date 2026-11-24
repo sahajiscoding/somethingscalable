@@ -315,17 +315,17 @@ export default function Generator({ modelOverride, setModelOverride, onSendToGra
                   WHT Engine Gateway
                 </span>
               </div>
-              <div className="mt-1 text-xs text-white/45">Primary model for generating questions &amp; rubrics, with automatic free-model backups:</div>
+              <div className="mt-1 text-xs text-white/45">Auto starts with Nemotron 3.5 Super VL; free backups are used only if its limit is reached:</div>
               <div className="mt-1 text-[11px] text-white/40">Free providers may retain or use prompts for training; avoid personal or confidential information.</div>
 
               <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 {[
                   {
                     id: DEFAULT_MODEL_ID,
-                    name: 'Nemotron 3.5 Super VL',
-                    tag: 'WHT Engine Gateway · Nemotron 3.5 Super VL',
+                    name: 'Auto',
+                    tag: 'WHT Engine Gateway · automatic free-model selection',
                     tagTone: 'text-mint/90',
-                    desc: 'Starts with Nemotron; switches to another free Kilo model if needed.',
+                    desc: 'Starts with Nemotron 3.5 Super VL and uses a free backup only if its limit is reached.',
                     match: (m: string) => !m.trim() || m.trim() === DEFAULT_MODEL_ID,
                   },
                 ].map(preset => {

@@ -103,26 +103,23 @@ describe('Kilo free-model client', () => {
     expect(JSON.parse(String(fetchMock.mock.calls[2][1].body)).model).toBe(KILO_FREE_TEXT_MODELS[1]);
   });
 
-  it('falls through unavailable or malformed models and relaxes JSON mode', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(reply(503, { error: 'down' }))
-      .mockResolvedValueOnce(success('not JSON'))
-      .mockResolvedValueOnce(reply(400, { error: 'unsupported response format' }))
-      .mockResolvedValueOnce(success('{"ok":true}'));
+  it('does not switch models for an unavailable selected model', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(reply(503, { error: 'temporarily unavailable' }));
     vi.stubGlobal('fetch', fetchMock);
-    const onModelUsed = vi.fn();
-    const result = await generateJsonWithKiloFree({
-      model: 'particle-ai/particle-1:free', messages: message, onModelUsed,
-    });
 
-    expect(result).toEqual({ ok: true });
-    const models = fetchMock.mock.calls.map(([, opts]) => JSON.parse(String(opts.body)).model);
-    expect(models).toEqual([
-      'particle-ai/particle-1:free', 'nvidia/nemotron-3.5-super-vl:free',
-      'baidu/ernie-5.5-flash-preview:free', 'baidu/ernie-5.5-flash-preview:free',
-    ]);
-    expect(JSON.parse(String(fetchMock.mock.calls[3][1].body))).not.toHaveProperty('response_format');
-    expect(onModelUsed).toHaveBeenCalledWith('baidu/ernie-5.5-flash-preview:free');
+    await expect(generateJsonWithKiloFree({ model: 'particle-ai/particle-1:free', messages: message }))
+      .rejects.toThrow(/temporarily unavailable/i);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).model).toBe('particle-ai/particle-1:free');
+  });
+
+  it('does not switch models for a malformed selected-model completion', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(success('not JSON'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(generateJsonWithKiloFree({ model: 'particle-ai/particle-1:free', messages: message }))
+      .rejects.toThrow(/invalid JSON/i);
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it('retries an unsupported JSON mode without that option for the same free model', async () => {
@@ -165,19 +162,19 @@ describe('Kilo free-model client', () => {
     expect(JSON.stringify(fetchMock.mock.calls)).not.toMatch(/authorization|kilo_api_key/i);
   });
 
-  it('moves to the server key when anonymous requests exceed their time budget', async () => {
+  it('does not use backups or the keyed route when the selected model request times out', async () => {
     vi.useFakeTimers();
-    const fetchMock = vi.fn((url: string, options: RequestInit): Promise<Response> => {
-      if (url === '/api/kilo-keyed') return Promise.resolve(success('{"ok":true}'));
-      return new Promise((_resolve, reject) => {
+    const fetchMock = vi.fn((_url: string, options: RequestInit): Promise<Response> =>
+      new Promise((_resolve, reject) => {
         options.signal?.addEventListener('abort', () => reject(new Error('aborted')));
-      });
-    });
+      }),
+    );
     vi.stubGlobal('fetch', fetchMock);
     const pending = generateJsonWithKiloFree({ model: KILO_FREE_TEXT_MODELS[0], messages: message });
+    const rejection = expect(pending).rejects.toThrow(/could not reach Kilo/i);
     await vi.advanceTimersByTimeAsync(120_000);
-    await expect(pending).resolves.toEqual({ ok: true });
-    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([gateway, '/api/kilo-free', '/api/kilo-keyed']);
+    await rejection;
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([gateway, '/api/kilo-free']);
   });
 
   it('shows a clear error if no server key is configured', async () => {

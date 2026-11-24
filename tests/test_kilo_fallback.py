@@ -73,15 +73,16 @@ class FallbackModelTests(unittest.TestCase):
         self.assertEqual(client.last_model, engine.KILO_FREE_TEXT_MODELS[1])
         sleep.assert_not_called()
 
-    def test_malformed_completion_rotates_instead_of_aborting(self):
+    def test_malformed_completion_does_not_switch_models(self):
         malformed = GatewayResponse(200)
         malformed._body = {"choices": [None]}
         with mock.patch.dict(os.environ, {"KILO_API_KEY": "k"}, clear=True), \
-                mock.patch("requests.post", side_effect=[malformed, GatewayResponse(200, '{"ok":true}')]) as post:
+                mock.patch("requests.post", return_value=malformed) as post:
             client = engine.WhtEngine()
-            client._chat([{"role": "user", "content": "test"}], 0.3, wall_budget=30)
-        self.assertEqual([call.kwargs["json"]["model"] for call in post.call_args_list], list(engine.KILO_FREE_TEXT_MODELS[:2]))
-        self.assertEqual(client.last_model, engine.KILO_FREE_TEXT_MODELS[1])
+            with self.assertRaisesRegex(engine.EngineError, "Malformed completion"):
+                client._chat([{"role": "user", "content": "test"}], 0.3, wall_budget=30)
+        self.assertEqual(post.call_count, 1)
+        self.assertEqual(post.call_args.kwargs["json"]["model"], engine.KILO_FREE_TEXT_MODELS[0])
 
     def test_glyph_retries_without_unsupported_json_mode(self):
         sent = []

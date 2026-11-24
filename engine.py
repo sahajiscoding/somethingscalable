@@ -606,13 +606,12 @@ class WhtEngine:
                     else:
                         payload = relaxed
             except requests.Timeout as exc:
-                last = f"Timed out on {candidate_model} (gateway took too long): {exc}"
-                continue
+                raise EngineError(f"Timed out on {candidate_model} (gateway took too long): {exc}") from exc
             except requests.RequestException as exc:
-                last = f"Network error on {candidate_model}: {exc}"
-                continue
+                raise EngineError(f"Network error on {candidate_model}: {exc}") from exc
 
             if resp.status_code == 200:
+                candidate_rate_limited = False
                 try:
                     body = resp.json()
                     choices = body.get("choices") or []
@@ -620,9 +619,8 @@ class WhtEngine:
                         choice_msg = choices[0].get("message") or {}
                         content_text = (choice_msg.get("content") or "").strip()
                         if content_text:
-                            if _parse_json(content_text)[0] is None and len(models_to_try) > 1:
-                                last = f"Non-JSON response on {candidate_model}: {content_text[:120]}"
-                                continue
+                            if _parse_json(content_text)[0] is None:
+                                raise EngineError(f"Non-JSON response on {candidate_model}: {content_text[:120]}")
                             self.last_model = candidate_model
                             return content_text
                         reasoning_text = (choice_msg.get("reasoning_content") or "").strip()
@@ -640,7 +638,9 @@ class WhtEngine:
                         try:
                             resp2 = post(payload)
                             if resp2.status_code != 200:
-                                saw_rate_limit |= resp2.status_code == 429
+                                if resp2.status_code == 429:
+                                    saw_rate_limit = True
+                                    candidate_rate_limited = True
                                 break
                             body2 = resp2.json()
                             choices2 = body2.get("choices") or []
@@ -656,11 +656,11 @@ class WhtEngine:
                                     return rt2
                         except (requests.RequestException, ValueError, KeyError, IndexError, TypeError, AttributeError):
                             break  # transient or malformed; try the next model
-                    last = f"empty completion on {candidate_model}"
-                    continue
-                except (KeyError, IndexError, TypeError, ValueError, AttributeError):
-                    last = f"malformed completion on {candidate_model}"
-                    continue
+                    if candidate_rate_limited:
+                        continue
+                    raise EngineError(f"Empty completion on {candidate_model}.")
+                except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
+                    raise EngineError(f"Malformed completion on {candidate_model}.") from exc
             elif resp.status_code in (401, 403):
                 raise EngineError(
                     f"WHT Engine AI Gateway rejected the key (HTTP {resp.status_code}). "
@@ -673,7 +673,7 @@ class WhtEngine:
                 last = f"rate limited (429) on {candidate_model}"
                 continue
             else:
-                last = f"HTTP {resp.status_code} on {candidate_model}: {resp.text[:200]}"
+                raise EngineError(f"HTTP {resp.status_code} on {candidate_model}: {resp.text[:200]}")
 
         if saw_rate_limit:
             raise EngineError(

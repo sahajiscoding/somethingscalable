@@ -177,6 +177,7 @@ export async function generateJsonWithKiloFree<T>(input: {
   }
 
   const candidates = Array.from(new Set<string>([model, ...KILO_FREE_TEXT_MODELS]));
+  let rateLimitReached = false;
   for (const candidate of candidates) {
     if (Date.now() >= anonymousDeadline) break;
     const candidatePayload = { ...payload, model: candidate };
@@ -191,9 +192,7 @@ export async function generateJsonWithKiloFree<T>(input: {
         response = await anonymousRequest(relaxed);
       }
     } catch {
-      // The same-origin server itself is unreachable. The keyed route will
-      // report that failure clearly instead of retrying it for every model.
-      break;
+      throw new KiloGatewayError('The anonymous free-model request could not reach Kilo or the app server. Check your connection and retry.');
     }
 
     const body = await response.json().catch(() => ({})) as unknown;
@@ -202,22 +201,28 @@ export async function generateJsonWithKiloFree<T>(input: {
       if (useAnonymousRelay && response.status === 401 && detail === 'Missing or invalid X-App-Secret header.') {
         throw new KiloGatewayError(detail, 401);
       }
-      // Invalid or oversized requests cannot be repaired by changing models.
-      if (response.status === 413) throw gatewayError(response.status, body, candidate);
-      continue;
+      if (response.status === 429) {
+        rateLimitReached = true;
+        continue;
+      }
+      throw gatewayError(response.status, body, candidate);
     }
     let result: { content: string; model?: string };
     let parsed: T;
     try {
       result = completion(body);
       parsed = decodeJson(result.content) as T;
-    } catch {
-      // An empty, malformed, or non-JSON completion is not a usable result.
-      // Try the next model rather than inventing a response.
-      continue;
+    } catch (error) {
+      throw error instanceof KiloGatewayError
+        ? error
+        : new KiloGatewayError('Kilo returned an unusable response. Please retry.');
     }
     input.onModelUsed?.(result.model || candidate);
     return parsed;
+  }
+
+  if (!rateLimitReached) {
+    throw new KiloGatewayError('The selected free model request did not complete. Please retry.');
   }
 
   let response: Response;
