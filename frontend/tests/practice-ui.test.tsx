@@ -109,7 +109,9 @@ describe('Practice Questions view', () => {
     expect(screen.getByLabelText('Teacher speaker notes')).toHaveValue(
       'Give students time to attempt the question independently; do not reveal a solution.',
     );
-    const prompt = JSON.parse(String(fetchMock.mock.calls[1][1].body)).messages[1].content;
+    const generationRequest = JSON.parse(String(fetchMock.mock.calls[1][1].body));
+    const prompt = generationRequest.messages[1].content;
+    expect(generationRequest.max_tokens).toBe(7500);
     expect(prompt).toContain('absolutely no answers');
     expect(prompt).toContain('Do not include answers, solutions, hints');
     expect(screen.getByRole('tab', { name: /teach with slides/i })).toHaveAttribute('aria-selected', 'true');

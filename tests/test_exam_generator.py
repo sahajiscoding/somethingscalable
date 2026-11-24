@@ -498,7 +498,7 @@ class PresentationGenerationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.get_json()["presentation"]["slides"]), 2)
         self.assertEqual(generate.call_count, 1)
-        self.assertEqual(generate.call_args.kwargs["max_tokens"], 2050)
+        self.assertEqual(generate.call_args.kwargs["max_tokens"], 3900)
 
     def test_endpoint_rejects_invalid_requests_before_calling_model(self):
         with mock.patch.object(server, "make_engine") as make:
@@ -521,7 +521,7 @@ class PresentationGenerationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.get_json()["presentation"]["slides"]), 3)
         self.assertEqual(generate.call_count, 1)
-        self.assertEqual(generate.call_args.kwargs["max_tokens"], 11950)
+        self.assertEqual(generate.call_args.kwargs["max_tokens"], 16384)
         self.assertIn("aim for 25 complete slides", generate.call_args.kwargs["instruction"])
 
     def test_additional_slide_endpoint_generates_one_slide_with_existing_deck_context(self):

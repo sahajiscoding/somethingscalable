@@ -176,6 +176,17 @@ export async function generateJsonWithKiloFree<T>(input: {
     });
   }
 
+  async function requestCandidate(body: Record<string, unknown>): Promise<Response> {
+    let response = await anonymousRequest(body);
+    // Some free routes reject JSON mode. Retry the same model without it.
+    if (response.status === 400 || response.status === 422) {
+      const relaxed: Record<string, unknown> = { ...body };
+      delete relaxed.response_format;
+      response = await anonymousRequest(relaxed);
+    }
+    return response;
+  }
+
   const candidates = Array.from(new Set<string>([model, ...KILO_FREE_TEXT_MODELS]));
   let rateLimitReached = false;
   for (const candidate of candidates) {
@@ -183,14 +194,7 @@ export async function generateJsonWithKiloFree<T>(input: {
     const candidatePayload = { ...payload, model: candidate };
     let response: Response;
     try {
-      response = await anonymousRequest(candidatePayload);
-      // Models such as Glyph Cluster do not implement JSON mode, even though
-      // they can still be prompted to return JSON as plain text.
-      if (response.status === 400 || response.status === 422) {
-        const relaxed: Record<string, unknown> = { ...candidatePayload };
-        delete relaxed.response_format;
-        response = await anonymousRequest(relaxed);
-      }
+      response = await requestCandidate(candidatePayload);
     } catch {
       throw new KiloGatewayError('The anonymous free-model request could not reach Kilo or the app server. Check your connection and retry.');
     }
@@ -211,7 +215,41 @@ export async function generateJsonWithKiloFree<T>(input: {
     let parsed: T;
     try {
       result = completion(body);
-      parsed = decodeJson(result.content) as T;
+      try {
+        parsed = decodeJson(result.content) as T;
+      } catch (error) {
+        if (!(error instanceof KiloGatewayError) || !/incomplete JSON/i.test(error.message)) throw error;
+
+        // A capped free-model completion can be cut off mid-JSON. Retry only
+        // the same model once, with more output budget and a concise restart
+        // instruction. Model backups remain reserved for actual rate limits.
+        const currentMaxTokens = Number(candidatePayload.max_tokens) || 2048;
+        const retryPayload = {
+          ...candidatePayload,
+          max_tokens: Math.min(16384, Math.max(currentMaxTokens + 1024, currentMaxTokens * 2)),
+          messages: [
+            ...input.messages,
+            { role: 'assistant' as const, content: result.content },
+            { role: 'user' as const, content: 'Your previous JSON response was cut off. Restart and return the complete requested JSON object from the beginning. Keep every field concise and do not add commentary.' },
+          ],
+        };
+        const retryResponse = await requestCandidate(retryPayload);
+        const retryBody = await retryResponse.json().catch(() => ({})) as unknown;
+        if (retryResponse.status === 429) {
+          rateLimitReached = true;
+          continue;
+        }
+        if (!retryResponse.ok) throw gatewayError(retryResponse.status, retryBody, candidate);
+        result = completion(retryBody);
+        try {
+          parsed = decodeJson(result.content) as T;
+        } catch (retryError) {
+          if (retryError instanceof KiloGatewayError && /incomplete JSON/i.test(retryError.message)) {
+            throw new KiloGatewayError('The free model response was truncated twice. Try fewer slides or a smaller source file.');
+          }
+          throw retryError;
+        }
+      }
     } catch (error) {
       throw error instanceof KiloGatewayError
         ? error
