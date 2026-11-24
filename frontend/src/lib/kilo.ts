@@ -105,13 +105,37 @@ function gatewayError(status: number, body: unknown, model: string): KiloGateway
   return new KiloGatewayError(errorDetail(body) || `Kilo free-model request failed (HTTP ${status}).`, status);
 }
 
+function contentText(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (Array.isArray(value)) {
+    return value.map(part => {
+      if (typeof part === 'string') return part;
+      if (typeof part === 'object' && part !== null && 'text' in part) {
+        const text = (part as { text?: unknown }).text;
+        return typeof text === 'string' ? text : '';
+      }
+      return '';
+    }).filter(Boolean).join('\n').trim();
+  }
+  if (typeof value === 'object' && value !== null && 'text' in value) {
+    const text = (value as { text?: unknown }).text;
+    return typeof text === 'string' ? text.trim() : '';
+  }
+  return '';
+}
+
 function completion(body: unknown): { content: string; model?: string } {
   const data = body as {
     model?: unknown;
-    choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+    choices?: Array<{
+      text?: unknown;
+      message?: { content?: unknown; reasoning_content?: unknown; refusal?: unknown };
+    }>;
   } | null;
-  const choice = data?.choices?.[0]?.message;
-  const content = choice?.content?.trim() || choice?.reasoning_content?.trim();
+  const choice = data?.choices?.[0];
+  const message = choice?.message;
+  const content = contentText(message?.content) || contentText(message?.reasoning_content) ||
+    contentText(message?.refusal) || contentText(choice?.text);
   if (!content) throw new KiloGatewayError('Kilo returned an empty response. Please retry.');
   return { content, model: typeof data?.model === 'string' ? data.model : undefined };
 }
@@ -213,34 +237,78 @@ export async function generateJsonWithKiloFree<T>(input: {
     }
     let result: { content: string; model?: string };
     let parsed: T;
+    let retryAttempted = false;
+
+    async function retrySameModel(partialContent?: string): Promise<{ content: string; model?: string } | null> {
+      const currentMaxTokens = Number(candidatePayload.max_tokens) || 2048;
+      let retryMessages: KiloMessage[];
+      if (partialContent) {
+        retryMessages = [
+          ...input.messages,
+          { role: 'assistant', content: partialContent },
+          { role: 'user', content: 'Your previous JSON response was cut off. Restart and return the complete requested JSON object from the beginning. Keep every field concise and do not add commentary.' },
+        ];
+      } else {
+        let lastUserIndex = -1;
+        for (let index = input.messages.length - 1; index >= 0; index--) {
+          if (input.messages[index].role === 'user') {
+            lastUserIndex = index;
+            break;
+          }
+        }
+        const retryReminder = 'The previous response was empty. Return the complete requested JSON object now, with concise fields and no commentary.';
+        retryMessages = input.messages.map((message, index) => index === lastUserIndex
+          ? { ...message, content: `${message.content}\n\n${retryReminder}` }
+          : message);
+      }
+      const retryPayload = {
+        ...candidatePayload,
+        max_tokens: Math.min(16384, Math.max(currentMaxTokens + 1024, currentMaxTokens * 2)),
+        messages: retryMessages,
+      };
+      const retryResponse = await requestCandidate(retryPayload);
+      const retryBody = await retryResponse.json().catch(() => ({})) as unknown;
+      if (retryResponse.status === 429) {
+        rateLimitReached = true;
+        return null;
+      }
+      if (!retryResponse.ok) throw gatewayError(retryResponse.status, retryBody, candidate);
+      try {
+        return completion(retryBody);
+      } catch (error) {
+        if (error instanceof KiloGatewayError && /empty response/i.test(error.message)) {
+          throw new KiloGatewayError('Kilo returned an empty response twice. Please retry or select another model.');
+        }
+        throw error;
+      }
+    }
+
     try {
-      result = completion(body);
+      try {
+        result = completion(body);
+      } catch (error) {
+        if (!(error instanceof KiloGatewayError) || !/empty response/i.test(error.message)) throw error;
+        retryAttempted = true;
+        const retryResult = await retrySameModel();
+        if (!retryResult) continue;
+        result = retryResult;
+      }
+
       try {
         parsed = decodeJson(result.content) as T;
       } catch (error) {
         if (!(error instanceof KiloGatewayError) || !/incomplete JSON/i.test(error.message)) throw error;
+        if (retryAttempted) {
+          throw new KiloGatewayError('Kilo returned an empty or incomplete response after retrying the selected model. Please try again.');
+        }
 
         // A capped free-model completion can be cut off mid-JSON. Retry only
         // the same model once, with more output budget and a concise restart
         // instruction. Model backups remain reserved for actual rate limits.
-        const currentMaxTokens = Number(candidatePayload.max_tokens) || 2048;
-        const retryPayload = {
-          ...candidatePayload,
-          max_tokens: Math.min(16384, Math.max(currentMaxTokens + 1024, currentMaxTokens * 2)),
-          messages: [
-            ...input.messages,
-            { role: 'assistant' as const, content: result.content },
-            { role: 'user' as const, content: 'Your previous JSON response was cut off. Restart and return the complete requested JSON object from the beginning. Keep every field concise and do not add commentary.' },
-          ],
-        };
-        const retryResponse = await requestCandidate(retryPayload);
-        const retryBody = await retryResponse.json().catch(() => ({})) as unknown;
-        if (retryResponse.status === 429) {
-          rateLimitReached = true;
-          continue;
-        }
-        if (!retryResponse.ok) throw gatewayError(retryResponse.status, retryBody, candidate);
-        result = completion(retryBody);
+        retryAttempted = true;
+        const retryResult = await retrySameModel(result.content);
+        if (!retryResult) continue;
+        result = retryResult;
         try {
           parsed = decodeJson(result.content) as T;
         } catch (retryError) {
