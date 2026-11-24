@@ -12,6 +12,7 @@ AI never wrote. These tests lock in the replacement behaviour:
 import json
 import os
 import unittest
+from io import BytesIO
 from unittest import mock
 
 import engine
@@ -356,6 +357,40 @@ class PresentationGenerationTests(unittest.TestCase):
         self.assertIn("answers and marking guidance", generate.call_args.kwargs["instruction"])
         self.assertIn("question slides", generate.call_args.kwargs["system_prompt"])
 
+    def test_teacher_pdf_and_text_resources_are_extracted_without_storage(self):
+        import pymupdf
+
+        pdf = pymupdf.open()
+        page = pdf.new_page()
+        page.insert_text((72, 72), "The water cycle includes evaporation and condensation.")
+        pdf_bytes = pdf.tobytes()
+        pdf.close()
+        response = self.client.post(
+            "/api/presentation-resources",
+            data={"files": [
+                (BytesIO(pdf_bytes), "lesson-source.pdf"),
+                (BytesIO(b"Teacher notes about precipitation."), "notes.txt"),
+            ]},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 200)
+        resources = response.get_json()["resources"]
+        self.assertEqual([item["name"] for item in resources], ["lesson-source.pdf", "notes.txt"])
+        self.assertEqual(resources[0]["page_count"], 1)
+        self.assertIn("evaporation", resources[0]["text"].lower())
+        self.assertIn("precipitation", resources[1]["text"])
+
+    def test_uploaded_resources_are_passed_as_untrusted_source_data_to_slide_model(self):
+        resources = [{"name": "notes.txt", "text": "Plants use light energy to make glucose."}]
+        with mock.patch.object(engine.WhtEngine, "generate_json", return_value=self.generated) as generate:
+            response = self.client.post(
+                "/api/generate-presentation", json={**self.payload, "resources": resources}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(generate.call_args.kwargs["data"]["source_resources"][0]["name"], "notes.txt")
+        self.assertEqual(generate.call_args.kwargs["data"]["source_resources"][0]["text"], resources[0]["text"])
+        self.assertIn("untrusted reference material", generate.call_args.kwargs["instruction"])
+
     def test_free_book_research_route_never_calls_the_model_and_skips_generic_topics(self):
         with mock.patch.object(server, "search_book", return_value=[]) as lookup, mock.patch.object(server, "make_engine") as make:
             generic = self.client.post(
@@ -430,13 +465,13 @@ class PresentationGenerationTests(unittest.TestCase):
     def test_endpoint_accepts_shorter_deck_when_many_slides_are_requested(self):
         with mock.patch.object(engine.WhtEngine, "generate_json", return_value=self.generated) as generate:
             response = self.client.post(
-                "/api/generate-presentation", json={**self.payload, "slide_count": 15}
+                "/api/generate-presentation", json={**self.payload, "slide_count": 25}
             )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.get_json()["presentation"]["slides"]), 3)
         self.assertEqual(generate.call_count, 1)
-        self.assertEqual(generate.call_args.kwargs["max_tokens"], 7450)
-        self.assertIn("aim for 15 complete slides", generate.call_args.kwargs["instruction"])
+        self.assertEqual(generate.call_args.kwargs["max_tokens"], 11950)
+        self.assertIn("aim for 25 complete slides", generate.call_args.kwargs["instruction"])
 
     def test_additional_slide_endpoint_generates_one_slide_with_existing_deck_context(self):
         new_slide = {
@@ -454,10 +489,14 @@ class PresentationGenerationTests(unittest.TestCase):
             "deck_title": "The Water Cycle",
             "deck_subtitle": "A connected system",
             "description": "Explain how families can conserve clean water.",
-            "existing_slides": [{
-                "title": "Evaporation",
-                "key_points": ["Sun warms water", "Liquid becomes vapor", "Vapor rises"],
-            }],
+            "resources": [{"name": "source.txt", "text": "Communities can reuse rainwater safely."}],
+            "existing_slides": [
+                {"title": "Evaporation", "key_points": ["Sun warms water", "Liquid becomes vapor", "Vapor rises"]},
+                *[{
+                    "title": f"Existing slide {index}",
+                    "key_points": ["A key point", "Another point", "A final point"],
+                } for index in range(2, 19)],
+            ],
         }
         with mock.patch.object(engine.WhtEngine, "generate_json", return_value=new_slide) as generate:
             response = self.client.post("/api/generate-presentation-slide", json=payload)
@@ -469,6 +508,8 @@ class PresentationGenerationTests(unittest.TestCase):
         self.assertIn("Explain how families can conserve clean water", instruction)
         self.assertIn("Evaporation", instruction)
         self.assertIn("exactly one", instruction)
+        self.assertIn("source_resources", instruction)
+        self.assertEqual(generate.call_args.kwargs["data"]["source_resources"][0]["name"], "source.txt")
 
     def test_additional_slide_endpoint_rejects_vague_descriptions_before_model_call(self):
         with mock.patch.object(server, "make_engine") as make:

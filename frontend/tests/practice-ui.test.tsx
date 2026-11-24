@@ -65,6 +65,41 @@ describe('Practice Questions view', () => {
     expect(request.messages[1].content).toContain('Teacher-specified textbook reference: Ganita Manjari Part 1 and 2');
   });
 
+  it('uses uploaded PDF reference text when generating the slide deck', async () => {
+    const resources = [{ name: 'source.pdf', text: 'Evaporation changes liquid water to vapor.', truncated: false, page_count: 1 }];
+    const slides = Array.from({ length: 3 }, (_, index) => ({
+      title: `Water cycle ${index + 1}`,
+      key_points: ['Water changes state.', 'The Sun supplies energy.', 'Water returns as precipitation.'],
+      explanation: 'An explanation grounded in the source.',
+      speaker_notes: 'Teacher reference: source.pdf.',
+    }));
+    const fetchMock = vi.fn(async (url: string) => ({
+      ok: true,
+      status: 200,
+      json: async () => url === '/api/presentation-resources'
+        ? { resources }
+        : url === '/api/research-book'
+          ? { book_research: null }
+          : { choices: [{ message: { content: JSON.stringify({ status: 'ok', title: 'Water Cycle', subtitle: 'From the source', slides }) } }] },
+    }) as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<Practice model="" />);
+    fireEvent.click(screen.getByRole('tab', { name: /teach with slides/i }));
+    const file = new File(['Evaporation changes liquid water to vapor.'], 'source.pdf', { type: 'application/pdf' });
+    fireEvent.change(screen.getByLabelText(/pdfs and teaching resources/i), { target: { files: [file] } });
+    expect(await screen.findByText(/source.pdf/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/topic and learning focus/i), {
+      target: { value: 'Explain the water cycle to students' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /generate slides/i }));
+
+    expect(await screen.findByLabelText('Slide 1 title')).toHaveValue('Water cycle 1');
+    const prompt = JSON.parse(String(fetchMock.mock.calls[2][1].body)).messages[1].content;
+    expect(prompt).toContain('source.pdf');
+    expect(prompt).toContain('Evaporation changes liquid water to vapor.');
+  });
+
   it('auto-detects a teaching deck that asks to include practice questions', async () => {
     const slides = Array.from({ length: 3 }, (_, index) => ({
       title: `Photosynthesis ${index + 1}`,
@@ -129,13 +164,14 @@ describe('Practice Questions view', () => {
       'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'Class 7', 'Class 8', 'Class 9', 'College',
     ]);
     expect(audience).toHaveProperty('value', 'Class 9');
+    expect(screen.getByLabelText(/content slides/i)).not.toHaveAttribute('max');
     fireEvent.change(screen.getByLabelText(/topic and learning focus/i), {
       target: { value: 'Explain the water cycle for learners' },
     });
     fireEvent.change(screen.getByLabelText(/textbook or syllabus reference/i), {
       target: { value: 'Ganita Manjari Part 1' },
     });
-    fireEvent.change(screen.getByLabelText(/lesson content slides/i), { target: { value: '3' } });
+    fireEvent.change(screen.getByLabelText(/content slides/i), { target: { value: '3' } });
     fireEvent.click(screen.getByRole('button', { name: /generate slides/i }));
 
     expect(await screen.findByLabelText('Slide 1 title')).toHaveProperty('value', 'Concept 1');
