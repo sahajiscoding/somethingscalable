@@ -5,7 +5,7 @@ from PIL import Image
 
 from engine import MockEngine
 from extract import AlignedQuestion
-from grade import GradeParams, normalise_record, recheck_one_record
+from grade import GradeParams, build_prompt, build_recheck_prompt, normalise_record, recheck_one_record
 from server import _student_page_previews, app
 
 
@@ -69,6 +69,53 @@ class StepGradingTests(unittest.TestCase):
         # Step 3 line had no crop_id; matcher should resolve it to p2c4 by latex match
         self.assertEqual(rec["steps"][2]["lines"][0]["crop_id"], "p2c4")
         self.assertEqual(rec["steps"][2]["lines"][0]["error_tag"], "Result Error")
+
+    def test_concept_error_tags_point_to_the_false_claim_not_a_true_observation(self):
+        question = AlignedQuestion(
+            number="2",
+            question="Is 5x^3 + 2x - 7 a polynomial? Explain.",
+            max_marks=2.0,
+            expected_answer="Yes. Negative constants and coefficients are allowed.",
+            student_answer=(
+                "Constant is negative (-7)\n"
+                "Polynomials should have only positive terms\n"
+                "It is not a polynomial"
+            ),
+            page=1,
+            geometry=[
+                {"crop_id": "p1c1", "page": 1, "rect": [0.2, 0.2, 0.3, 0.04], "latex": "Constant is negative (-7)"},
+                {"crop_id": "p1c2", "page": 1, "rect": [0.2, 0.25, 0.4, 0.04], "latex": "Polynomials should have only positive terms"},
+                {"crop_id": "p1c3", "page": 1, "rect": [0.2, 0.3, 0.25, 0.04], "latex": "It is not a polynomial"},
+            ],
+        )
+        raw_item = {
+            "number": "2",
+            "max_marks": 2.0,
+            "marks_awarded": 0.0,
+            "deductions": [{"category": "content", "marks": 2.0, "reason": "The claim that polynomials require only positive terms is a conceptual error."}],
+            "feedback": "Negative constants are valid in polynomials.",
+            "steps": [{
+                "title": "Check polynomial definition",
+                "status": "correct",
+                "lines": [
+                    {"crop_id": "p1c1", "text": "Constant is negative (-7)", "ok": True, "error_tag": ""},
+                    {"crop_id": "p1c2", "text": "Polynomials should have only positive terms", "ok": False, "error_tag": ""},
+                ],
+                "explanation": "Conceptual misconception: the positive-terms rule is false; negative constants are allowed.",
+            }],
+        }
+        record = normalise_record(raw_item, question, GradeParams())
+        self.assertEqual(record["steps"][0]["status"], "error")
+        lines = record["steps"][0]["lines"]
+        self.assertTrue(lines[0]["ok"])
+        self.assertEqual(lines[0]["error_tag"], "")
+        self.assertEqual(lines[1]["crop_id"], "p1c2")
+        self.assertEqual(lines[1]["error_tag"], "Concept Error")
+        for prompt in (build_prompt(GradeParams()), build_recheck_prompt(GradeParams())):
+            prompt = " ".join(prompt.split())
+            self.assertIn("true observation", prompt)
+            self.assertIn("Polynomials should have only positive terms", prompt)
+            self.assertIn("crop_id", prompt)
 
     def test_synthesizes_fallback_steps_when_model_omits_steps(self):
         q = self._sample_question()

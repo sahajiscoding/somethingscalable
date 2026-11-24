@@ -65,6 +65,29 @@ interface CalloutPin {
   latex: string;
 }
 
+function errorTagForLine(
+  question: ReviewQuestionVM,
+  step: GradeStep,
+  line: GradeStep['lines'][number],
+): string {
+  const explicit = line.error_tag?.trim();
+  if (explicit) return explicit;
+  if (line.ok || step.lines.find(candidate => !candidate.ok) !== line) return '';
+
+  const context = `${step.explanation?.trim() || question.body?.trim() || ''} ${line.text || ''}`.toLowerCase();
+  if (/concept|misconception|misunderstand|definition|principle|false rule|incorrect rule|belief|assumption/.test(context)) {
+    return 'Concept Error';
+  }
+  if (/sign error|wrong sign/.test(context)) return 'Sign Error';
+  if (/calculat|arithmetic|substitut|multipli|divid|addition|subtract|evaluat/.test(context)) {
+    return 'Calculation Error';
+  }
+  if (/missing root|omitted root|forgot the root/.test(context)) return 'Missing Root';
+  if (/missing|omitted|incomplete/.test(context)) return 'Incomplete Step';
+  if (/result|conclusion|final answer|therefore|hence/.test(context)) return 'Result Error';
+  return 'Concept Error';
+}
+
 interface DualPaneReviewProps {
   vm: DualPaneResultsVM;
   onUpdateQuestion: (
@@ -173,10 +196,7 @@ export default function DualPaneReview({
 
       (q.steps || []).forEach((step, sIdx) => {
         for (const ln of step.lines || []) {
-          if (ln.ok && !ln.error_tag) continue;
-          const tag =
-            ln.error_tag ||
-            (step.status === 'error' ? 'Calculation Error' : '');
+          const tag = errorTagForLine(q, step, ln);
           if (!tag) continue;
 
           const cid = ln.crop_id || '';
@@ -217,9 +237,11 @@ export default function DualPaneReview({
     if (key in collapsedSteps) {
       return !collapsedSteps[key];
     }
-    // Default: error steps expanded; correct steps collapsed if the question has error steps
-    const hasErrors = q.steps.some(s => s.status === 'error');
-    return step.status === 'error' || !hasErrors;
+    // Default: any step containing an incorrect line is expanded; correct steps
+    // collapse when the question has at least one error to focus review.
+    const stepHasErrors = step.status === 'error' || step.lines.some(line => !line.ok || Boolean(line.error_tag));
+    const hasErrors = q.steps.some(s => s.status === 'error' || s.lines.some(line => !line.ok || Boolean(line.error_tag)));
+    return stepHasErrors || !hasErrors;
   };
 
   const toggleStep = (q: ReviewQuestionVM, step: GradeStep, sIdx: number) => {
@@ -786,7 +808,7 @@ export default function DualPaneReview({
                     <div className="grid gap-3">
                       {activeQuestion.steps.map((step, sIdx) => {
                         const expanded = isStepExpanded(activeQuestion, step, sIdx);
-                        const isErr = step.status === 'error';
+                        const isErr = step.status === 'error' || step.lines.some(line => !line.ok || Boolean(line.error_tag));
                         const primaryCropId = step.lines.find(l => l.crop_id)?.crop_id;
 
                         return (
@@ -825,6 +847,7 @@ export default function DualPaneReview({
                               {expanded && (
                                 <div className="space-y-2 border-t border-white/8 px-3.5 pt-2.5 pb-3">
                                   {step.lines.map((ln, lIdx) => {
+                                    const errorTag = errorTagForLine(activeQuestion, step, ln);
                                     const isFocused =
                                       Boolean(ln.crop_id) && activeCropId === ln.crop_id;
                                     return (
@@ -841,9 +864,9 @@ export default function DualPaneReview({
                                       >
                                         <span className=" italic tracking-wide">{ln.text}</span>
                                         <div className="flex items-center gap-2">
-                                          {ln.error_tag && (
+                                          {errorTag && (
                                             <span className="rounded bg-crimson/20 px-1.5 py-0.5 font-sans text-[10px] font-bold text-[#ffcfcf]">
-                                              {ln.error_tag}
+                                              {errorTag}
                                             </span>
                                           )}
                                           <span

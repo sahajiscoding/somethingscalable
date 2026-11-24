@@ -357,7 +357,13 @@ class PresentationGenerationTests(unittest.TestCase):
         self.assertIn("question slides", generate.call_args.kwargs["system_prompt"])
         question_only_deck = {**self.generated, "slides": [dict(slide) for slide in self.generated["slides"]]}
         for slide in question_only_deck["slides"]:
-            slide.pop("speaker_notes")
+            slide["key_points"] = [
+                "Read the question carefully", "Attempt the question independently",
+                "Show your working clearly", "Use the time provided",
+                "Do not discuss answers with classmates",
+            ]
+            slide["explanation"] = "Find five rational numbers between 3/4 and 4/5."
+            slide["speaker_notes"] = "Answer: this must never appear in a question-only deck."
         with mock.patch.object(engine.WhtEngine, "generate_json", return_value=question_only_deck) as generate:
             response = self.client.post(
                 "/api/generate-presentation", json={**self.payload, "purpose": "question-only"}
@@ -366,9 +372,12 @@ class PresentationGenerationTests(unittest.TestCase):
         self.assertIn("absolutely no answers", generate.call_args.kwargs["instruction"])
         self.assertIn("must not include answers, solutions, hints", generate.call_args.kwargs["system_prompt"])
         self.assertIn("include questions when required", generate.call_args.kwargs["system_prompt"])
-        notes = response.get_json()["presentation"]["slides"][0]["speaker_notes"]
-        self.assertIn("do not reveal a solution", notes)
-        self.assertNotIn("Answer:", notes)
+        result_slide = response.get_json()["presentation"]["slides"][0]
+        self.assertEqual(result_slide["key_points"], ["Find five rational numbers between 3/4 and 4/5."])
+        self.assertEqual(result_slide["explanation"], "")
+        self.assertIn("do not reveal a solution", result_slide["speaker_notes"])
+        self.assertNotIn("Answer:", result_slide["speaker_notes"])
+        self.assertEqual(response.get_json()["presentation"]["purpose"], "question-only")
 
     def test_teacher_pdf_and_text_resources_are_extracted_without_storage(self):
         import pymupdf
@@ -392,6 +401,35 @@ class PresentationGenerationTests(unittest.TestCase):
         self.assertEqual(resources[0]["page_count"], 1)
         self.assertIn("evaporation", resources[0]["text"].lower())
         self.assertIn("precipitation", resources[1]["text"])
+
+    def test_resource_extraction_accepts_more_than_five_files_and_over_sixty_thousand_chars(self):
+        files = [
+            (BytesIO((f"Resource {index} " + "x" * 9990).encode()), f"source-{index}.txt")
+            for index in range(7)
+        ]
+        response = self.client.post(
+            "/api/presentation-resources",
+            data={"files": files},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 200)
+        resources = response.get_json()["resources"]
+        self.assertEqual(len(resources), 7)
+        self.assertGreater(sum(len(resource["text"]) for resource in resources), 60_000)
+
+    def test_many_large_extracted_resources_are_accepted_without_aggregate_cap(self):
+        resources = [
+            {"name": f"source-{index}.txt", "text": (f"resource {index} " + "x" * 9990)}
+            for index in range(7)
+        ]
+        with mock.patch.object(engine.WhtEngine, "generate_json", return_value=self.generated) as generate:
+            response = self.client.post(
+                "/api/generate-presentation", json={**self.payload, "resources": resources}
+            )
+        self.assertEqual(response.status_code, 200)
+        passed_resources = generate.call_args.kwargs["data"]["source_resources"]
+        self.assertEqual(len(passed_resources), 7)
+        self.assertGreater(sum(len(resource["text"]) for resource in passed_resources), 60_000)
 
     def test_uploaded_resources_are_passed_as_untrusted_source_data_to_slide_model(self):
         resources = [{"name": "notes.txt", "text": "Plants use light energy to make glucose."}]
@@ -491,9 +529,9 @@ class PresentationGenerationTests(unittest.TestCase):
             "status": "ok",
             "slide": {
                 "title": "Saving Water at Home",
-                "key_points": ["Fix leaks", "Use less water", "Reuse where safe"],
-                "explanation": "Small changes at home can conserve water.",
-                "speaker_notes": "Ask learners which change they can try this week.",
+                "key_points": ["Read the question carefully", "Attempt the question", "Show your working"],
+                "explanation": "Find the amount of water saved by fixing a leaking tap for one week.",
+                "speaker_notes": "Answer: 10 litres.",
             },
         }
         payload = {
@@ -516,7 +554,12 @@ class PresentationGenerationTests(unittest.TestCase):
             response = self.client.post("/api/generate-presentation-slide", json=payload)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()["slide"]["title"], "Saving Water at Home")
+        result_slide = response.get_json()["slide"]
+        self.assertEqual(result_slide["title"], "Saving Water at Home")
+        self.assertEqual(result_slide["key_points"], ["Find the amount of water saved by fixing a leaking tap for one week."])
+        self.assertEqual(result_slide["explanation"], "")
+        self.assertIn("do not reveal a solution", result_slide["speaker_notes"])
+        self.assertNotIn("10 litres", result_slide["speaker_notes"])
         self.assertEqual(generate.call_args.args[0], "generate_presentation_slide")
         instruction = generate.call_args.kwargs["instruction"]
         self.assertIn("Explain how families can conserve clean water", instruction)

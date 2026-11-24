@@ -199,8 +199,8 @@ export const QUESTIONS: DemoQuestion[] = [
         title: 'Step 1: Check polynomial definition',
         status: 'error',
         lines: [
-          { crop_id: 'p2c1', text: 'Constant is negative (-7)', ok: false, error_tag: 'Concept Error' },
-          { crop_id: 'p2c2', text: 'Polynomials should have only positive terms', ok: false, error_tag: '' },
+          { crop_id: 'p2c1', text: 'Constant is negative (-7)', ok: true, error_tag: '' },
+          { crop_id: 'p2c2', text: 'Polynomials should have only positive terms', ok: false, error_tag: 'Concept Error' },
         ],
         explanation: 'Conceptual misconception: polynomial terms only require non-negative integer exponents on variables; negative coefficients or constants (-7) are completely valid.',
       },

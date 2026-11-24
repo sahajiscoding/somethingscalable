@@ -33,6 +33,26 @@ describe('editable PowerPoint export', () => {
     expect(notes).toContain('Ask for examples of evaporation.');
   });
 
+  it('keeps question-only explanations out of slide content and speaker notes', async () => {
+    const blob = await buildEditablePresentation({
+      ...sampleDeck,
+      purpose: 'question-only',
+      slides: [{
+        title: 'Number Systems',
+        key_points: ['Find five rational numbers between 3/4 and 4/5.'],
+        explanation: 'Answer: 4/5 is greater.',
+        speaker_notes: 'Give students time to attempt the question independently; do not reveal a solution.',
+      }],
+    });
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const slide = await zip.file('ppt/slides/slide2.xml')!.async('text');
+    const notes = await zip.file('ppt/notesSlides/notesSlide2.xml')!.async('text');
+    expect(slide).toContain('Find five rational numbers between 3/4 and 4/5.');
+    expect(slide).not.toContain('Answer: 4/5 is greater.');
+    expect(notes).toContain('Give students time to attempt the question independently');
+    expect(notes).not.toContain('Answer: 4/5 is greater.');
+  });
+
   it('refuses to export a deck with no slides', async () => {
     await expect(buildEditablePresentation({ ...sampleDeck, slides: [] })).rejects.toThrow(/at least one slide/i);
   });
