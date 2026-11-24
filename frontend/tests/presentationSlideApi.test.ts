@@ -33,6 +33,7 @@ describe('AI-generated additional lesson slides', () => {
       deckSubtitle: 'A connected system',
       description: 'Explain how families can conserve clean water.',
       existingSlides: previousSlides,
+      purpose: 'question-only',
     });
 
     expect(result.slide).toEqual(newSlide);
@@ -42,6 +43,8 @@ describe('AI-generated additional lesson slides', () => {
     const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
     expect(body.messages[1].content).toContain('Explain how families can conserve clean water');
     expect(body.messages[1].content).toContain('Evaporation');
+    expect(body.messages[0].content).toContain('absolutely no answers');
+    expect(body.messages[1].content).toContain('Do not include answers');
     expect(JSON.stringify(fetchMock.mock.calls[0][1])).not.toMatch(/authorization|kilo_api_key/i);
   });
 
@@ -64,6 +67,7 @@ describe('AI-generated additional lesson slides', () => {
       description: 'Explain how families can conserve clean water.',
       existingSlides: manySlides,
       model: 'provider/paid-model',
+      purpose: 'question-only',
       resources: [{ name: 'source.txt', text: 'Water is continuously recycled.' }],
     });
 
@@ -73,5 +77,6 @@ describe('AI-generated additional lesson slides', () => {
     expect(body.existing_slides).toHaveLength(20);
     expect(body.existing_slides[0].title).toBe('Existing slide 6');
     expect(body.resources[0].name).toBe('source.txt');
+    expect(body.purpose).toBe('question-only');
   });
 });

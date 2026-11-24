@@ -65,6 +65,43 @@ describe('Practice Questions view', () => {
     expect(request.messages[1].content).toContain('Teacher-specified textbook reference: Ganita Manjari Part 1 and 2');
   });
 
+  it('creates question-only practice slides without putting answers in the prompt notes guidance', async () => {
+    const deck = {
+      status: 'ok',
+      title: 'Fractions Practice',
+      subtitle: 'Questions only',
+      slides: [{
+        title: 'Question 1: Compare fractions',
+        key_points: ['Compare 3/4 and 5/8.', 'Show your working.', 'State which fraction is greater.'],
+        explanation: 'Practice question only.',
+        speaker_notes: 'Give students time to solve independently.',
+      }],
+    };
+    const fetchMock = vi.fn(async (url: string) => ({
+      ok: true,
+      status: 200,
+      json: async () => url === '/api/research-book'
+        ? { book_research: null }
+        : { choices: [{ message: { content: JSON.stringify(deck) } }] },
+    }) as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<Practice model="" />);
+    fireEvent.click(screen.getByRole('tab', { name: /teach with slides/i }));
+    const style = screen.getByLabelText(/slide style/i);
+    expect(within(style).getByRole('option', { name: /questions only \(no answers anywhere\)/i })).toHaveValue('question-only');
+    fireEvent.change(screen.getByLabelText(/topic and learning focus/i), {
+      target: { value: 'Practice questions on fractions, questions only without answers' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /generate slides/i }));
+
+    expect(await screen.findByText(/Question-only practice slides generated/i)).toBeInTheDocument();
+    const prompt = JSON.parse(String(fetchMock.mock.calls[1][1].body)).messages[1].content;
+    expect(prompt).toContain('absolutely no answers');
+    expect(prompt).toContain('Do not include answers, solutions, hints');
+    expect(screen.getByRole('tab', { name: /teach with slides/i })).toHaveAttribute('aria-selected', 'true');
+  });
+
   it('uses uploaded PDF reference text when generating the slide deck', async () => {
     const resources = [{ name: 'source.pdf', text: 'Evaporation changes liquid water to vapor.', truncated: false, page_count: 1 }];
     const slides = Array.from({ length: 3 }, (_, index) => ({

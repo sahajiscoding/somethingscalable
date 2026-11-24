@@ -1565,26 +1565,18 @@ export default function Grading(props: GradingProps) {
                 Fast Direct Mode
               </span>
             </div>
-            <div className="mt-1 text-xs text-white/45">Nemotron 3.5 Super VL is primary; compatible free backups are used when needed:</div>
+            <div className="mt-1 text-xs text-white/45">Auto selects Nemotron 3.5 Super VL first; free backups are used only when its limit is reached:</div>
             <div className="mt-1 text-[11px] text-white/40">Free providers may retain or use submissions for training; remove personal or confidential information.</div>
 
             <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               {[
                 {
-                  id: '',
-                  name: 'WHT Engine Auto',
-                  tag: 'WHT Engine Gateway · Auto-select model',
-                  tagTone: 'text-mint/90',
-                  desc: "Let WHT Engine pick the best model for your paper (no model override sent).",
-                  match: (m: string) => !m.trim() || m === 'wht-engine-auto',
-                },
-                {
                   id: DEFAULT_MODEL_ID,
-                  name: 'Nemotron 3.5 Super VL',
-                  tag: 'WHT Engine Gateway · Nemotron 3.5 Super VL',
+                  name: 'Auto',
+                  tag: 'WHT Engine Gateway · automatic free-model selection',
                   tagTone: 'text-mint/90',
-                  desc: 'Vision-capable model for OCR and grading; switches to compatible free backups if needed.',
-                  match: (m: string) => m.trim() === DEFAULT_MODEL_ID,
+                  desc: 'Starts with Nemotron 3.5 Super VL and uses a free backup only if its limit is reached.',
+                  match: (m: string) => !m.trim() || m.trim() === DEFAULT_MODEL_ID,
                 },
               ].map(preset => {
                 const active = preset.match(modelOverride);
@@ -1623,21 +1615,6 @@ export default function Grading(props: GradingProps) {
               })}
             </div>
 
-            <div className="mt-3">
-              <label htmlFor="modelId" className="block text-[11.5px] text-white/60">
-                Custom Model ID <span className="text-white/35">(any model on the WHT Engine AI Gateway)</span>:
-              </label>
-              <input
-                type="text"
-                id="modelId"
-                value={modelOverride}
-                onChange={e => setModelOverride(e.target.value)}
-                placeholder="nvidia/nemotron-3.5-super-vl:free"
-                autoComplete="off"
-                aria-label="Model id override"
-                className="mt-1 w-full rounded-[8px] border border-white/20 bg-black/30 px-3 py-2 text-xs text-white outline-none focus:border-mint focus:shadow-[0_0_0_3px_rgba(129,199,132,.25)]"
-              />
-            </div>
 
             <div className="mt-2.5 flex items-center gap-2.5 text-[13px]">
               <label
@@ -1664,7 +1641,7 @@ export default function Grading(props: GradingProps) {
               {!backend.ok
                 ? '○ No live backend (offline demo mode). Deploy with `vercel` to enable AI grading.'
                 : backend.hasKey
-                  ? `● Live backend connected (Active: ${modelOverride.trim() || 'WHT Engine Auto (gateway default)'}).`
+                  ? `● Live backend connected (Active: Auto).`
                   : '▲ Backend reachable, but no gateway key is configured — add KILO_API_KEY in Vercel Environment Variables.'}
             </div>
           </div>

@@ -31,6 +31,8 @@ function detectSlidePurpose(value: string): PresentationPurpose {
   const asksForQuestions = /\b(?:practice|exam|test|revision|mock)\s+questions?\b|\bquestion\s+paper\b/i.test(value);
   const asksForTeaching = /\b(?:teach(?:ing)?|lesson|explain|concepts?)\b/i.test(value);
   const asksToIncludeQuestions = /\b(?:with|include|including|add|alongside|plus)\b.{0,80}\b(?:practice|exam|test|revision|mock)?\s*questions?\b|\b(?:practice|exam|test|revision|mock)\s+questions?\b.{0,80}\b(?:in|on)\s+(?:the\s+)?slides?\b/i.test(value);
+  const asksForNoAnswers = /\b(?:questions?\s+only|only\s+(?:practice|exam|test)?\s*questions?|without\s+(?:the\s+)?answers?|no\s+answers?|answer\s+key\s+(?:not\s+included|omitted))\b/i.test(value);
+  if (asksForQuestions && asksForNoAnswers) return 'question-only';
   if (/\bmixed\b/i.test(value) || (asksForQuestions && (asksForTeaching || asksToIncludeQuestions))) return 'mixed';
   return asksForQuestions ? 'exam-practice' : 'teaching';
 }
@@ -44,6 +46,7 @@ export default function Practice({ model = '' }: { model?: string }) {
   const [slideCount, setSlideCount] = useState(7);
   const [slideStyle, setSlideStyle] = useState<SlideStyle>('auto');
   const [resources, setResources] = useState<PresentationResource[]>([]);
+  const [deckPurpose, setDeckPurpose] = useState<PresentationPurpose>('teaching');
   const [resourceBusy, setResourceBusy] = useState(false);
   const [resourceError, setResourceError] = useState('');
   const [theme, setTheme] = useState<PresentationTheme>('emerald');
@@ -86,6 +89,7 @@ export default function Practice({ model = '' }: { model?: string }) {
     if (busy) return;
     const generationMode = mode;
     const presentationPurpose = slideStyle === 'auto' ? detectSlidePurpose(topic) : slideStyle;
+    if (generationMode === 'lesson') setDeckPurpose(presentationPurpose);
     setError('');
     setNotice('');
     setBookResearch(null);
@@ -140,9 +144,11 @@ export default function Practice({ model = '' }: { model?: string }) {
           ? ` The model produced ${result.presentation.slides.length} complete content slides out of ${slideCount} requested; add more with the AI slide tool below.`
           : '';
         setSlideDescription('');
-        const deckKind = presentationPurpose === 'exam-practice'
-          ? 'Exam-practice slides'
-          : presentationPurpose === 'mixed' ? 'Teaching and practice slides' : 'Teaching slides';
+        const deckKind = presentationPurpose === 'question-only'
+          ? 'Question-only practice slides'
+          : presentationPurpose === 'exam-practice'
+            ? 'Exam-practice slides'
+            : presentationPurpose === 'mixed' ? 'Teaching and practice slides' : 'Teaching slides';
         setNotice(`${deckKind} generated with ${modelLabel(result.model)}. You can revise every slide before downloading.${countNote}${bookNote}`);
       }
       setLoaderStatus('done');
@@ -174,6 +180,7 @@ export default function Practice({ model = '' }: { model?: string }) {
         deckSubtitle: deck.subtitle,
         description: slideDescription,
         existingSlides: deck.slides,
+        purpose: deckPurpose,
         model: model.trim() || undefined,
         resources,
       });
@@ -296,11 +303,12 @@ export default function Practice({ model = '' }: { model?: string }) {
                 <select className={inputClass} value={slideStyle} onChange={e => setSlideStyle(e.target.value as SlideStyle)}>
                   <option value="auto">Auto-detect from topic</option>
                   <option value="teaching">Teach a lesson</option>
-                  <option value="exam-practice">Exam-practice question slides</option>
+                  <option value="exam-practice">Exam practice (answers in teacher notes)</option>
+                  <option value="question-only">Questions only (no answers anywhere)</option>
                   <option value="mixed">Teach + practice questions</option>
                 </select>
                 <span className="mt-1 block text-[11px] font-normal leading-relaxed text-white/40">
-                  Ask to teach a topic and include practice questions to get both teaching and question slides. Choose Exam-practice for all-question slides, or select Teach + practice questions to force a mixed deck.
+                  Choose Questions only for practice slides with no answers anywhere. Exam practice keeps answers in teacher notes; Teach + practice questions includes teaching slides and question slides.
                 </span>
               </label>
               <label className={labelClass}>Content slides (no fixed slide limit)
