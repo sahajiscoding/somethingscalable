@@ -1130,7 +1130,7 @@ def api_generate_presentation():
             instruction=instruction,
             data=model_data or None,
             temperature=0.35,
-            max_tokens=min(32768, 700 + slide_count * 450),
+            max_tokens=min(16384, 1200 + slide_count * 900),
             max_attempts=2,
             system_prompt=PRESENTATION_SYSTEM_PROMPT,
         )

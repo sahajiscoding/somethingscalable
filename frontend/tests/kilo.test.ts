@@ -113,6 +113,27 @@ describe('Kilo free-model client', () => {
     expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).model).toBe('particle-ai/particle-1:free');
   });
 
+  it('retries incomplete JSON once on the same selected model with a larger output budget', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(success('{"status":"ok","value":'))
+      .mockResolvedValueOnce(success('{"status":"ok","value":7}'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await generateJsonWithKiloFree({
+      model: 'particle-ai/particle-1:free', messages: message, maxTokens: 1024,
+    });
+
+    expect(result).toEqual({ status: 'ok', value: 7 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const first = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    const retry = JSON.parse(String(fetchMock.mock.calls[1][1].body));
+    expect(first.model).toBe('particle-ai/particle-1:free');
+    expect(retry.model).toBe(first.model);
+    expect(retry.max_tokens).toBe(2048);
+    expect(retry.messages.at(-2)).toEqual({ role: 'assistant', content: '{"status":"ok","value":' });
+    expect(retry.messages.at(-1).content).toMatch(/complete requested JSON object from the beginning/i);
+  });
+
   it('does not switch models for a malformed selected-model completion', async () => {
     const fetchMock = vi.fn().mockResolvedValue(success('not JSON'));
     vi.stubGlobal('fetch', fetchMock);
